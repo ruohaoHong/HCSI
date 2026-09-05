@@ -12,8 +12,12 @@ export async function POST(request: Request) {
     if (!apiKey) return NextResponse.json({ error: '分析服務尚未完成設定。' }, { status: 503 })
 
     const prompt = `你是一位具備現場經驗的專業五金工程師。請分析這張五金元件照片，使用繁體中文輸出純文字、結構化且保守的結果。請依序包含：\n零件種類：\n預估尺寸規格：\n材質／外觀特徵：\n判讀信心：\n若照片無法確認，請明確標註「無法由影像確認」，不要捏造精確數值。`
-    const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: 'image/jpeg', data: image } }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 700 } }) })
-    if (!geminiResponse.ok) return NextResponse.json({ error: 'AI 分析服務暫時無法使用，請稍後再試。' }, { status: 502 })
+    const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: 'image/jpeg', data: image } }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 700, thinkingConfig: { thinkingBudget: 0 } } }) })
+    if (!geminiResponse.ok) {
+      const upstreamError = await geminiResponse.text()
+      console.error('[v0] Gemini request failed:', geminiResponse.status, upstreamError.slice(0, 1000))
+      return NextResponse.json({ error: 'AI 分析服務暫時無法使用，請稍後再試。' }, { status: 502 })
+    }
     const geminiData = await geminiResponse.json()
     const result = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text
     if (typeof result !== 'string' || !result.trim()) return NextResponse.json({ error: 'AI 未能產生有效辨識結果。' }, { status: 502 })
