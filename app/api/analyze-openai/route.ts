@@ -1,0 +1,256 @@
+import { createClient } from '@supabase/supabase-js'
+import { NextResponse } from 'next/server'
+
+export const runtime = 'nodejs'
+
+const MAX_IMAGE_LENGTH = 7_000_000
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json()
+
+    const image =
+      typeof body.image === 'string'
+        ? body.image
+        : ''
+
+    if (
+      !image ||
+      image.length > MAX_IMAGE_LENGTH ||
+      !/^[A-Za-z0-9+/=]+$/.test(image)
+    ) {
+      return NextResponse.json(
+        {
+          error: '影像格式不正確或檔案過大。',
+        },
+        {
+          status: 400,
+        }
+      )
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY
+
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          error: 'OpenAI 分析服務尚未完成設定。',
+        },
+        {
+          status: 503,
+        }
+      )
+    }
+
+    const identificationPrompt = `
+請分析上面的使用者照片。
+
+你是一位具備螺絲、螺紋與五金現場辨識經驗的專業人員。
+
+這是一個純辨識測試。
+
+不要使用外部 reference material。
+請直接依靠你本身已有的視覺辨識能力與螺紋知識判斷。
+
+你的任務不是列出大量可能性，
+而是經過比較後，選出你認為最可能的一個答案。
+
+請在作答前自行完成以下判斷流程：
+
+1. 先判斷這個螺紋最可能屬於哪一種制式或螺紋系統。
+   常見可能包括公制 Metric、美制 Unified、英制 Whitworth，
+   也可能是其他制式，不限於上述三種。
+
+2. 根據照片中的外觀、螺紋比例、牙紋密度、牙型、頭型、
+   驅動方式、螺桿比例與其他可見特徵，
+   推測最可能的具體規格。
+
+3. 找出一個最容易與這個規格混淆的競爭規格。
+
+4. 問自己：
+   「這兩個規格最重要、最有辨識力的差異是什麼？」
+
+5. 回頭重新檢查照片中是否看得到這個差異。
+
+6. 根據這個差異重新比較兩個候選，
+   最後必須選出你認為更可能的一個。
+
+7. 不要因為照片沒有尺或卡尺，就拒絕估計尺寸。
+   可以目測直徑、長度、牙距或 TPI。
+   但如果不是實際量測值，要清楚標示為「目測估計」。
+
+8. 不要只輸出「A 或 B」而停止判斷。
+   即使不能 100% 確定，也必須選出較可能的一個，
+   並說明最關鍵的判斷差異。
+
+9. 不需要輸出信心百分比。
+
+10. 如果照片真的嚴重模糊、失焦、遮擋，
+    以至於連有意義的視覺比較都做不到，
+    才可以回答無法辨識。
+
+請使用繁體中文，固定依照以下格式輸出：
+
+制式判斷：
+[最可能的制式／螺紋系統]
+
+這個螺絲應該會是：
+[最可能的完整規格名稱]
+
+最容易混淆的規格：
+[一個最接近的競爭規格]
+
+最關鍵的判斷差異：
+[說明兩者最有辨識力的差異，以及照片中的特徵更偏向哪一個]
+
+尺寸目測：
+[直徑、長度、牙距／TPI 等可合理推估的內容；非量測值必須標示為目測]
+
+結論：
+[用一到兩句話明確說出最後判斷]
+`
+
+    const openaiResponse = await fetch(
+      'https://api.openai.com/v1/responses',
+      {
+        method: 'POST',
+
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+
+        body: JSON.stringify({
+          model: 'gpt-5.6-sol',
+
+          reasoning: {
+            effort: 'medium',
+          },
+
+          max_output_tokens: 2000,
+
+          input: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'input_image',
+                  image_url: `data:image/jpeg;base64,${image}`,
+                  detail: 'high',
+                },
+                {
+                  type: 'input_text',
+                  text: identificationPrompt,
+                },
+              ],
+            },
+          ],
+        }),
+      }
+    )
+
+    if (!openaiResponse.ok) {
+      const upstreamError =
+        await openaiResponse.text()
+
+      console.error(
+        '[HCSI] OpenAI request failed:',
+        openaiResponse.status,
+        upstreamError.slice(0, 1000)
+      )
+
+      return NextResponse.json(
+        {
+          error:
+            'OpenAI 分析服務暫時無法使用，請稍後再試。',
+        },
+        {
+          status: 502,
+        }
+      )
+    }
+
+    const openaiData =
+      await openaiResponse.json()
+
+    const result =
+      openaiData?.output
+        ?.flatMap((item: any) =>
+          item?.content ?? []
+        )
+        ?.find(
+          (item: any) =>
+            item?.type === 'output_text'
+        )
+        ?.text
+
+    if (
+      typeof result !== 'string' ||
+      !result.trim()
+    ) {
+      console.error(
+        '[HCSI] OpenAI returned no text:',
+        JSON.stringify(openaiData).slice(0, 2000)
+      )
+
+      return NextResponse.json(
+        {
+          error:
+            'OpenAI 未能產生有效辨識結果。',
+        },
+        {
+          status: 502,
+        }
+      )
+    }
+
+    const supabaseUrl =
+      process.env.NEXT_PUBLIC_SUPABASE_URL
+
+    const supabaseKey =
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+    if (supabaseUrl && supabaseKey) {
+      const supabase = createClient(
+        supabaseUrl,
+        supabaseKey
+      )
+
+      const { error } = await supabase
+        .from('hardware_logs')
+        .insert({
+          result_text:
+            `[OpenAI GPT-5.6 Sol]\n${result}`.slice(
+              0,
+              12000
+            ),
+        })
+
+      if (error) {
+        console.error(
+          '[HCSI] hardware log insert failed:',
+          error.message
+        )
+      }
+    }
+
+    return NextResponse.json({
+      result,
+    })
+  } catch (error) {
+    console.error(
+      '[HCSI] OpenAI analyze error:',
+      error
+    )
+
+    return NextResponse.json(
+      {
+        error:
+          'OpenAI 分析時發生未預期錯誤。',
+      },
+      {
+        status: 500,
+      }
+    )
+  }
+}
