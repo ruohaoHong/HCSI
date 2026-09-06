@@ -1,97 +1,9 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import { readFile } from 'fs/promises'
-import path from 'path'
 
 export const runtime = 'nodejs'
 
 const MAX_IMAGE_LENGTH = 7_000_000
-
-const REFERENCE_IMAGE_FILES = [
-  'IMG_5213.jpeg',
-  'left-hand-thread(1).jpg',
-  'm8-vs-5-16-visual(1).jpg',
-  'metric-coarse-fine(1).jpg',
-  'pipe-thread-examples(1).jpg',
-  'unified-coarse-fine(1).jpg',
-]
-
-async function loadReferenceParts() {
-  const referenceRoot = path.join(
-    process.cwd(),
-    'data',
-    'screw-reference'
-  )
-
-  const referenceText = await readFile(
-    path.join(referenceRoot, 'screw-reference.md'),
-    'utf8'
-  )
-
-  const parts: any[] = [
-    {
-      text: `
-以下是 HCSI 的固定螺絲辨識 reference knowledge。
-
-這些內容是辨識教材，不是本次待辨識物件。
-
-請遵守 reference 中的 evidence gating：
-- reference 中的規格數值是知識，不代表使用者照片已經觀察到該尺寸。
-- 沒有可靠比例尺時，不可從 pixel size 推導實際 mm / inch。
-- 可以在影像品質足夠時使用相對幾何，例如 thread spacing 相對於可見螺紋直徑。
-- 可以使用實際可見的 morphological evidence，例如左右旋、頭型、驅動槽、標記與 pipe fitting morphology。
-- 不可只因「看起來像 reference image」就宣稱精確規格。
-
-以下是 reference text：
-
------ REFERENCE TEXT START -----
-
-${referenceText}
-
------ REFERENCE TEXT END -----
-`,
-    },
-    {
-      text: `
-接下來的圖片全部都是固定教材參考圖，不是本次使用者要辨識的物件。
-
-請只把它們用來理解：
-- thread family
-- relative geometry
-- coarse / fine thread
-- left / right hand thread
-- pipe-thread morphology
-- 容易混淆的候選案例
-
-禁止把 reference image 的像素大小、畫面大小或表觀尺寸直接套用到使用者照片。
-
-reference text 中若存在無法直接開啟的 Markdown 圖片路徑，請忽略那些路徑，因為真正的 reference images 會在下面直接提供。
-`,
-    },
-  ]
-
-  for (const fileName of REFERENCE_IMAGE_FILES) {
-    const filePath = path.join(referenceRoot, 'images', fileName)
-    const imageBase64 = await readFile(filePath, 'base64')
-
-    const mimeType = fileName.toLowerCase().endsWith('.jpeg')
-      ? 'image/jpeg'
-      : 'image/jpeg'
-
-    parts.push({
-      text: `Reference image: ${fileName}`,
-    })
-
-    parts.push({
-      inline_data: {
-        mime_type: mimeType,
-        data: imageBase64,
-      },
-    })
-  }
-
-  return parts
-}
 
 export async function POST(request: Request) {
   try {
@@ -130,21 +42,6 @@ export async function POST(request: Request) {
       )
     }
 
-    const referenceParts = await loadReferenceParts()
-
-    const userImageNotice = {
-      text: `
------ REFERENCE MATERIAL END -----
-
-以下才是本次真正需要辨識的使用者照片。
-
-請只根據這張使用者照片中實際可觀察到的證據，
-結合前面的 reference knowledge 進行判斷。
-
-不要把 reference 圖中的物件誤認為本次待辨識物件。
-`,
-    }
-
     const userImagePart = {
       inline_data: {
         mime_type: 'image/jpeg',
@@ -154,47 +51,72 @@ export async function POST(request: Request) {
 
     const identificationPrompt = {
       text: `
-請分析上面的「使用者照片」。
+請分析上面的使用者照片。
 
-你是一位具備現場經驗的專業五金工程師。
+你是一位具備螺絲、螺紋與五金現場辨識經驗的專業人員。
 
-使用繁體中文輸出純文字、結構化且保守的結果。
+這是一個純辨識測試。
 
-請依序包含：
+不要使用外部 reference material。
+請直接依靠你本身已有的視覺辨識能力與螺紋知識判斷。
 
-零件種類：
+你的任務不是列出大量可能性，
+而是經過比較後，選出你認為最可能的一個答案。
 
-預估尺寸規格：
+請在作答前自行完成以下判斷流程：
 
-螺紋系統／候選：
+1. 先判斷這個螺紋最可能屬於哪一種制式或螺紋系統。
+   常見可能包括公制 Metric、美制 Unified、英制 Whitworth，
+   也可能是其他制式，不限於上述三種。
 
-材質／外觀特徵：
+2. 根據照片中的外觀、螺紋比例、牙紋密度、牙型、頭型、
+   驅動方式、螺桿比例與其他可見特徵，
+   推測最可能的具體規格。
 
-主要判斷證據：
+3. 找出一個最容易與這個規格混淆的競爭規格。
 
-仍無法確認的部分：
+4. 問自己：
+   「這兩個規格最重要、最有辨識力的差異是什麼？」
 
-判讀信心：
+5. 回頭重新檢查照片中是否看得到這個差異。
 
-重要規則：
+6. 根據這個差異重新比較兩個候選，
+   最後必須選出你認為更可能的一個。
 
-1. reference 中的數值只是工程知識，除非使用者照片存在可靠尺寸證據，否則不可說照片已證明該實際尺寸。
+7. 不要因為照片沒有尺或卡尺，就拒絕估計尺寸。
+   可以目測直徑、長度、牙距或 TPI。
+   但如果不是實際量測值，要清楚標示為「目測估計」。
 
-2. 沒有尺或卡尺時，不可從 pixel width 推導真正的 mm / inch。
+8. 不要只輸出「A 或 B」而停止判斷。
+   即使不能 100% 確定，也必須選出較可能的一個，
+   並說明最關鍵的判斷差異。
 
-3. 但若照片角度、解析度與螺紋清晰度足夠，可以使用相對牙密度、pitch-to-diameter relationship 等相對幾何證據。
+9. 不需要輸出信心百分比。
 
-4. 左右旋、頭型、驅動槽、標記、牙型與 pipe-fitting morphology 等，在實際可見時可以作為判斷證據。
+10. 如果照片真的嚴重模糊、失焦、遮擋，
+    以至於連有意義的視覺比較都做不到，
+    才可以回答無法辨識。
 
-5. 若 M8、5/16 或其他近似候選無法可靠區分，要保留候選與不確定性，不要硬選。
+請使用繁體中文，固定依照以下格式輸出：
 
-6. 不要因為某個規格比較常見就把它當作照片已經證明。
+制式判斷：
+[最可能的制式／螺紋系統]
 
-7. 不要捏造精確尺寸。
+這個螺絲應該會是：
+[最可能的完整規格名稱]
 
-8. HCSI 採 one-shot identification。不要只因為沒有尺、沒有卡尺、無法得到精確 pitch 或存在多個候選，就要求使用者補拍。
+最容易混淆的規格：
+[一個最接近的競爭規格]
 
-9. 只有照片嚴重模糊、失焦、過暗、遮擋，或可見零件細節不足到無法做出有意義辨識時，才說影像無法辨識。
+最關鍵的判斷差異：
+[說明兩者最有辨識力的差異，以及照片中的特徵更偏向哪一個]
+
+尺寸目測：
+[直徑、長度、牙距／TPI 等可合理推估的內容；非量測值必須標示為目測]
+
+結論：
+[用一到兩句話明確說出最後判斷，例如：
+「這個螺絲應該會是 XXX，主要因為 XXX。」]
 `,
     }
 
@@ -212,8 +134,6 @@ export async function POST(request: Request) {
           contents: [
             {
               parts: [
-                ...referenceParts,
-                userImageNotice,
                 userImagePart,
                 identificationPrompt,
               ],
