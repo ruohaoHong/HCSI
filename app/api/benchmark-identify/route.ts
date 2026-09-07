@@ -1,20 +1,162 @@
 import { NextResponse } from 'next/server'
-export const runtime='nodejs';const MAX_IMAGE_LENGTH=7_000_000,MAX_ROUNDS=3
-type Provider='gemini'|'openai';type FieldValue={value:string|null;status:'confirmed'|'unknown'};type Candidate={period_px:number;score:number};type CvSignal={period_px:number|null;score:number|null;candidates:Candidate[];roi:string;roi_bounds:{x:number;y:number;width:number;height:number}|null;method:string};type State={round:number;purchase_ready:boolean;purchase_spec:string;fields:Record<string,FieldValue>;missing_for_purchase:string[];next_action:{type:string;instruction:string}|null;summary:string;diagnostic:any}
-function promptFor(round:number,previous:State|null,cv:CvSignal|null){return `你是 HCSI 五金辨識引擎。這版測試「adaptive thread-like ROI + multi-peak CV + 單次 VLM」。${previous?`上一輪狀態可修正：${JSON.stringify(previous.fields)}`:'這是第一輪。'}
-瀏覽器先掃描多個水平 band，選擇 horizontal edge texture 較強的 band，再對該 band 做 1D gradient autocorrelation。結果：${JSON.stringify(cv)}
-注意：這不是物件偵測器。adaptive ROI 只是「高水平紋理候選區」，可能仍選到尺、文字或其他物體。candidates 是多個 local autocorrelation peaks，排序依相關分數；第一名不一定是真牙距。候選也可能互為 harmonic，例如半牙距、雙牙距。沒有 pixel→實際尺度校正前，任何 period_px 都不是 TPI 或 mm pitch。
-請一次完成視覺辨識：
-1. 直接看圖判斷零件、頭型、驅動、全牙/半牙、外觀。
-2. 有尺時用長跨度建立尺度；尺是英吋不代表零件必為英制。
-3. 螺紋用多牙累積。把肉眼可見的牙峰間距與 candidates 比較，尋找可能的 fundamental period；若 ROI 明顯落在尺或 candidates 像 harmonic，拒絕使用並說明。
-4. 不可因 CV 第一名分數最高就採用。尺度、長度、牙數、D/P、候選週期應交叉檢查。
-5. 只有 confirmed / unknown；已有明顯最佳購買規格就決定，真的不可區分才 unknown。
-6. purchase_ready=true 就停止；false 最多一個低成本 next_action；第 ${round}/${MAX_ROUNDS} 輪。
-7. diagnostic 必須保留 cv_signal，並輸出 cv_selected_period_px（若採用某候選）、cv_used、cv_reason、visual_thread_observation、scale_observation、decision_evidence。
-只輸出合法 JSON：{"round":${round},"purchase_ready":boolean,"purchase_spec":string,"fields":{"part_type":{"value":string|null,"status":"confirmed"|"unknown"},"thread_system":{"value":string|null,"status":"confirmed"|"unknown"},"nominal_size":{"value":string|null,"status":"confirmed"|"unknown"},"length":{"value":string|null,"status":"confirmed"|"unknown"},"pitch_tpi":{"value":string|null,"status":"confirmed"|"unknown"},"head_type":{"value":string|null,"status":"confirmed"|"unknown"},"drive":{"value":string|null,"status":"confirmed"|"unknown"},"material_finish":{"value":string|null,"status":"confirmed"|"unknown"}},"missing_for_purchase":string[],"next_action":{"type":string,"instruction":string}|null,"summary":string,"diagnostic":{"cv_signal":object|null,"cv_selected_period_px":number|null,"cv_used":boolean,"cv_reason":string,"visual_thread_observation":string|null,"scale_observation":string|null,"decision_evidence":string[]}}`}
-function parse(text:string,round:number):State{const t=text.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');const a=t.indexOf('{'),b=t.lastIndexOf('}');let p:any;try{p=JSON.parse(a>=0&&b>a?t.slice(a,b+1):t)}catch{throw new Error('MODEL_JSON_PARSE_FAILED')}const keys=['part_type','thread_system','nominal_size','length','pitch_tpi','head_type','drive','material_finish'],fields:Record<string,FieldValue>={};for(const k of keys){const f=p?.fields?.[k];fields[k]=f?.value?{value:String(f.value),status:f.status==='unknown'?'unknown':'confirmed'}:{value:null,status:'unknown'}}const s:State={round,purchase_ready:p?.purchase_ready===true,purchase_spec:typeof p?.purchase_spec==='string'&&p.purchase_spec.trim()?p.purchase_spec:'目前購買規格仍待補足。',fields,missing_for_purchase:Array.isArray(p?.missing_for_purchase)?p.missing_for_purchase.map(String):[],next_action:p?.next_action&&typeof p.next_action==='object'?{type:String(p.next_action.type||'photo'),instruction:String(p.next_action.instruction||'')}:null,summary:typeof p?.summary==='string'?p.summary:'',diagnostic:p?.diagnostic&&typeof p.diagnostic==='object'?p.diagnostic:{}};if(round>=MAX_ROUNDS||s.purchase_ready)s.next_action=null;return s}
-async function openai(image:string,prompt:string){const key=process.env.OPENAI_API_KEY;if(!key)throw new Error('OPENAI_API_KEY_MISSING');const r=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${key}`},body:JSON.stringify({model:'gpt-5.6-sol',reasoning:{effort:'medium'},max_output_tokens:6000,input:[{role:'user',content:[{type:'input_image',image_url:`data:image/jpeg;base64,${image}`,detail:'high'},{type:'input_text',text:prompt}]}]})});if(!r.ok)throw new Error(`OPENAI_UPSTREAM_${r.status}`);const d=await r.json(),text=d?.output?.flatMap((x:any)=>x?.content??[])?.find((x:any)=>x?.type==='output_text')?.text;if(typeof text!=='string'||!text.trim()){if(d?.status==='incomplete')throw new Error(`OPENAI_INCOMPLETE_${d?.incomplete_details?.reason??'UNKNOWN'}`);throw new Error('OPENAI_EMPTY_OUTPUT')}return text}
-const wait=(ms:number)=>new Promise(r=>setTimeout(r,ms));async function gemini(image:string,prompt:string){const key=process.env.GEMINI_API_KEY;if(!key)throw new Error('GEMINI_API_KEY_MISSING');const url='https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent',body=JSON.stringify({contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:image}},{text:prompt}]}],generationConfig:{maxOutputTokens:3000,responseMimeType:'application/json',thinkingConfig:{thinkingLevel:'medium'}}});let r:Response|null=null;for(let i=0;i<2;i++){r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body});if(r.status!==503)break;if(i===0)await wait(900)}if(!r||!r.ok)throw new Error(r?.status===503?'GEMINI_UNAVAILABLE_503':`GEMINI_UPSTREAM_${r?.status??'UNKNOWN'}`);const d=await r.json(),text=d?.candidates?.[0]?.content?.parts?.map((x:any)=>x?.text)?.filter(Boolean)?.join('\n');if(typeof text!=='string'||!text.trim())throw new Error('GEMINI_EMPTY_OUTPUT');return text}
-function msg(e:unknown){const c=e instanceof Error?e.message:'UNKNOWN';if(c==='OPENAI_API_KEY_MISSING'||c==='GEMINI_API_KEY_MISSING')return `${c.split('_')[0]} API key 不存在於此 Preview 環境。`;if(c==='MODEL_JSON_PARSE_FAILED')return 'AI 回傳內容的 JSON 解析失敗。';if(c.startsWith('OPENAI_INCOMPLETE_'))return `OpenAI 輸出未完成（${c.replace('OPENAI_INCOMPLETE_','')}）。`;if(c.startsWith('OPENAI_UPSTREAM_')||c.startsWith('GEMINI_UPSTREAM_')||c==='GEMINI_UNAVAILABLE_503')return `模型 API 呼叫失敗（${c}）。`;return '辨識執行失敗。'}
-export async function POST(request:Request){try{const body=await request.json(),image=typeof body.image==='string'?body.image:'';if(!image||image.length>MAX_IMAGE_LENGTH||!/^[A-Za-z0-9+/=]+$/.test(image))return NextResponse.json({error:'影像格式不正確或檔案過大。'},{status:400});const provider:Provider=body.provider==='openai'?'openai':'gemini',previous=body.previous_state&&typeof body.previous_state==='object'?body.previous_state as State:null,round=Math.min(Math.max((previous?.round??0)+1,1),MAX_ROUNDS),r=body.cv_signal&&typeof body.cv_signal==='object'?body.cv_signal:null;const candidates:Candidate[]=Array.isArray(r?.candidates)?r.candidates.filter((x:any)=>Number.isFinite(x?.period_px)&&Number.isFinite(x?.score)).slice(0,8).map((x:any)=>({period_px:Number(x.period_px),score:Number(x.score)})):[];const cv:CvSignal|null=r?{period_px:Number.isFinite(r.period_px)?Number(r.period_px):null,score:Number.isFinite(r.score)?Number(r.score):null,candidates,roi:String(r.roi||''),roi_bounds:r.roi_bounds&&typeof r.roi_bounds==='object'?r.roi_bounds:null,method:String(r.method||'')}:null,prompt=promptFor(round,previous,cv),raw=provider==='openai'?await openai(image,prompt):await gemini(image,prompt),state=parse(raw,round);if(state.diagnostic&&typeof state.diagnostic==='object')state.diagnostic.cv_signal=cv;return NextResponse.json({provider,state})}catch(e){console.error('[HCSI roi-multipeak benchmark]',e);return NextResponse.json({error:msg(e)},{status:500})}}
+
+export const runtime = 'nodejs'
+const MAX_IMAGE_LENGTH = 7_000_000
+
+type Provider = 'gemini' | 'openai'
+
+type NakedResult = {
+  thread_system: string
+  best_spec: string
+  closest_competitor: string
+  key_difference: string
+  size_estimate: string
+  conclusion: string
+  diagnostic: {
+    visual_observations: string[]
+    evidence_for_system: string[]
+    evidence_for_size: string[]
+    evidence_against_best_spec: string[]
+    decisive_evidence: string[]
+    possible_failure_modes: string[]
+  }
+}
+
+const PROMPT = `
+請分析這張使用者照片。
+
+你是一位具備螺絲、螺紋與五金現場辨識經驗的專業人員。
+這是一個「裸測」：
+- 不使用任何外部 reference material。
+- 不提供候選規格表。
+- 不提供 CV、像素量測、尺度前處理或其他輔助數據。
+- 只依靠你原本的視覺辨識能力與螺紋知識。
+
+你的任務不是列出很多可能性，而是選出你認為最可能的一個答案。
+照片沒有尺時，也不要因此拒絕估計尺寸；可以目測，但必須標示為目測。
+如果照片真的模糊到無法做有意義比較，才可以回答無法辨識。
+
+請依序完成：
+1. 判斷最可能的螺紋制式。
+2. 判斷最可能的完整規格。
+3. 找出一個最容易混淆的競爭規格。
+4. 說出兩者最有辨識力的差異。
+5. 回看照片，說明哪些可見證據支持你的選擇。
+6. 另外列出哪些可見或不可見因素，可能讓你的答案出錯。
+
+重要：
+- 不要輸出隱藏推理過程或逐步內在思考。
+- diagnostic 只輸出可檢驗的「觀察、判斷依據、反證與可能失敗原因」。
+- 不要用信心百分比。
+- 不要把沒有直接看到的尺寸寫成量測值；只能寫目測估計。
+
+只輸出合法 JSON，格式固定為：
+{
+  "thread_system": "最可能的制式／螺紋系統",
+  "best_spec": "最可能的完整規格名稱",
+  "closest_competitor": "最接近的競爭規格",
+  "key_difference": "兩者最關鍵的辨識差異",
+  "size_estimate": "直徑、長度、牙距／TPI 等目測估計",
+  "conclusion": "一到兩句明確結論",
+  "diagnostic": {
+    "visual_observations": ["只寫照片直接可見的事實"],
+    "evidence_for_system": ["哪些可見證據讓你偏向此制式"],
+    "evidence_for_size": ["哪些比例或牙密度讓你偏向此尺寸"],
+    "evidence_against_best_spec": ["照片中哪些地方其實不完全符合最佳答案"],
+    "decisive_evidence": ["最後真正拉開最佳答案與競爭規格的可見證據"],
+    "possible_failure_modes": ["哪些視覺錯覺、尺度缺失、透視、反光或其他因素可能導致誤判"]
+  }
+}
+`
+
+function parseJson(text: string): NakedResult {
+  const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '')
+  const first = cleaned.indexOf('{')
+  const last = cleaned.lastIndexOf('}')
+  try {
+    return JSON.parse(first >= 0 && last > first ? cleaned.slice(first, last + 1) : cleaned)
+  } catch {
+    throw new Error('MODEL_JSON_PARSE_FAILED')
+  }
+}
+
+async function callOpenAI(image: string) {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) throw new Error('OPENAI_API_KEY_MISSING')
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: 'gpt-5.6-sol',
+      reasoning: { effort: 'medium' },
+      max_output_tokens: 3000,
+      input: [{
+        role: 'user',
+        content: [
+          { type: 'input_image', image_url: `data:image/jpeg;base64,${image}`, detail: 'high' },
+          { type: 'input_text', text: PROMPT },
+        ],
+      }],
+    }),
+  })
+  if (!response.ok) throw new Error(`OPENAI_UPSTREAM_${response.status}`)
+  const data = await response.json()
+  const text = data?.output?.flatMap((x: any) => x?.content ?? [])?.find((x: any) => x?.type === 'output_text')?.text
+  if (typeof text !== 'string' || !text.trim()) throw new Error('OPENAI_EMPTY_OUTPUT')
+  return text
+}
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function callGemini(image: string) {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) throw new Error('GEMINI_API_KEY_MISSING')
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent'
+  const requestBody = JSON.stringify({
+    contents: [{ parts: [{ inline_data: { mime_type: 'image/jpeg', data: image } }, { text: PROMPT }] }],
+    generationConfig: {
+      maxOutputTokens: 1800,
+      responseMimeType: 'application/json',
+      thinkingConfig: { thinkingLevel: 'medium' },
+    },
+  })
+  let response: Response | null = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: requestBody })
+    if (response.status !== 503) break
+    if (attempt === 0) await wait(900)
+  }
+  if (!response || !response.ok) throw new Error(response?.status === 503 ? 'GEMINI_UNAVAILABLE_503' : `GEMINI_UPSTREAM_${response?.status ?? 'UNKNOWN'}`)
+  const data = await response.json()
+  const text = data?.candidates?.[0]?.content?.parts?.map((part: any) => part?.text)?.filter(Boolean)?.join('\n')
+  if (typeof text !== 'string' || !text.trim()) throw new Error('GEMINI_EMPTY_OUTPUT')
+  return text
+}
+
+function errorMessage(error: unknown) {
+  const code = error instanceof Error ? error.message : 'UNKNOWN'
+  if (code === 'OPENAI_API_KEY_MISSING') return '此 Preview 環境沒有 OPENAI_API_KEY。'
+  if (code === 'GEMINI_API_KEY_MISSING') return '此 Preview 環境沒有 GEMINI_API_KEY。'
+  if (code === 'MODEL_JSON_PARSE_FAILED') return 'AI 已回傳內容，但 JSON 格式解析失敗。'
+  if (code.startsWith('OPENAI_UPSTREAM_')) return `OpenAI API 呼叫失敗（HTTP ${code.replace('OPENAI_UPSTREAM_', '')}）。`
+  if (code.startsWith('GEMINI_UPSTREAM_')) return `Gemini API 呼叫失敗（HTTP ${code.replace('GEMINI_UPSTREAM_', '')}）。`
+  if (code === 'GEMINI_UNAVAILABLE_503') return 'Gemini API 暫時無法服務（HTTP 503）。'
+  return '裸測辨識執行失敗。'
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json()
+    const image = typeof body.image === 'string' ? body.image : ''
+    const provider: Provider = body.provider === 'openai' ? 'openai' : 'gemini'
+    if (!image || image.length > MAX_IMAGE_LENGTH || !/^[A-Za-z0-9+/=]+$/.test(image)) {
+      return NextResponse.json({ error: '影像格式不正確或檔案過大。' }, { status: 400 })
+    }
+    const raw = provider === 'openai' ? await callOpenAI(image) : await callGemini(image)
+    const result = parseJson(raw)
+    return NextResponse.json({ provider, result, raw_output: raw })
+  } catch (error) {
+    console.error('[HCSI naked diagnostic benchmark] error:', error)
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 })
+  }
+}
