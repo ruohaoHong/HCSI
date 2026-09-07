@@ -87,8 +87,9 @@ function promptFor(round: number, previousState: IdentificationState | null) {
 26. diagnostic 是暫時測試資料，不是給終端使用者的購買結論。誠實記錄這一輪實際用了哪些尺度/相對幾何證據；沒有可靠觀察就填 null/false/[]，不要補造數字。
 27. 現在第 ${round} 輪，最多 ${MAX_ROUNDS} 輪。第 3 輪仍不足也停止追問，next_action=null，保留最佳已確認資訊與缺口。
 
-只輸出合法 JSON object，不要 Markdown/code fence/額外文字：
+只輸出合法 JSON object，不要 Markdown、code fence 或額外文字：
 {"round":${round},"purchase_ready":boolean,"purchase_spec":string,"fields":{"part_type":{"value":string|null,"status":"confirmed"|"unknown"},"thread_system":{"value":string|null,"status":"confirmed"|"unknown"},"nominal_size":{"value":string|null,"status":"confirmed"|"unknown"},"length":{"value":string|null,"status":"confirmed"|"unknown"},"pitch_tpi":{"value":string|null,"status":"confirmed"|"unknown"},"head_type":{"value":string|null,"status":"confirmed"|"unknown"},"drive":{"value":string|null,"status":"confirmed"|"unknown"},"material_finish":{"value":string|null,"status":"confirmed"|"unknown"}},"missing_for_purchase":string[],"next_action":{"type":string,"instruction":string}|null,"summary":string,"diagnostic":{"scale_reference_present":boolean,"relative_geometry_used":boolean,"visible_thread_span":string|null,"estimated_thread_count":number|null,"diameter_to_pitch_ratio":string|null,"length_to_diameter_ratio":string|null,"scale_observations":string[],"strongest_system_evidence":string|null}}
+}`
 }
 
 function parseState(text: string, round: number): IdentificationState {
