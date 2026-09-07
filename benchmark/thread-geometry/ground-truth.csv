@@ -1,0 +1,9 @@
+id,domain,system,nominal_spec,diameter_mm,pitch_mm,tpi,theoretical_p_over_d,head_style,drive,source_url,source_note
+aspen-m6-1.0-10,drawing,Metric,M6x1.0,6,1.0,,0.1666666667,Pan,Phillips #3,https://www.aspenfasteners.com/content/2D_PDF/product61/ME033-610X10.PDF,"Aspen drawing explicitly calls out M6-1.0 and diameter 6.00 mm"
+aspen-m8-1.25-100,drawing,Metric,M8x1.25,8,1.25,,0.15625,Pan,Phillips #4,https://www.aspenfasteners.com/content/2D_PDF/product61/ME034-8125X100.PDF,"Aspen drawing explicitly calls out M8-1.25 and diameter 8.00 mm"
+aspen-m8-1.25-80,drawing,Metric,M8x1.25,8,1.25,,0.15625,Pan,Phillips #4,https://www.aspenfasteners.com/content/2D_PDF/product87/ME298-8125X80.PDF,"Independent M8 drawing from same vendor/product family"
+known-mobile-5-16,user_photo,Unified,5/16-18,7.9375,1.4111111111,18,0.1777777778,Pan/round-like,Phillips/local known,,"User-supplied photo; nominal size is known. TPI should only be treated as 18 if independently confirmed for this exact screw. Keep this row provisional for thread-pitch evaluation."
+known-mobile-m8,user_photo,Metric,M8x1.25,8,1.25,,0.15625,Pan,Phillips,,"User-supplied photo with known M8 nominal size; coarse 1.25 pitch assumed only for the current coarse-thread test case"
+reference-1-4-20,theory,Unified,1/4-20,6.35,1.27,20,0.2,,,,"Theory-only candidate row; add a SKU-level source image before using for image benchmark"
+reference-5-16-18,theory,Unified,5/16-18,7.9375,1.4111111111,18,0.1777777778,,,,"Theory-only candidate row"
+reference-3-8-16,theory,Unified,3/8-16,9.525,1.5875,16,0.1666666667,,,,"Theory-only candidate row"
