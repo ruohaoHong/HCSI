@@ -34,14 +34,9 @@ type IdentificationState = {
 
 const emptyField = (): FieldValue => ({ value: null, status: 'unknown' })
 const EMPTY_DIAGNOSTIC: Diagnostic = {
-  scale_reference_present: false,
-  relative_geometry_used: false,
-  visible_thread_span: null,
-  estimated_thread_count: null,
-  diameter_to_pitch_ratio: null,
-  length_to_diameter_ratio: null,
-  scale_observations: [],
-  strongest_system_evidence: null,
+  scale_reference_present: false, relative_geometry_used: false, visible_thread_span: null,
+  estimated_thread_count: null, diameter_to_pitch_ratio: null, length_to_diameter_ratio: null,
+  scale_observations: [], strongest_system_evidence: null,
 }
 const EMPTY_STATE: IdentificationState = {
   round: 0, purchase_ready: false, purchase_spec: '',
@@ -51,37 +46,36 @@ const EMPTY_STATE: IdentificationState = {
 
 function promptFor(round: number, previousState: IdentificationState | null) {
   const previous = previousState
-    ? `\n上一輪狀態：\n${JSON.stringify(previousState)}\n\n新照片是追加證據。上一輪結果是可修正的工作狀態；這一輪重新套用相同的通用量測方法，優先補足 missing fields。`
-    : '\n這是第一輪。直接從目前照片開始套用相同的通用量測方法；不要等到第二張照片才做幾何分析。'
+    ? `\n上一輪狀態：\n${JSON.stringify(previousState)}\n\n新照片是追加證據。上一輪結果是可修正的工作狀態；這一輪重新套用相同方法。`
+    : '\n這是第一輪。直接從目前照片開始套用相同方法。若使用者提供的是放大的螺紋照片，充分利用放大後清楚的牙紋與桿徑比例。'
 
-  return `你是 HCSI 五金辨識引擎。目標是提供足以拿給一般五金行購買正確替代品的資訊，不是工程檢驗報告。${previous}
+  return `你是 HCSI 五金辨識引擎。目標是提供足以拿給一般五金行購買正確替代品的資訊。${previous}
 
-每一輪都使用同一個通用方法：盡量先量影像中「跨度最大、最容易辨認」的東西，再由大尺度除回小尺度。不要優先直接目測很小的單一牙距。
+每一輪都使用同一個簡單幾何方法：先利用跨度大、容易看清楚的結構，再由比例推回較小尺寸。這一版特別測試一個尺度不變的判讀：一個螺紋外徑大約等於幾個平均 pitch。
 
-通用量測流程：
-A. 先找本輪最長且最清楚、最適合當基準的幾何跨度，例如頭下承面到末端、可清楚追蹤的一整段連續螺紋、或參照物上跨越多格的刻度。若有尺或已知尺寸參照物，先用較長的刻度跨度建立尺度，不要只盯單一小刻度。
-B. 對螺紋，優先找最長的清楚連續區段並計算完整牙距數。注意牙峰數與牙距區間數可能差 1；要以實際完整 pitch intervals 為準。若可建立絕對尺度，用「連續螺紋總跨度 ÷ 完整牙距區間數」反推平均 pitch / TPI。
-C. 沒有絕對尺度時，也不要停止。利用尺度不變的比例，例如「螺紋外徑 ÷ 平均牙距」、「頭下長度 ÷ 螺紋外徑」、「頭寬 ÷ 螺紋外徑」，以及可見牙數，判斷哪些標準規格較吻合。
-D. 有尺度時，除了總跨度 ÷ 牙數得到 pitch，也可用「已估出的較長尺寸 ÷ 影像中的長徑比」反推直徑。優先從較容易看準的大跨度推回較小尺寸，而不是直接猜小尺寸。
-E. 完成上述幾何觀察後，才把約略 length、diameter、pitch/TPI、比例與牙數一起對照最接近的標準規格。若一個規格明顯比其他合理近似規格更符合全部幾何觀察，就做出 confirmed 決策；若仍真正接近才保留 unknown。
+通用流程：
+A. 找清楚的連續螺紋區段。不要只目測單一牙距；利用多個連續牙距形成平均 pitch 的視覺尺度。
+B. 直接比較「螺紋外徑」與「平均 pitch」在同一張影像中的相對跨度，估計 diameter / pitch ratio，也就是一個螺紋外徑大約能容納幾個平均牙距。這個比例不需要知道毫米或英吋，也不需要尺。
+C. 若照片是局部放大圖，優先利用放大後清楚的牙峰、牙谷與螺紋上下外徑邊界來估這個比例。可用合理範圍，例如約 7–8 個 pitch；不要假裝有不存在的像素量測工具，也不要輸出影像不支持的小數精度。
+D. 若照片同時有尺或其他尺度，再用長跨度建立 absolute scale，並用「長跨度 ÷ 完整 pitch intervals」估平均 pitch/TPI。尺的單位只提供尺度，不代表零件制式。
+E. 將 diameter/pitch ratio、累積牙數、長度/直徑比例與可用的絕對尺度一起對照標準規格。幾何觀察在前，規格命名在後；不要先猜規格再反向修改觀察。
 
 規則：
-1. 只有 confirmed / unknown 兩種狀態。confirmed 是 HCSI 根據目前全部影像做出的最佳購買決策，不要求實驗室級證明；unknown 只用在目前證據真的無法合理區分時。
-2. 零件類型、頭型、驅動方式、全牙/半牙、表面處理等清楚外觀可直接 confirmed，但精確尺寸與 thread_system 優先依尺度、螺紋和幾何比例判讀。
-3. 局部聚焦與多證據交叉驗證集中用在尺度、幾何、螺紋與比例。不要把模糊文字、刻印、頭面痕跡或疑似強度標記放大解讀成 thread_system 的主要證據；本測試的公英制判斷以幾何為主。
-4. 尺的單位不代表零件的制式。英吋尺旁的零件仍可能是公制，毫米尺旁的零件也可能是英制；尺只提供尺度。
-5. 照片不完美時，不要因為有角度差、輕微透視或參照物不完全平行就立刻放棄。先使用仍可辨識的長跨度、累積牙距與比例；但不要假裝進行不存在的透視校正、像素量測或其他影像工具操作。
-6. 近似量測可以用合理範圍或約略值，不要輸出影像不支持的虛假高精度。diagnostic 要誠實記錄本輪實際使用的牙數、比例與尺度觀察。
-7. 不要先猜某個標準規格，再用該規格反向修正你看到的尺寸。幾何觀察在前，標準規格命名在後。
-8. 不要因為某規格比較常見就選它；但也不要要求把其他理論可能性完全排除。若目前幾何整體已有明顯最佳答案，就應做決定。
-9. 不要為了填滿欄位硬猜。即使 nominal_size、length 或 pitch_tpi 暫時 unknown，也要保留其他已確認資訊。
-10. purchase_ready 的標準是一般五金行已足以提供主要規格正確的替代品，不要求 DIN/ISO、鍍層厚度或精確材料牌號等非必要資訊。
-11. purchase_ready=true 時 next_action 必須 null，立即停止。
-12. purchase_ready=false 時，只列真正阻礙購買的 missing_for_purchase，並且每輪最多一個 next_action。下一步要直接取得最能補足目前尺度/幾何缺口的照片或參照，優先一般人容易取得的尺、捲尺或固定尺寸物件。
-13. purchase_spec 永遠寫目前已確認資訊能支持的最實用五金行說法；未知尺寸可以明寫「尺寸待確認」。
-14. 不輸出信心百分比。
-15. diagnostic 是暫時測試資料，不是終端購買結論。沒有可靠觀察就填 null/false/[]，不要補造數字。
-16. 現在第 ${round} 輪，最多 ${MAX_ROUNDS} 輪。第 3 輪仍不足也停止追問，next_action=null，保留最佳已確認資訊與缺口。
+1. 只有 confirmed / unknown。confirmed 是依目前影像得到的最佳購買決策；unknown 只用在真的無法合理區分時。
+2. 精確尺寸與 thread_system 優先依尺度、螺紋與幾何比例判讀。零件類型、頭型、驅動、全牙/半牙、表面處理可依清楚外觀 confirmed。
+3. 本輪的局部聚焦與交叉驗證集中在螺紋幾何。不要用模糊文字、頭面刻印、疑似強度標記作為 thread_system 的主要證據。
+4. diameter_to_pitch_ratio 必須是你從目前影像本身觀察到的比例，不得先選 M6、1/4、5/16 等規格後，再填入該規格理論上的 ratio。
+5. estimated_thread_count 同樣只記錄影像實際可辨識的完整 pitch intervals；牙峰數與 pitch intervals 可能差 1。
+6. 如果能清楚估計 diameter/pitch ratio，應讓它實際參與 Metric / Unified、粗牙 / 細牙候選判斷；不要只在 diagnostic 顯示後忽略。
+7. 照片不完美時先利用仍可辨認的比例，不因輕微角度或透視直接放棄；但不要宣稱執行 crop、透視校正、edge detection 或 pixel measurement 等不存在的工具。
+8. 近似觀察可用範圍，不要製造虛假高精度。若 ratio 本身看不清楚就填 null，不要用標準規格反推一個漂亮數字。
+9. 不因某規格比較常見就選它；若目前幾何整體已有明顯最佳答案就做決定，不要求完全排除所有理論可能性。
+10. purchase_ready 是一般五金行已足以提供主要規格正確的替代品；purchase_ready=true 時 next_action=null 並停止。
+11. purchase_ready=false 時只列真正阻礙購買的 missing_for_purchase，每輪最多一個 next_action，直接取得最能補足尺度或螺紋幾何的照片。
+12. purchase_spec 寫目前已確認資訊能支持的實用五金行說法；未知尺寸可明寫尺寸待確認。
+13. 不輸出信心百分比。
+14. diagnostic 是測試資料。誠實記錄本輪實際看到的 ratio、牙數與尺度觀察；沒有可靠觀察就填 null/false/[]。
+15. 現在第 ${round} 輪，最多 ${MAX_ROUNDS} 輪。第 3 輪仍不足也停止追問。
 
 只輸出合法 JSON object，不要 Markdown、code fence 或額外文字：
 {"round":${round},"purchase_ready":boolean,"purchase_spec":string,"fields":{"part_type":{"value":string|null,"status":"confirmed"|"unknown"},"thread_system":{"value":string|null,"status":"confirmed"|"unknown"},"nominal_size":{"value":string|null,"status":"confirmed"|"unknown"},"length":{"value":string|null,"status":"confirmed"|"unknown"},"pitch_tpi":{"value":string|null,"status":"confirmed"|"unknown"},"head_type":{"value":string|null,"status":"confirmed"|"unknown"},"drive":{"value":string|null,"status":"confirmed"|"unknown"},"material_finish":{"value":string|null,"status":"confirmed"|"unknown"}},"missing_for_purchase":string[],"next_action":{"type":string,"instruction":string}|null,"summary":string,"diagnostic":{"scale_reference_present":boolean,"relative_geometry_used":boolean,"visible_thread_span":string|null,"estimated_thread_count":number|null,"diameter_to_pitch_ratio":string|null,"length_to_diameter_ratio":string|null,"scale_observations":string[],"strongest_system_evidence":string|null}}
@@ -121,7 +115,7 @@ function parseState(text: string, round: number): IdentificationState {
 
 async function callOpenAI(images: string[], prompt: string) {
   const apiKey = process.env.OPENAI_API_KEY; if (!apiKey) throw new Error('OPENAI_API_KEY_MISSING')
-  const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model: 'gpt-5.6-sol', reasoning: { effort: 'medium' }, max_output_tokens: 4000, input: [{ role: 'user', content: [...images.map((image) => ({ type: 'input_image', image_url: `data:image/jpeg;base64,${image}`, detail: 'high' })), { type: 'input_text', text: prompt }] }] }) })
+  const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model: 'gpt-5.6-sol', reasoning: { effort: 'medium' }, max_output_tokens: 8000, input: [{ role: 'user', content: [...images.map((image) => ({ type: 'input_image', image_url: `data:image/jpeg;base64,${image}`, detail: 'high' })), { type: 'input_text', text: prompt }] }] }) })
   if (!response.ok) throw new Error(`OPENAI_UPSTREAM_${response.status}`)
   const data = await response.json(); const text = data?.output?.flatMap((item: any) => item?.content ?? [])?.find((item: any) => item?.type === 'output_text')?.text
   if (typeof text !== 'string' || !text.trim()) {
@@ -137,19 +131,14 @@ async function callGemini(images: string[], prompt: string) {
   const apiKey = process.env.GEMINI_API_KEY; if (!apiKey) throw new Error('GEMINI_API_KEY_MISSING')
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent'
   const requestBody = JSON.stringify({ contents: [{ parts: [...images.map((image) => ({ inline_data: { mime_type: 'image/jpeg', data: image } })), { text: prompt }] }], generationConfig: { maxOutputTokens: 3000, responseMimeType: 'application/json', thinkingConfig: { thinkingLevel: 'medium' } } })
-
   let response: Response | null = null
   for (let attempt = 0; attempt < 2; attempt++) {
     response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: requestBody })
     if (response.status !== 503) break
     if (attempt === 0) await wait(900)
   }
-
   if (!response) throw new Error('GEMINI_EMPTY_OUTPUT')
-  if (!response.ok) {
-    if (response.status === 503) throw new Error('GEMINI_UNAVAILABLE_503')
-    throw new Error(`GEMINI_UPSTREAM_${response.status}`)
-  }
+  if (!response.ok) { if (response.status === 503) throw new Error('GEMINI_UNAVAILABLE_503'); throw new Error(`GEMINI_UPSTREAM_${response.status}`) }
   const data = await response.json(); const text = data?.candidates?.[0]?.content?.parts?.map((part: any) => part?.text)?.filter(Boolean)?.join('\n')
   if (typeof text !== 'string' || !text.trim()) throw new Error('GEMINI_EMPTY_OUTPUT')
   return text
