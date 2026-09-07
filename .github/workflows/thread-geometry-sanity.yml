@@ -1,0 +1,62 @@
+name: Thread Geometry Sanity
+
+on:
+  push:
+    paths:
+      - '.github/workflows/thread-geometry-sanity.yml'
+      - 'benchmark/thread-geometry/**'
+  workflow_dispatch:
+
+jobs:
+  aspen-ideal-drawings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - name: Install Python dependencies
+        run: pip install -r benchmark/thread-geometry/requirements.txt
+
+      - name: Download Aspen engineering drawings
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            'https://www.aspenfasteners.com/content/2D_PDF/product61/ME033-610X10.PDF' \
+            -o /tmp/aspen-m6.pdf
+          curl -fL --retry 3 --retry-delay 2 \
+            'https://www.aspenfasteners.com/content/2D_PDF/product87/ME298-8125X80.PDF' \
+            -o /tmp/aspen-m8.pdf
+
+      - name: Render first PDF pages
+        run: |
+          set -euxo pipefail
+          pdftoppm -f 1 -singlefile -r 144 -png /tmp/aspen-m6.pdf /tmp/aspen-m6-page
+          pdftoppm -f 1 -singlefile -r 144 -png /tmp/aspen-m8.pdf /tmp/aspen-m8-page
+          file /tmp/aspen-m6-page.png /tmp/aspen-m8-page.png
+
+      - name: Run ideal-drawing geometry sanity check
+        run: |
+          python benchmark/thread-geometry/run_aspen_sanity.py \
+            /tmp/aspen-m6-page.png \
+            /tmp/aspen-m8-page.png
+
+      - name: Upload benchmark outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: thread-geometry-sanity
+          path: |
+            benchmark/thread-geometry/aspen-sanity-results.json
+            benchmark/thread-geometry/aspen-m6x1.0-ideal-silhouette.png
+            benchmark/thread-geometry/aspen-m8x1.25-ideal-silhouette.png
+          if-no-files-found: warn
