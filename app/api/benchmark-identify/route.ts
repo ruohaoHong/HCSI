@@ -50,6 +50,12 @@ function promptFor(round: number, previousState: IdentificationState | null) {
 12. 現在第 ${round} 輪，最多 ${MAX_ROUNDS} 輪。第 3 輪仍不足也停止追問，next_action=null，保留最佳已確認資訊與缺口。
 13. material_finish 只有真的影響替代品選購時才阻礙 purchase_ready。
 14. purchase_spec 永遠寫目前已確認資訊能支持的最實用五金行說法；未知尺寸可以明寫「尺寸待確認」。
+15. 尺度觀察與標準規格身分必須分開思考。影像顯示約 8 mm，不等於零件必然是 M8；英制尺寸換算後也可能落在相同物理尺寸附近。不要因為某個常見標準規格看起來合理，就直接吸附到該規格。
+16. 在確認 nominal_size、thread_system、pitch_tpi、length 等購買關鍵規格前，先在內部形成至少一個最強競爭候選（若存在合理競爭候選）。比較目前影像對兩者真正具有區別力的證據，而不是只比較哪個規格較常見。不要把候選清單輸出給使用者。
+17. 必須特別檢查公制與 Unified inch 是否存在物理尺寸近似的競爭解釋。直徑或長度接近不能單獨證明制式；需要利用牙距/TPI、刻度、比例及其他可見特徵做整體一致性判斷。
+18. purchase_ready=true 前必須通過 candidate-discrimination gate：問自己「目前證據是否足以排除會導致不同購買規格的最強合理競爭候選？」若不能排除，就不得 purchase_ready=true，也不得把僅靠常見度勝出的規格 confirmed。
+19. 若最強候選之間的關鍵差異是目前照片看不清的牙距/TPI、直徑或長度，將該欄位保留 unknown，並把唯一 next_action 指向最能區分候選的追加證據。例如需要區分相近牙距時，優先要求螺紋近拍並讓清楚毫米/英吋刻度與螺紋同平面，而不是重複要求一般全景尺照。
+20. candidate-discrimination gate 不是要求無限追求確定性。如果目前影像已提供足以合理排除主要競爭規格的辨識證據，就應做出 confirmed 決策並在購買資訊完整時 STOP；不得僅因理論上仍存在極低可能性而繼續追問。
 
 只輸出合法 JSON object，不要 Markdown/code fence/額外文字：
 {"round":${round},"purchase_ready":boolean,"purchase_spec":string,"fields":{"part_type":{"value":string|null,"status":"confirmed"|"unknown"},"thread_system":{"value":string|null,"status":"confirmed"|"unknown"},"nominal_size":{"value":string|null,"status":"confirmed"|"unknown"},"length":{"value":string|null,"status":"confirmed"|"unknown"},"pitch_tpi":{"value":string|null,"status":"confirmed"|"unknown"},"head_type":{"value":string|null,"status":"confirmed"|"unknown"},"drive":{"value":string|null,"status":"confirmed"|"unknown"},"material_finish":{"value":string|null,"status":"confirmed"|"unknown"}},"missing_for_purchase":string[],"next_action":{"type":string,"instruction":string}|null,"summary":string}`
