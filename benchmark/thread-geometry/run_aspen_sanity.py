@@ -23,10 +23,10 @@ spec.loader.exec_module(measure_mod)
 def extract_line_drawing_silhouette(page_path: Path, crop_frac: tuple[float, float, float, float], out_path: Path) -> Path:
     """Crop a clean threaded-shaft section from an Aspen engineering drawing.
 
-    The source drawing is horizontal. We threshold dark vector lines, take the
-    outer envelope row-by-row inside the tightly controlled threaded ROI, fill
-    that envelope into a solid silhouette, then rotate it vertical so the same
-    photo measurement code can be used.
+    The source drawing is horizontal. We threshold dark vector lines, then walk
+    along the screw axis column-by-column and fill between the upper/lower outer
+    envelope. This preserves the repeated thread profile. The result is rotated
+    vertical so the same photo measurement code can be reused.
 
     crop_frac is expressed as fractions of full page width/height and contains
     no screw-size label, dimensions text, or arrowheads.
@@ -43,29 +43,37 @@ def extract_line_drawing_silhouette(page_path: Path, crop_frac: tuple[float, flo
     if crop.size == 0:
         raise RuntimeError("Empty engineering-drawing crop")
 
-    # Vector screw geometry is nearly black; watermark/centerlines are lighter.
+    # Screw geometry is nearly black; the watermark and centerlines are lighter.
     dark = crop < 90
     silhouette = np.zeros_like(crop, dtype=np.uint8)
 
-    valid_rows = 0
-    for y in range(crop.shape[0]):
-        xs = np.flatnonzero(dark[y])
-        if xs.size < 2:
-            continue
-        # Ignore isolated annotation fragments: require a plausible threaded span.
-        span = int(xs[-1] - xs[0])
-        if span < max(20, int(crop.shape[1] * 0.20)):
-            continue
-        silhouette[y, xs[0]: xs[-1] + 1] = 255
-        valid_rows += 1
+    valid_cols = 0
+    min_span = max(12, int(crop.shape[0] * 0.20))
+    max_span = int(crop.shape[0] * 0.95)
 
-    if valid_rows < 20:
-        raise RuntimeError(f"Too few silhouette rows extracted: {valid_rows}")
+    for x in range(crop.shape[1]):
+        ys = np.flatnonzero(dark[:, x])
+        if ys.size < 2:
+            continue
+        span = int(ys[-1] - ys[0])
+        # Reject isolated interior thread strokes and crop-border annotations.
+        if span < min_span or span > max_span:
+            continue
+        silhouette[ys[0]: ys[-1] + 1, x] = 255
+        valid_cols += 1
+
+    if valid_cols < 30:
+        raise RuntimeError(f"Too few silhouette columns extracted: {valid_cols}")
+
+    # Close tiny gaps caused by rasterizing vector geometry without smoothing away crests.
+    silhouette = cv2.morphologyEx(
+        silhouette,
+        cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
+    )
 
     # Rotate horizontal shaft to vertical, matching measure.py's current assumptions.
     vertical = cv2.rotate(silhouette, cv2.ROTATE_90_CLOCKWISE)
-
-    # Add a black border so central-component logic has unambiguous background.
     vertical = cv2.copyMakeBorder(vertical, 12, 12, 12, 12, cv2.BORDER_CONSTANT, value=0)
     cv2.imwrite(str(out_path), vertical)
     return out_path
@@ -92,8 +100,8 @@ def main() -> None:
     m6_page = Path(sys.argv[1])
     m8_page = Path(sys.argv[2])
 
-    # Crops are fixed page-relative windows chosen from the engineering drawing layout,
-    # not tuned from the numerical result. They isolate only repeated thread geometry.
+    # Fixed page-relative windows. They isolate repeated thread geometry and are
+    # chosen from layout, not tuned from the numerical P/D result.
     results = [
         run_one("aspen-m6x1.0", m6_page, (0.595, 0.505, 0.715, 0.640), 1.0 / 6.0),
         run_one("aspen-m8x1.25", m8_page, (0.480, 0.505, 0.615, 0.640), 1.25 / 8.0),
