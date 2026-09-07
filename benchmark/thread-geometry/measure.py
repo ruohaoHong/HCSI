@@ -68,7 +68,8 @@ def estimate_axis_angle(gray: np.ndarray) -> float:
 
     angles = []
     weights = []
-    for line in lines[:, 0]:
+    # OpenCV versions may return either (N, 1, 4) or (N, 4).
+    for line in np.asarray(lines).reshape(-1, 4):
         x1, y1, x2, y2 = map(float, line)
         dx, dy = x2 - x1, y2 - y1
         length = float(np.hypot(dx, dy))
