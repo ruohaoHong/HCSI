@@ -6,107 +6,68 @@ const MAX_IMAGE_LENGTH = 7_000_000
 const MAX_ROUNDS = 3
 
 type Provider = 'gemini' | 'openai'
-type FieldStatus = 'confirmed' | 'inferred' | 'unknown'
+type FieldStatus = 'confirmed' | 'unknown'
 type FieldValue = { value: string | null; status: FieldStatus }
 type IdentificationState = {
   round: number
   purchase_ready: boolean
   purchase_spec: string
   fields: {
-    part_type: FieldValue
-    thread_system: FieldValue
-    nominal_size: FieldValue
-    length: FieldValue
-    pitch_tpi: FieldValue
-    head_type: FieldValue
-    drive: FieldValue
-    material_finish: FieldValue
+    part_type: FieldValue; thread_system: FieldValue; nominal_size: FieldValue; length: FieldValue
+    pitch_tpi: FieldValue; head_type: FieldValue; drive: FieldValue; material_finish: FieldValue
   }
   missing_for_purchase: string[]
   next_action: { type: string; instruction: string } | null
   summary: string
 }
 
+const emptyField = (): FieldValue => ({ value: null, status: 'unknown' })
 const EMPTY_STATE: IdentificationState = {
-  round: 0,
-  purchase_ready: false,
-  purchase_spec: '',
-  fields: {
-    part_type: { value: null, status: 'unknown' },
-    thread_system: { value: null, status: 'unknown' },
-    nominal_size: { value: null, status: 'unknown' },
-    length: { value: null, status: 'unknown' },
-    pitch_tpi: { value: null, status: 'unknown' },
-    head_type: { value: null, status: 'unknown' },
-    drive: { value: null, status: 'unknown' },
-    material_finish: { value: null, status: 'unknown' },
-  },
-  missing_for_purchase: [],
-  next_action: null,
-  summary: '',
+  round: 0, purchase_ready: false, purchase_spec: '',
+  fields: { part_type: emptyField(), thread_system: emptyField(), nominal_size: emptyField(), length: emptyField(), pitch_tpi: emptyField(), head_type: emptyField(), drive: emptyField(), material_finish: emptyField() },
+  missing_for_purchase: [], next_action: null, summary: '',
 }
 
 function promptFor(round: number, previousState: IdentificationState | null) {
   const previous = previousState
-    ? `\n上一輪精簡狀態：\n${JSON.stringify(previousState)}\n\n新照片是追加證據。利用它補足缺失欄位，也可以在新證據明確矛盾時修正舊判斷。不要只是重複上一輪。`
-    : '\n這是第一輪。只根據目前這張普通照片，最大化可合理得到的辨識資訊。'
+    ? `\n上一輪狀態：\n${JSON.stringify(previousState)}\n\n新照片是追加證據。優先解決 missing fields；若新證據明確推翻舊判斷，可以修正。`
+    : '\n這是第一輪。只根據目前普通照片，最大化可合理得到的辨識資訊。'
 
-  return `
-你是 HCSI 的五金辨識引擎。目標是協助一般使用者取得「足以拿給一般五金行購買正確替代品」的資訊，而不是完成工程檢驗報告。
-${previous}
+  return `你是 HCSI 五金辨識引擎。目標是提供足以拿給一般五金行購買正確替代品的資訊，不是工程檢驗報告。${previous}
 
-核心規則：
-1. 決策優先：目前證據足以判斷的欄位就必須做判斷，不要因為仍有其他不確定欄位而全部回答未知。
-2. 不准硬湊：目前證據不能可靠支持的欄位可標 unknown；若有合理但非直接確認的最佳判斷，可標 inferred。
-3. confirmed = 目前影像證據可直接支持；inferred = 綜合外觀與五金知識得到的最佳判斷；unknown = 目前沒有足夠依據。
-4. purchase_ready 的意思不是所有工程細節 100% 確認，而是目前資訊已足以讓一般五金行理解並提供正確功能與主要規格的替代品。
-5. 一旦 purchase_ready=true，next_action 必須是 null，禁止再要求更精確、再拍、再量或繼續驗證。
-6. 如果 purchase_ready=false，只列出真正阻礙購買的 missing_for_purchase。不要把 DIN/ISO 編號、鍍層厚度、精確材料牌號等非必要細節當成必填。
-7. 每輪最多只能給一個 next_action，而且要選「使用者成本最低、同時最能補足 missing fields」的一個操作。不要一次列多個要求。
-8. 優先考慮一般人容易取得的參照物或工具，例如有 mm 刻度的直尺／捲尺、常見且尺寸固定的硬幣。若要求參照照片，要說明零件與參照物需盡量同平面、清楚入鏡。
-9. 不要預設使用者有游標卡尺、牙規或專業量具；除非沒有更低成本的方法且它確實阻礙購買，否則不要要求。
-10. 不要使用外部 reference material、候選清單或預先提供的規格表。依靠模型自身視覺與五金知識。
-11. 不要輸出信心百分比。
-12. 這是第 ${round} 輪，最多 ${MAX_ROUNDS} 輪。若已到最後一輪仍不足，next_action 必須為 null，停止追問，保留目前最佳 purchase_spec 與 missing_for_purchase。
-13. material_finish 只有在購買替代品確實需要時才影響 purchase_ready；不要為了辨識鍍層而無限迭代。
-14. purchase_spec 必須永遠填寫目前「已知資訊能支持的最實用五金行說法」，即使 purchase_ready=false 也不能留白。例如「公制十字盤頭機械螺絲（尺寸待確認）」。
+規則：
+1. 只有 confirmed / unknown 兩種狀態，禁止使用 inferred、possible、likely 等第三種狀態逃避決策。
+2. confirmed 的產品意義是：依目前影像與你的五金知識，你願意把這個欄位交給使用者作為目前決策資訊；它不要求實驗室級 100% 證明。
+3. 當影像已清楚支持某制式、零件類型、頭型或驅動方式時，必須 confirmed。不要僅因缺少尺寸參照就把清楚可辨的欄位降成 unknown。
+4. 真正沒有足夠依據才用 unknown。不要為了填滿欄位硬猜尺寸。
+5. purchase_ready 不是所有工程細節全確認，而是一般五金行已足以理解並提供主要規格正確的替代品。
+6. purchase_ready=true 時 next_action 必須 null，立即停止，不得再要求更精確或補拍。
+7. purchase_ready=false 時，只列真正阻礙購買的 missing_for_purchase；DIN/ISO、鍍層厚度、精確材料牌號通常不是完成條件。
+8. 每輪最多一個 next_action，選使用者成本最低且一次能消除最多缺口的操作。優先一般人容易取得的 mm 尺、捲尺、固定尺寸硬幣；不要預設有卡尺或牙規。
+9. 若要求參照照片，要求零件與參照物盡量同平面且刻度清楚。
+10. 不使用外部 reference material、候選清單或預先規格表；依模型自身視覺與五金知識。
+11. 不輸出信心百分比。
+12. 現在第 ${round} 輪，最多 ${MAX_ROUNDS} 輪。第 3 輪仍不足也停止追問，next_action=null，保留最佳已確認資訊與缺口。
+13. material_finish 只有真的影響替代品選購時才阻礙 purchase_ready。
+14. purchase_spec 永遠寫目前已確認資訊能支持的最實用五金行說法；未知尺寸可以明寫「尺寸待確認」。
 
-只輸出一個合法 JSON object，不要 Markdown，不要 code fence，不要額外說明。Schema：
-{
-  "round": ${round},
-  "purchase_ready": boolean,
-  "purchase_spec": string,
-  "fields": {
-    "part_type": {"value": string|null, "status": "confirmed"|"inferred"|"unknown"},
-    "thread_system": {"value": string|null, "status": "confirmed"|"inferred"|"unknown"},
-    "nominal_size": {"value": string|null, "status": "confirmed"|"inferred"|"unknown"},
-    "length": {"value": string|null, "status": "confirmed"|"inferred"|"unknown"},
-    "pitch_tpi": {"value": string|null, "status": "confirmed"|"inferred"|"unknown"},
-    "head_type": {"value": string|null, "status": "confirmed"|"inferred"|"unknown"},
-    "drive": {"value": string|null, "status": "confirmed"|"inferred"|"unknown"},
-    "material_finish": {"value": string|null, "status": "confirmed"|"inferred"|"unknown"}
-  },
-  "missing_for_purchase": string[],
-  "next_action": {"type": string, "instruction": string}|null,
-  "summary": string
-}
-`
+只輸出合法 JSON object，不要 Markdown/code fence/額外文字：
+{"round":${round},"purchase_ready":boolean,"purchase_spec":string,"fields":{"part_type":{"value":string|null,"status":"confirmed"|"unknown"},"thread_system":{"value":string|null,"status":"confirmed"|"unknown"},"nominal_size":{"value":string|null,"status":"confirmed"|"unknown"},"length":{"value":string|null,"status":"confirmed"|"unknown"},"pitch_tpi":{"value":string|null,"status":"confirmed"|"unknown"},"head_type":{"value":string|null,"status":"confirmed"|"unknown"},"drive":{"value":string|null,"status":"confirmed"|"unknown"},"material_finish":{"value":string|null,"status":"confirmed"|"unknown"}},"missing_for_purchase":string[],"next_action":{"type":string,"instruction":string}|null,"summary":string}`
 }
 
 function parseState(text: string, round: number): IdentificationState {
   const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
-  const firstBrace = trimmed.indexOf('{')
-  const lastBrace = trimmed.lastIndexOf('}')
+  const firstBrace = trimmed.indexOf('{'); const lastBrace = trimmed.lastIndexOf('}')
   const jsonText = firstBrace >= 0 && lastBrace > firstBrace ? trimmed.slice(firstBrace, lastBrace + 1) : trimmed
   let parsed: Partial<IdentificationState>
-  try {
-    parsed = JSON.parse(jsonText)
-  } catch {
-    throw new Error('MODEL_JSON_PARSE_FAILED')
-  }
-
+  try { parsed = JSON.parse(jsonText) } catch { throw new Error('MODEL_JSON_PARSE_FAILED') }
   const state = { ...EMPTY_STATE, ...parsed, round } as IdentificationState
-  if (!state.fields || typeof state.fields !== 'object') state.fields = { ...EMPTY_STATE.fields }
+  const normalizedFields = { ...EMPTY_STATE.fields }
+  for (const key of Object.keys(normalizedFields) as Array<keyof typeof normalizedFields>) {
+    const incoming = state.fields?.[key]
+    normalizedFields[key] = incoming?.value ? { value: String(incoming.value), status: incoming.status === 'unknown' ? 'unknown' : 'confirmed' } : emptyField()
+  }
+  state.fields = normalizedFields
   if (!Array.isArray(state.missing_for_purchase)) state.missing_for_purchase = []
   if (round >= MAX_ROUNDS || state.purchase_ready) state.next_action = null
   if (!state.purchase_spec?.trim()) state.purchase_spec = '目前已辨識零件，但購買規格仍待補足。'
@@ -115,50 +76,26 @@ function parseState(text: string, round: number): IdentificationState {
 }
 
 async function callOpenAI(images: string[], prompt: string) {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) throw new Error('OPENAI_API_KEY_MISSING')
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: 'gpt-5.6-sol', reasoning: { effort: 'medium' }, max_output_tokens: 1600,
-      input: [{ role: 'user', content: [
-        ...images.map((image) => ({ type: 'input_image', image_url: `data:image/jpeg;base64,${image}`, detail: 'high' })),
-        { type: 'input_text', text: prompt },
-      ] }],
-    }),
-  })
+  const apiKey = process.env.OPENAI_API_KEY; if (!apiKey) throw new Error('OPENAI_API_KEY_MISSING')
+  const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model: 'gpt-5.6-sol', reasoning: { effort: 'medium' }, max_output_tokens: 1600, input: [{ role: 'user', content: [...images.map((image) => ({ type: 'input_image', image_url: `data:image/jpeg;base64,${image}`, detail: 'high' })), { type: 'input_text', text: prompt }] }] }) })
   if (!response.ok) throw new Error(`OPENAI_UPSTREAM_${response.status}`)
-  const data = await response.json()
-  const text = data?.output?.flatMap((item: any) => item?.content ?? [])?.find((item: any) => item?.type === 'output_text')?.text
-  if (typeof text !== 'string' || !text.trim()) throw new Error('OPENAI_EMPTY_OUTPUT')
-  return text
+  const data = await response.json(); const text = data?.output?.flatMap((item: any) => item?.content ?? [])?.find((item: any) => item?.type === 'output_text')?.text
+  if (typeof text !== 'string' || !text.trim()) throw new Error('OPENAI_EMPTY_OUTPUT'); return text
 }
 
 async function callGemini(images: string[], prompt: string) {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) throw new Error('GEMINI_API_KEY_MISSING')
-  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-    body: JSON.stringify({
-      contents: [{ parts: [
-        ...images.map((image) => ({ inline_data: { mime_type: 'image/jpeg', data: image } })),
-        { text: prompt },
-      ] }],
-      generationConfig: { maxOutputTokens: 1600, responseMimeType: 'application/json', thinkingConfig: { thinkingLevel: 'medium' } },
-    }),
-  })
+  const apiKey = process.env.GEMINI_API_KEY; if (!apiKey) throw new Error('GEMINI_API_KEY_MISSING')
+  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify({ contents: [{ parts: [...images.map((image) => ({ inline_data: { mime_type: 'image/jpeg', data: image } })), { text: prompt }] }], generationConfig: { maxOutputTokens: 1600, responseMimeType: 'application/json', thinkingConfig: { thinkingLevel: 'medium' } } }) })
   if (!response.ok) throw new Error(`GEMINI_UPSTREAM_${response.status}`)
-  const data = await response.json()
-  const text = data?.candidates?.[0]?.content?.parts?.map((part: any) => part?.text)?.filter(Boolean)?.join('\n')
-  if (typeof text !== 'string' || !text.trim()) throw new Error('GEMINI_EMPTY_OUTPUT')
-  return text
+  const data = await response.json(); const text = data?.candidates?.[0]?.content?.parts?.map((part: any) => part?.text)?.filter(Boolean)?.join('\n')
+  if (typeof text !== 'string' || !text.trim()) throw new Error('GEMINI_EMPTY_OUTPUT'); return text
 }
 
 function safeErrorMessage(error: unknown) {
   const code = error instanceof Error ? error.message : 'UNKNOWN'
   if (code === 'OPENAI_API_KEY_MISSING') return '此 Preview 環境沒有 OPENAI_API_KEY。請在 Vercel 將 OPENAI_API_KEY 套用到 Preview 環境後重新部署。'
   if (code === 'GEMINI_API_KEY_MISSING') return '此 Preview 環境沒有 GEMINI_API_KEY。請在 Vercel 將 GEMINI_API_KEY 套用到 Preview 環境後重新部署。'
-  if (code === 'MODEL_JSON_PARSE_FAILED') return 'AI 已回傳內容，但格式解析失敗。請再試一次；若持續發生我會改成更嚴格的 Structured Output。'
+  if (code === 'MODEL_JSON_PARSE_FAILED') return 'AI 已回傳內容，但格式解析失敗。請再試一次。'
   if (code.startsWith('OPENAI_UPSTREAM_')) return `OpenAI API 呼叫失敗（HTTP ${code.replace('OPENAI_UPSTREAM_', '')}）。`
   if (code.startsWith('GEMINI_UPSTREAM_')) return `Gemini API 呼叫失敗（HTTP ${code.replace('GEMINI_UPSTREAM_', '')}）。`
   if (code === 'OPENAI_EMPTY_OUTPUT') return 'OpenAI API 沒有回傳可用文字。'
@@ -168,28 +105,13 @@ function safeErrorMessage(error: unknown) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
-    const image = typeof body.image === 'string' ? body.image : ''
-    const originalImage = typeof body.original_image === 'string' ? body.original_image : ''
-    const provider: Provider = body.provider === 'openai' ? 'openai' : 'gemini'
-    const previousState = body.previous_state && typeof body.previous_state === 'object' ? body.previous_state as IdentificationState : null
+    const body = await request.json(); const image = typeof body.image === 'string' ? body.image : ''; const originalImage = typeof body.original_image === 'string' ? body.original_image : ''
+    const provider: Provider = body.provider === 'openai' ? 'openai' : 'gemini'; const previousState = body.previous_state && typeof body.previous_state === 'object' ? body.previous_state as IdentificationState : null
     const round = Math.min(Math.max((previousState?.round ?? 0) + 1, 1), MAX_ROUNDS)
-
-    for (const candidate of [image, originalImage].filter(Boolean)) {
-      if (candidate.length > MAX_IMAGE_LENGTH || !/^[A-Za-z0-9+/=]+$/.test(candidate)) {
-        return NextResponse.json({ error: '影像格式不正確或檔案過大。' }, { status: 400 })
-      }
-    }
+    for (const candidate of [image, originalImage].filter(Boolean)) if (candidate.length > MAX_IMAGE_LENGTH || !/^[A-Za-z0-9+/=]+$/.test(candidate)) return NextResponse.json({ error: '影像格式不正確或檔案過大。' }, { status: 400 })
     if (!image) return NextResponse.json({ error: '請提供本輪影像。' }, { status: 400 })
-
-    const images = round > 1 && originalImage ? [originalImage, image] : [image]
-    const prompt = promptFor(round, previousState)
-    const raw = provider === 'openai' ? await callOpenAI(images, prompt) : await callGemini(images, prompt)
-    const state = parseState(raw, round)
-
+    const images = round > 1 && originalImage ? [originalImage, image] : [image]; const prompt = promptFor(round, previousState)
+    const raw = provider === 'openai' ? await callOpenAI(images, prompt) : await callGemini(images, prompt); const state = parseState(raw, round)
     return NextResponse.json({ provider, state })
-  } catch (error) {
-    console.error('[HCSI progressive benchmark] error:', error)
-    return NextResponse.json({ error: safeErrorMessage(error) }, { status: 500 })
-  }
+  } catch (error) { console.error('[HCSI progressive benchmark] error:', error); return NextResponse.json({ error: safeErrorMessage(error) }, { status: 500 }) }
 }
