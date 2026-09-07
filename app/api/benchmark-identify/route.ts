@@ -94,17 +94,29 @@ ${previous}
 }
 
 function parseState(text: string, round: number): IdentificationState {
-  const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
-  const parsed = JSON.parse(cleaned)
+  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+  const firstBrace = trimmed.indexOf('{')
+  const lastBrace = trimmed.lastIndexOf('}')
+  const jsonText = firstBrace >= 0 && lastBrace > firstBrace ? trimmed.slice(firstBrace, lastBrace + 1) : trimmed
+  let parsed: Partial<IdentificationState>
+  try {
+    parsed = JSON.parse(jsonText)
+  } catch {
+    throw new Error('MODEL_JSON_PARSE_FAILED')
+  }
+
   const state = { ...EMPTY_STATE, ...parsed, round } as IdentificationState
+  if (!state.fields || typeof state.fields !== 'object') state.fields = { ...EMPTY_STATE.fields }
+  if (!Array.isArray(state.missing_for_purchase)) state.missing_for_purchase = []
   if (round >= MAX_ROUNDS || state.purchase_ready) state.next_action = null
   if (!state.purchase_spec?.trim()) state.purchase_spec = '目前已辨識零件，但購買規格仍待補足。'
+  if (typeof state.summary !== 'string') state.summary = ''
   return state
 }
 
 async function callOpenAI(images: string[], prompt: string) {
   const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) throw new Error('OPENAI_API_KEY is not configured')
+  if (!apiKey) throw new Error('OPENAI_API_KEY_MISSING')
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
@@ -115,16 +127,16 @@ async function callOpenAI(images: string[], prompt: string) {
       ] }],
     }),
   })
-  if (!response.ok) throw new Error(`OpenAI ${response.status}: ${(await response.text()).slice(0, 500)}`)
+  if (!response.ok) throw new Error(`OPENAI_UPSTREAM_${response.status}`)
   const data = await response.json()
   const text = data?.output?.flatMap((item: any) => item?.content ?? [])?.find((item: any) => item?.type === 'output_text')?.text
-  if (typeof text !== 'string' || !text.trim()) throw new Error('OpenAI returned no text')
+  if (typeof text !== 'string' || !text.trim()) throw new Error('OPENAI_EMPTY_OUTPUT')
   return text
 }
 
 async function callGemini(images: string[], prompt: string) {
   const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured')
+  if (!apiKey) throw new Error('GEMINI_API_KEY_MISSING')
   const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({
@@ -135,11 +147,23 @@ async function callGemini(images: string[], prompt: string) {
       generationConfig: { maxOutputTokens: 1600, responseMimeType: 'application/json', thinkingConfig: { thinkingLevel: 'medium' } },
     }),
   })
-  if (!response.ok) throw new Error(`Gemini ${response.status}: ${(await response.text()).slice(0, 500)}`)
+  if (!response.ok) throw new Error(`GEMINI_UPSTREAM_${response.status}`)
   const data = await response.json()
   const text = data?.candidates?.[0]?.content?.parts?.map((part: any) => part?.text)?.filter(Boolean)?.join('\n')
-  if (typeof text !== 'string' || !text.trim()) throw new Error('Gemini returned no text')
+  if (typeof text !== 'string' || !text.trim()) throw new Error('GEMINI_EMPTY_OUTPUT')
   return text
+}
+
+function safeErrorMessage(error: unknown) {
+  const code = error instanceof Error ? error.message : 'UNKNOWN'
+  if (code === 'OPENAI_API_KEY_MISSING') return '此 Preview 環境沒有 OPENAI_API_KEY。請在 Vercel 將 OPENAI_API_KEY 套用到 Preview 環境後重新部署。'
+  if (code === 'GEMINI_API_KEY_MISSING') return '此 Preview 環境沒有 GEMINI_API_KEY。請在 Vercel 將 GEMINI_API_KEY 套用到 Preview 環境後重新部署。'
+  if (code === 'MODEL_JSON_PARSE_FAILED') return 'AI 已回傳內容，但格式解析失敗。請再試一次；若持續發生我會改成更嚴格的 Structured Output。'
+  if (code.startsWith('OPENAI_UPSTREAM_')) return `OpenAI API 呼叫失敗（HTTP ${code.replace('OPENAI_UPSTREAM_', '')}）。`
+  if (code.startsWith('GEMINI_UPSTREAM_')) return `Gemini API 呼叫失敗（HTTP ${code.replace('GEMINI_UPSTREAM_', '')}）。`
+  if (code === 'OPENAI_EMPTY_OUTPUT') return 'OpenAI API 沒有回傳可用文字。'
+  if (code === 'GEMINI_EMPTY_OUTPUT') return 'Gemini API 沒有回傳可用文字。'
+  return '漸進式辨識執行失敗。'
 }
 
 export async function POST(request: Request) {
@@ -166,6 +190,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ provider, state })
   } catch (error) {
     console.error('[HCSI progressive benchmark] error:', error)
-    return NextResponse.json({ error: '漸進式辨識執行失敗。' }, { status: 500 })
+    return NextResponse.json({ error: safeErrorMessage(error) }, { status: 500 })
   }
 }
