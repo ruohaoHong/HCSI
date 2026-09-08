@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 export const runtime = 'nodejs'
 const MAX_IMAGE_LENGTH = 7_000_000
 
-type Provider = 'gemini' | 'openai'
+type Provider = 'gemini' | 'openai' | 'xai'
 
 type NakedResult = {
   thread_system: string
@@ -80,6 +80,10 @@ function parseJson(text: string): NakedResult {
   }
 }
 
+function extractResponsesText(data: any) {
+  return data?.output?.flatMap((x: any) => x?.content ?? [])?.find((x: any) => x?.type === 'output_text')?.text
+}
+
 async function callOpenAI(image: string) {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) throw new Error('OPENAI_API_KEY_MISSING')
@@ -90,19 +94,37 @@ async function callOpenAI(image: string) {
       model: 'gpt-5.6-sol',
       reasoning: { effort: 'medium' },
       max_output_tokens: 3000,
-      input: [{
-        role: 'user',
-        content: [
-          { type: 'input_image', image_url: `data:image/jpeg;base64,${image}`, detail: 'high' },
-          { type: 'input_text', text: PROMPT },
-        ],
-      }],
+      input: [{ role: 'user', content: [
+        { type: 'input_image', image_url: `data:image/jpeg;base64,${image}`, detail: 'high' },
+        { type: 'input_text', text: PROMPT },
+      ] }],
     }),
   })
   if (!response.ok) throw new Error(`OPENAI_UPSTREAM_${response.status}`)
-  const data = await response.json()
-  const text = data?.output?.flatMap((x: any) => x?.content ?? [])?.find((x: any) => x?.type === 'output_text')?.text
+  const text = extractResponsesText(await response.json())
   if (typeof text !== 'string' || !text.trim()) throw new Error('OPENAI_EMPTY_OUTPUT')
+  return text
+}
+
+async function callXAI(image: string) {
+  const apiKey = process.env.XAI_API_KEY
+  if (!apiKey) throw new Error('XAI_API_KEY_MISSING')
+  const response = await fetch('https://api.x.ai/v1/responses', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: 'grok-4.6',
+      reasoning: { effort: 'medium' },
+      max_output_tokens: 3000,
+      input: [{ role: 'user', content: [
+        { type: 'input_image', image_url: `data:image/jpeg;base64,${image}`, detail: 'high' },
+        { type: 'input_text', text: PROMPT },
+      ] }],
+    }),
+  })
+  if (!response.ok) throw new Error(`XAI_UPSTREAM_${response.status}`)
+  const text = extractResponsesText(await response.json())
+  if (typeof text !== 'string' || !text.trim()) throw new Error('XAI_EMPTY_OUTPUT')
   return text
 }
 
@@ -114,11 +136,7 @@ async function callGemini(image: string) {
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent'
   const requestBody = JSON.stringify({
     contents: [{ parts: [{ inline_data: { mime_type: 'image/jpeg', data: image } }, { text: PROMPT }] }],
-    generationConfig: {
-      maxOutputTokens: 1800,
-      responseMimeType: 'application/json',
-      thinkingConfig: { thinkingLevel: 'medium' },
-    },
+    generationConfig: { maxOutputTokens: 1800, responseMimeType: 'application/json', thinkingConfig: { thinkingLevel: 'medium' } },
   })
   let response: Response | null = null
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -137,10 +155,13 @@ function errorMessage(error: unknown) {
   const code = error instanceof Error ? error.message : 'UNKNOWN'
   if (code === 'OPENAI_API_KEY_MISSING') return '此 Preview 環境沒有 OPENAI_API_KEY。'
   if (code === 'GEMINI_API_KEY_MISSING') return '此 Preview 環境沒有 GEMINI_API_KEY。'
+  if (code === 'XAI_API_KEY_MISSING') return '此 Preview 環境沒有 XAI_API_KEY。'
   if (code === 'MODEL_JSON_PARSE_FAILED') return 'AI 已回傳內容，但 JSON 格式解析失敗。'
   if (code.startsWith('OPENAI_UPSTREAM_')) return `OpenAI API 呼叫失敗（HTTP ${code.replace('OPENAI_UPSTREAM_', '')}）。`
   if (code.startsWith('GEMINI_UPSTREAM_')) return `Gemini API 呼叫失敗（HTTP ${code.replace('GEMINI_UPSTREAM_', '')}）。`
+  if (code.startsWith('XAI_UPSTREAM_')) return `xAI API 呼叫失敗（HTTP ${code.replace('XAI_UPSTREAM_', '')}）。`
   if (code === 'GEMINI_UNAVAILABLE_503') return 'Gemini API 暫時無法服務（HTTP 503）。'
+  if (code === 'XAI_EMPTY_OUTPUT') return 'xAI 已回傳，但沒有可用的文字輸出。'
   return '裸測辨識執行失敗。'
 }
 
@@ -148,11 +169,11 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
     const image = typeof body.image === 'string' ? body.image : ''
-    const provider: Provider = body.provider === 'openai' ? 'openai' : 'gemini'
+    const provider: Provider = body.provider === 'openai' ? 'openai' : body.provider === 'xai' ? 'xai' : 'gemini'
     if (!image || image.length > MAX_IMAGE_LENGTH || !/^[A-Za-z0-9+/=]+$/.test(image)) {
       return NextResponse.json({ error: '影像格式不正確或檔案過大。' }, { status: 400 })
     }
-    const raw = provider === 'openai' ? await callOpenAI(image) : await callGemini(image)
+    const raw = provider === 'openai' ? await callOpenAI(image) : provider === 'xai' ? await callXAI(image) : await callGemini(image)
     const result = parseJson(raw)
     return NextResponse.json({ provider, result, raw_output: raw })
   } catch (error) {
