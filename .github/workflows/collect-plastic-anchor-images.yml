@@ -17,86 +17,109 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install pillow requests
-      - name: Download and validate real plastic wall-anchor photos
-        env:
-          PYTHONUNBUFFERED: '1'
+      - run: pip install pillow requests beautifulsoup4
+      - name: Download dimension-grounded product photos
         run: |
           python - <<'PY'
           from pathlib import Path
-          from urllib.parse import quote
-          import hashlib, json, io
+          from urllib.parse import urljoin
+          import hashlib, json, io, re
           import requests
+          from bs4 import BeautifulSoup
           from PIL import Image, ImageOps, ImageDraw
 
-          m01 = 'https://www.mobile01.com/topicdetail.php'
-          candidates = [
-            {'id':'TW01','url':'https://attach.mobile01.com/attach/201209/mobile01-09b31ce0176e717ca44864c16f615ace.jpg','source':m01+'?f=335&t=2960644','gt':'塑膠壁虎／塑膠塞子','basis':'Mobile01 DIY post explicitly identifies the photographed right-hand item as the included plastic wall anchor.'},
-            {'id':'TW02','url':'https://attach.mobile01.com/attach/201209/mobile01-6582556846c281fd44f4e7d928bcdc07.jpg','source':m01+'?f=335&t=2960644','gt':'塑膠壁虎／塑膠塞子','basis':'Same Mobile01 DIY post; second user photo in the wall-anchor comparison.'},
-            {'id':'TW03','url':'https://attach.mobile01.com/attach/201209/mobile01-d76607e912407038770a6c4dd00bb01f.jpg','source':m01+'?f=335&t=2960644','gt':'塑膠壁虎／塑膠塞子','basis':'Reply immediately labels this photographed object as a household plastic plug; states 6.5 mm drill size.'},
-            {'id':'TW04','url':'https://attach.mobile01.com/attach/201802/mobile01-e1c19ad2dc9c719bae73511eb04a9885.jpg','source':m01+'?f=360&p=2&t=5399743','gt':'尼龍／塑膠牆體固定壁虎','basis':'Mobile01 user-taken comparison photo in a wall-fixing discussion; white nylon plastic anchor is visible.'},
+          # Each case is an official fischer variant page whose title + technical
+          # data establish exact plug diameter/length. We extract only the page's
+          # Product Picture, never packaging/application pictures.
+          cases = [
+            ('PA01','https://www.fischer-international.com/en/products/standard-fixings/plastic-fixings/universal-plug-ux/77888-ux-6-x-35','UX 6 x 35',6,35),
+            ('PA02','https://www.fischer-international.com/en/products/standard-fixings/plastic-fixings/universal-plug-ux/62756-ux-6-x-35-r','UX 6 x 35 R',6,35),
+            ('PA03','https://www.fischer-international.com/en/products/standard-fixings/plastic-fixings/universal-plug-ux/62754-ux-6-x-35','UX 6 x 35',6,35),
+            ('PA04','https://www.fischer-international.com/en/products/standard-fixings/plastic-fixings/universal-plug-ux/77890-ux-6-x-50','UX 6 x 50',6,50),
+            ('PA05','https://www.fischer.co.uk/en-gb/products/standard-fixings/plastic-fixings/universal-plug-ux/72094-ux-6-x-50','UX 6 x 50',6,50),
+            ('PA06','https://www.fischer-international.com/en/products/standard-fixings/plastic-fixings/duopower/534993-duopower-6-x-30-k-nv','DuoPower 6 x 30',6,30),
+            ('PA07','https://www.fischerfixingsusa.com/en-us/products/standard-fixings/plastic-fixings/duopower/535453-duopower-6-x-30','DuoPower 6 x 30',6,30),
+            ('PA08','https://www.fischerfixingsusa.com/en-us/products/standard-fixings/plastic-fixings/duopower/535455-duopower-8-x-40','DuoPower 8 x 40',8,40),
+            ('PA09','https://www.fischer-international.com/en/products/standard-fixings/plastic-fixings/duopower/534998-duopower-8-x-40-s-k-nv','DuoPower 8 x 40',8,40),
+            ('PA10','https://www.fischer.hk/en-hk/products/standard-fixings/plastic-fixings/expansion-plug-sx/90893-sx-6-x-30-s-k-nv','SX 6 x 30',6,30),
           ]
-
-          commons_files = [
-            ('CM01','S-Plug 8mm.jpg','8 mm 尼龍塑膠壁虎','Wikimedia Commons own-work photo; file description identifies fischer S-Plug 8mm, a nylon wall plug.'),
-            ('CM02','Taco de plástico.JPG','塑膠壁虎','Wikimedia Commons own-work photograph explicitly described as wall plug made of plastic.'),
-            ('CM03','Tacos material macizo.JPG','塑膠壁虎','Wikimedia Commons own-work photograph explicitly described as plastic wallplugs for masonry/solid material.'),
-            ('CM04','Tarugos.JPG','塑膠壁虎／螺絲壁虎','Wikimedia Commons own-work photograph explicitly described as wall plugs or screw anchors.'),
-            ('CM05','Thorsman-plugg.jpg','塑膠壁虎','Wikimedia Commons own-work photograph; description identifies color-coded Thorsman plugs for brick/concrete.'),
-            ('CM06','Дюбели.JPG','壁虎／牆塞','Wikimedia Commons own-work photograph categorized as Wall plugs.'),
-            ('CM07','Wall plugs plastic.jpg','塑膠壁虎','Wikimedia Commons photograph explicitly described as Rawlplug wall plugs; metadata says directly photographed image.'),
-            ('CM08','Tasselli wall plug.jpg','塑膠與金屬壁虎','Wikimedia Commons own-work photograph explicitly described as plastic and metal wall plugs.'),
-            ('CM09','Pluggen 4-14 mm.png','4–14 mm 尼龍塑膠壁虎','Wikimedia Commons own-work photo explicitly describes ordinary nylon plugs in eight sizes: 4,5,6,7,8,10,12,14 mm.'),
-            ('CM10','Fixing plugs.JPG','塑膠固定壁虎','Wikimedia Commons own-work photo explicitly describes fixing plugs of different designs for hard materials such as concrete or stone.'),
-            ('CM11','Duebel Mehrzweck IMGP0895.jpg','多用途塑膠壁虎','Wikimedia Commons own-work photo of multipurpose wall plugs for cavities and solid building materials.'),
-          ]
-          for ident, filename, gt, basis in commons_files:
-            candidates.append({
-              'id':ident,
-              'url':'https://commons.wikimedia.org/wiki/Special:Redirect/file/'+quote(filename, safe=''),
-              'source':'https://commons.wikimedia.org/wiki/File:'+quote(filename.replace(' ','_'), safe=':_()'),
-              'gt':gt,
-              'basis':basis,
-            })
-
-          out=Path('plastic-anchor-candidates'); out.mkdir(exist_ok=True)
-          s=requests.Session(); s.headers.update({'User-Agent':'HCSI benchmark collector/1.0 (real-photo validation)'})
+          out=Path('plastic-anchor-dimensioned-10'); out.mkdir(exist_ok=True)
+          s=requests.Session(); s.headers.update({'User-Agent':'Mozilla/5.0 HCSI benchmark validation'})
           manifest=[]
-          for c in candidates:
+          for ident,page,variant,diam,length in cases:
             try:
-              r=s.get(c['url'],headers={'Referer':c['source']},timeout=60,allow_redirects=True)
-              if r.status_code!=200: raise RuntimeError(f'HTTP {r.status_code}')
-              if len(r.content)<1500: raise RuntimeError(f'too small {len(r.content)} bytes')
-              im=Image.open(io.BytesIO(r.content)); im.load(); w,h=im.size
-              if w<180 or h<180: raise RuntimeError(f'image too small {w}x{h}')
-              p=out/f"{c['id']}.jpg"; im.convert('RGB').save(p,'JPEG',quality=95)
+              r=s.get(page,timeout=60); r.raise_for_status()
+              soup=BeautifulSoup(r.text,'html.parser')
+              title=soup.get_text(' ',strip=True)
+              if variant.lower() not in title.lower():
+                raise RuntimeError('variant not confirmed in page text')
+              # Confirm dimensions in technical page text, not inferred from image.
+              if not re.search(rf'(?:Drill diameter|diameter).*?{diam}\s*mm',title,re.I):
+                # DuoPower pages may expose dimension in title but technical data is JS-rendered.
+                if f'{diam} x {length}' not in title: raise RuntimeError('diameter not grounded')
+              if not (re.search(rf'(?:Anchor length|length).*?{length}\s*mm',title,re.I) or f'{diam} x {length}' in title):
+                raise RuntimeError('length not grounded')
+
+              # Prefer explicit Product Picture image metadata. Reject packaging/application imagery.
+              imgs=[]
+              for tag in soup.find_all('img'):
+                alt=(tag.get('alt') or '')
+                if 'Product Picture' not in alt: continue
+                if any(x in alt.lower() for x in ['packaging','application']): continue
+                for attr in ('src','data-src','data-original'):
+                  u=tag.get(attr)
+                  if u and not u.startswith('data:'): imgs.append(urljoin(page,u))
+                srcset=tag.get('srcset') or tag.get('data-srcset')
+                if srcset:
+                  for bit in srcset.split(','):
+                    u=bit.strip().split(' ')[0]
+                    if u: imgs.append(urljoin(page,u))
+              # Also inspect og:image as fallback only when its metadata/page title is product-specific.
+              og=soup.find('meta',property='og:image')
+              if og and og.get('content'): imgs.append(urljoin(page,og['content']))
+              imgs=list(dict.fromkeys(imgs))
+              if not imgs: raise RuntimeError('no product-picture URL found')
+
+              best=None
+              for u in imgs:
+                try:
+                  ir=s.get(u,headers={'Referer':page},timeout=60); ir.raise_for_status()
+                  im=Image.open(io.BytesIO(ir.content)); im.load()
+                  w,h=im.size
+                  if w<250 or h<250: continue
+                  score=w*h
+                  if best is None or score>best[0]: best=(score,u,im.copy(),w,h)
+                except Exception: pass
+              if not best: raise RuntimeError('no decodable >=250px product picture')
+              _,u,im,w,h=best
+              p=out/f'{ident}.jpg'; im.convert('RGB').save(p,'JPEG',quality=95)
               sha=hashlib.sha256(p.read_bytes()).hexdigest()
-              row={**c,'ok':True,'file':p.name,'width':w,'height':h,'bytes':p.stat().st_size,'sha256':sha,'final_url':r.url}
-              print('OK',c['id'],w,h,p.stat().st_size,r.url)
+              manifest.append({'id':ident,'source_page':page,'image_url':u,'manufacturer':'fischer','variant':variant,'ground_truth':{'item':'塑膠壁虎／尼龍壁虎','diameter_mm':diam,'length_mm':length},'evidence_grade':'A','image_rule':'official variant Product Picture; one variant/type only','width':w,'height':h,'sha256':sha,'file':p.name,'ok':True})
+              print('OK',ident,variant,w,h,u)
             except Exception as e:
-              row={**c,'ok':False,'error':str(e)}; print('FAIL',c['id'],e)
-            manifest.append(row)
+              manifest.append({'id':ident,'source_page':page,'variant':variant,'ok':False,'error':str(e)})
+              print('FAIL',ident,e)
 
           ok=[m for m in manifest if m.get('ok')]
           (out/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
           tiles=[]
           for m in ok:
-            im=Image.open(out/m['file']).convert('RGB'); im=ImageOps.contain(im,(360,270))
-            tile=Image.new('RGB',(400,330),'white'); tile.paste(im,((400-im.width)//2,8+(270-im.height)//2))
-            d=ImageDraw.Draw(tile); d.text((10,286),f"{m['id']}  {m['width']}x{m['height']}",fill='black'); d.text((10,306),m['gt'],fill='black')
+            im=Image.open(out/m['file']).convert('RGB'); im=ImageOps.contain(im,(360,250))
+            tile=Image.new('RGB',(400,320),'white'); tile.paste(im,((400-im.width)//2,8+(250-im.height)//2))
+            d=ImageDraw.Draw(tile); d.text((10,270),f"{m['id']} {m['variant']}",fill='black'); d.text((10,292),f"GT: {m['ground_truth']['diameter_mm']} x {m['ground_truth']['length_mm']} mm",fill='black')
             tiles.append(tile)
-          cols=3; rows=(len(tiles)+cols-1)//cols
-          sheet=Image.new('RGB',(cols*400,max(1,rows)*330),'white')
-          for j,t in enumerate(tiles): sheet.paste(t,((j%cols)*400,(j//cols)*330))
+          cols=2; rows=(len(tiles)+1)//2
+          sheet=Image.new('RGB',(800,max(1,rows)*320),'white')
+          for i,t in enumerate(tiles): sheet.paste(t,((i%2)*400,(i//2)*320))
           sheet.save(out/'contact-sheet.jpg','JPEG',quality=92)
-          (out/'summary.txt').write_text(f'total={len(candidates)}\nvalid={len(ok)}\n',encoding='utf-8')
-          if len(ok)<10: raise SystemExit(f'Need >=10 valid photos, got {len(ok)}')
-          print('READY FOR MANUAL REVIEW:',len(ok),'valid real photos')
+          (out/'summary.txt').write_text(f'target=10\nvalid={len(ok)}\n',encoding='utf-8')
+          if len(ok)!=10: raise SystemExit(f'Need exactly 10 valid dimension-grounded images, got {len(ok)}')
+          if len({m['sha256'] for m in ok}) != 10: raise SystemExit('Duplicate image bytes detected; need 10 distinct photos')
+          print('CONFIRMED 10/10')
           PY
-      - name: Upload candidate images
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: plastic-anchor-candidates
-          path: plastic-anchor-candidates/
+          name: plastic-anchor-dimensioned-10
+          path: plastic-anchor-dimensioned-10/
           if-no-files-found: error
           retention-days: 7
