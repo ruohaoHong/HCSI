@@ -1,33 +1,94 @@
 {
-  "version": "1.0",
+  "version": "pilot-5-v1",
   "policy": {
     "generated_images_allowed": false,
-    "notes": "All cases must use real product photography from external vendor/brand sources. Images are downloaded at runtime, validated, and are not committed to this repository."
+    "ground_truth_required": true,
+    "notes": "Every test case pairs a real product photograph with independently verifiable ground truth. AI answers are never used to establish ground truth."
   },
   "cases": [
     {
-      "id": "V01",
-      "category": "plumbing",
-      "expected_names": ["PVC tee", "PVC 三通", "三通管件", "tee fitting"],
+      "id": "HCSI-0001",
+      "image_url": "https://static.grainger.com/rp/s/is/image/Grainger/38CR01_AS01",
+      "source_page": "https://www.grainger.com/product/Flange-Bolts-Std-38CR01",
+      "ground_truth": {
+        "category": "fasteners",
+        "item_name": "hex flange bolt",
+        "specifications": {
+          "thread_size": "M8x1.25",
+          "length": "25 mm",
+          "material": "steel",
+          "grade": "Class 8.8",
+          "finish": "zinc-plated",
+          "thread_style": "partially threaded",
+          "standard": "DIN 6921"
+        }
+      }
+    },
+    {
+      "id": "HCSI-0002",
       "image_url": "https://static.grainger.com/rp/s/is/image/Grainger/22FK93_AS02",
-      "source": "Grainger product photography",
-      "must_not_infer": ["exact nominal size", "schedule", "brand from appearance alone"]
+      "source_page": "https://www.grainger.com/product/Tee-Pipe-Fitting-Schedule-22FK93",
+      "ground_truth": {
+        "category": "plumbing",
+        "item_name": "PVC Schedule 40 tee pipe fitting",
+        "specifications": {
+          "size": "1-1/2 in x 1-1/2 in x 1-1/2 in",
+          "material": "PVC",
+          "schedule": "40",
+          "connections": "socket x socket x socket"
+        }
+      }
     },
     {
-      "id": "V02",
-      "category": "building-hardware",
-      "expected_names": ["concealed cabinet hinge", "隱藏式鉸鏈", "櫥櫃鉸鏈", "杯鉸"],
+      "id": "HCSI-0003",
+      "image_url": "https://static.grainger.com/rp/s/is/image/Grainger/4RHA4_AS01",
+      "source_page": "https://www.grainger.com/product/STA-KON-Ring-Terminal-Vinyl-4RHA4",
+      "ground_truth": {
+        "category": "electrical",
+        "item_name": "vinyl-insulated ring terminal",
+        "specifications": {
+          "wire_size": "22 AWG to 18 AWG",
+          "stud_size": "#8",
+          "insulation": "red vinyl",
+          "contact_material": "copper",
+          "contact_finish": "tin",
+          "voltage": "600 V"
+        }
+      }
+    },
+    {
+      "id": "HCSI-0004",
       "image_url": "https://www.amerock.com/product/image/large/concealed-face-frame-hinge_amerock_3-4in-overlay-soft-close_bp9237scff_silo-primary_24.jpg",
-      "source": "Amerock product photography",
-      "must_not_infer": ["exact opening angle", "exact cup diameter unless visibly measurable", "load rating"]
+      "source_page": "https://www.shopamerock.com/product/ame-bp9237softclose/ame-bp9237scff/105-degree-3-4-inch-overlay-face-frame-soft-close-concealed-cabinet-hinge-pair-in-nickel",
+      "ground_truth": {
+        "category": "building-hardware",
+        "item_name": "concealed face-frame soft-close cabinet hinge",
+        "specifications": {
+          "model": "BP9237SCFF",
+          "overlay": "3/4 in",
+          "opening_angle": "105 degrees",
+          "material": "steel",
+          "finish": "nickel",
+          "closing": "soft-close"
+        }
+      }
     },
     {
-      "id": "V03",
-      "category": "general-repair",
-      "expected_names": ["worm gear hose clamp", "worm drive hose clamp", "喉箍", "管束", "束環"],
+      "id": "HCSI-0005",
       "image_url": "https://static.grainger.com/rp/s/is/image/Grainger/16P251__QX0K_v2",
-      "source": "Grainger product photography",
-      "must_not_infer": ["exact SAE number", "exact clamping diameter", "metal grade from appearance alone"]
+      "source_page": "https://www.grainger.com/product/Worm-Gear-Hose-Clamp-301-Stainless-16P251",
+      "ground_truth": {
+        "category": "general-repair",
+        "item_name": "worm gear hose clamp",
+        "specifications": {
+          "SAE_number": "19",
+          "inside_diameter_range": "3/4 in to 1-5/8 in",
+          "band_material": "301 stainless steel",
+          "screw_material": "410 stainless steel",
+          "band_width": "9/16 in",
+          "drive_type": "slotted hex"
+        }
+      }
     }
   ]
 }
