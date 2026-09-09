@@ -1,0 +1,46 @@
+name: Taiwan Common-10 Benchmark
+
+on:
+  push:
+    paths:
+      - 'benchmark/taiwan-common-10/**'
+      - '.github/workflows/taiwan-common-10.yml'
+  workflow_dispatch:
+
+jobs:
+  taiwan-common-10:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install image validator
+        run: python -m pip install --disable-pip-version-check pillow
+
+      - name: Verify secret exists
+        shell: bash
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY is not available to this workflow."
+            exit 1
+          fi
+          echo "OPENAI_API_KEY is available (value not printed)."
+
+      - name: Run Taiwan Common-10 benchmark
+        run: python benchmark/taiwan-common-10/run.py
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: taiwan-common-10-results
+          path: benchmark/taiwan-common-10/results.json
+          if-no-files-found: warn
+          retention-days: 14
