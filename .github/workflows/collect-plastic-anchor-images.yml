@@ -31,7 +31,6 @@ jobs:
 
           m01 = 'https://www.mobile01.com/topicdetail.php'
           candidates = [
-            # Taiwan Mobile01 user-uploaded real DIY photos.
             {'id':'TW01','url':'https://attach.mobile01.com/attach/201209/mobile01-09b31ce0176e717ca44864c16f615ace.jpg','source':m01+'?f=335&t=2960644','gt':'塑膠壁虎／塑膠塞子','basis':'Mobile01 DIY post explicitly identifies the photographed right-hand item as the included plastic wall anchor.'},
             {'id':'TW02','url':'https://attach.mobile01.com/attach/201209/mobile01-6582556846c281fd44f4e7d928bcdc07.jpg','source':m01+'?f=335&t=2960644','gt':'塑膠壁虎／塑膠塞子','basis':'Same Mobile01 DIY post; second user photo in the wall-anchor comparison.'},
             {'id':'TW03','url':'https://attach.mobile01.com/attach/201209/mobile01-d76607e912407038770a6c4dd00bb01f.jpg','source':m01+'?f=335&t=2960644','gt':'塑膠壁虎／塑膠塞子','basis':'Reply immediately labels this photographed object as a household plastic plug; states 6.5 mm drill size.'},
@@ -47,6 +46,9 @@ jobs:
             ('CM06','Дюбели.JPG','壁虎／牆塞','Wikimedia Commons own-work photograph categorized as Wall plugs.'),
             ('CM07','Wall plugs plastic.jpg','塑膠壁虎','Wikimedia Commons photograph explicitly described as Rawlplug wall plugs; metadata says directly photographed image.'),
             ('CM08','Tasselli wall plug.jpg','塑膠與金屬壁虎','Wikimedia Commons own-work photograph explicitly described as plastic and metal wall plugs.'),
+            ('CM09','Pluggen 4-14 mm.png','4–14 mm 尼龍塑膠壁虎','Wikimedia Commons own-work photo explicitly describes ordinary nylon plugs in eight sizes: 4,5,6,7,8,10,12,14 mm.'),
+            ('CM10','Fixing plugs.JPG','塑膠固定壁虎','Wikimedia Commons own-work photo explicitly describes fixing plugs of different designs for hard materials such as concrete or stone.'),
+            ('CM11','Duebel Mehrzweck IMGP0895.jpg','多用途塑膠壁虎','Wikimedia Commons own-work photo of multipurpose wall plugs for cavities and solid building materials.'),
           ]
           for ident, filename, gt, basis in commons_files:
             candidates.append({
@@ -60,7 +62,7 @@ jobs:
           out=Path('plastic-anchor-candidates'); out.mkdir(exist_ok=True)
           s=requests.Session(); s.headers.update({'User-Agent':'HCSI benchmark collector/1.0 (real-photo validation)'})
           manifest=[]
-          for i,c in enumerate(candidates,1):
+          for c in candidates:
             try:
               r=s.get(c['url'],headers={'Referer':c['source']},timeout=60,allow_redirects=True)
               if r.status_code!=200: raise RuntimeError(f'HTTP {r.status_code}')
@@ -77,8 +79,6 @@ jobs:
 
           ok=[m for m in manifest if m.get('ok')]
           (out/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
-
-          # One visual review sheet of every successfully downloaded file.
           tiles=[]
           for m in ok:
             im=Image.open(out/m['file']).convert('RGB'); im=ImageOps.contain(im,(360,270))
