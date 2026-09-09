@@ -1,3 +1,0 @@
-sample_id,known_nominal,assumed_thread_for_theory,pitch_px_median,pitch_px_mad,crest_diameter_px_median,crest_diameter_px_mad,measured_p_over_d,theoretical_p_over_d,notes
-known-mobile-5-16,5/16,"5/16-18 provisional",22.0,3.0,122.3333,0.6667,0.1798365,0.1777778,"Nominal 5/16 is known from user. Exact TPI must be independently confirmed before treating theoretical comparison as ground truth. First-pass ROI was partially oblique and reflective."
-known-mobile-m8,M8,M8x1.25,21.0,1.5,128.3333,4.0,0.1636364,0.15625,"Known M8 mobile photo. First-pass silhouette/crest method; measured ratio is in the expected direction but biased upward relative to M8 coarse theory."
