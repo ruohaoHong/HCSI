@@ -1,0 +1,46 @@
+name: OpenAI Vision Smoke Benchmark
+
+on:
+  push:
+    paths:
+      - 'benchmark/openai-vision-smoke/**'
+      - '.github/workflows/openai-vision-smoke.yml'
+  workflow_dispatch:
+
+jobs:
+  vision-smoke:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install image validator
+        run: python -m pip install --disable-pip-version-check pillow
+
+      - name: Verify secret exists
+        shell: bash
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY is not available to this workflow."
+            exit 1
+          fi
+          echo "OPENAI_API_KEY is available (value not printed)."
+
+      - name: Run real-photo vision smoke benchmark
+        run: python benchmark/openai-vision-smoke/run.py
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openai-vision-smoke-results
+          path: benchmark/openai-vision-smoke/results.json
+          if-no-files-found: warn
+          retention-days: 14
