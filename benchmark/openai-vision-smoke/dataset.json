@@ -8,19 +8,17 @@
   "cases": [
     {
       "id": "HCSI-0001",
-      "image_url": "https://static.grainger.com/rp/s/is/image/Grainger/38CR01_AS01",
-      "source_page": "https://www.grainger.com/product/Flange-Bolts-Std-38CR01",
+      "image_url": "https://cdn11.bigcommerce.com/s-scmrv6kkrz/images/stencil/original/products/206517/179064/m8-125-x-25-mm-flange-bolt-979812525__93572.1568390794.jpg?c=2",
+      "source_page": "https://hi-line.com/m8-1-25-x-25-mm-flange-bolt/",
       "ground_truth": {
         "category": "fasteners",
-        "item_name": "hex flange bolt",
+        "item_name": "M8-1.25 x 25 mm flange bolt",
         "specifications": {
-          "thread_size": "M8x1.25",
+          "thread_size": "M8-1.25",
           "length": "25 mm",
           "material": "steel",
-          "grade": "Class 8.8",
-          "finish": "zinc-plated",
-          "thread_style": "partially threaded",
-          "standard": "DIN 6921"
+          "grade": "Class 10.9",
+          "drive_type": "socket"
         }
       }
     },
@@ -41,18 +39,18 @@
     },
     {
       "id": "HCSI-0003",
-      "image_url": "https://static.grainger.com/rp/s/is/image/Grainger/4RHA4_AS01",
-      "source_page": "https://www.grainger.com/product/STA-KON-Ring-Terminal-Vinyl-4RHA4",
+      "image_url": "https://cdn11.bigcommerce.com/s-scmrv6kkrz/images/stencil/original/products/189897/162555/22-18-awg-no-8-stud-size-ring-terminal-vinyl-insulated-2a145__23697.1568390217.jpg?c=2",
+      "source_page": "https://hi-line.com/22-18-awg-8-stud-size-ring-terminal-vinyl-insulated/",
       "ground_truth": {
         "category": "electrical",
         "item_name": "vinyl-insulated ring terminal",
         "specifications": {
-          "wire_size": "22 AWG to 18 AWG",
+          "wire_size": "22-18 AWG",
           "stud_size": "#8",
-          "insulation": "red vinyl",
-          "contact_material": "copper",
-          "contact_finish": "tin",
-          "voltage": "600 V"
+          "insulation": "red PVC/vinyl",
+          "material": "copper",
+          "finish": "tin",
+          "voltage": "600 VAC"
         }
       }
     },
