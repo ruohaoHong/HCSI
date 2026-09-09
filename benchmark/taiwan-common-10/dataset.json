@@ -1,0 +1,199 @@
+{
+  "version": "taiwan-common-10-v1",
+  "purpose": "Measure whether a vision model can identify common parts in terms useful for buying a compatible replacement from Taiwanese hardware, plumbing, electrical, or building-hardware shops.",
+  "policy": {
+    "generated_images_allowed": false,
+    "ground_truth_required": true,
+    "ground_truth_established_before_inference": true,
+    "taiwan_market_sources_preferred": true,
+    "brand_identification_required": false,
+    "notes": "Ground truth comes from Taiwanese retail/manufacturer product pages. Brand/model data is evidence for the dataset, not a required model answer. Exact specifications that are not visually recoverable may be answered as unknown without being treated as hallucination."
+  },
+  "cases": [
+    {
+      "id": "TW-C10-01",
+      "category_group": "fasteners",
+      "source_page": "https://shop.zhenyu.com.tw/tw/product/6Z6S4015",
+      "image_hint": "6Z6S4015",
+      "source_type": "Taiwan hardware retailer",
+      "ground_truth": {
+        "category": "fasteners",
+        "taiwan_purchase_name": "白鐵六角頭螺絲",
+        "accepted_names_zh_tw": ["六角頭螺絲", "白鐵六角螺絲", "六角螺栓"],
+        "technical_identity_en": "stainless steel hex-head bolt/screw",
+        "source_product_name": "螺絲 六角頭 白鐵",
+        "specifications": {
+          "material": "白鐵／不鏽鋼",
+          "head_style": "六角頭"
+        }
+      }
+    },
+    {
+      "id": "TW-C10-02",
+      "category_group": "fasteners",
+      "source_page": "https://shop.zhenyu.com.tw/tw/product/41CWS2",
+      "image_hint": "41CWS2",
+      "source_type": "Taiwan hardware retailer",
+      "ground_truth": {
+        "category": "fasteners",
+        "taiwan_purchase_name": "白鐵A式壁虎",
+        "accepted_names_zh_tw": ["壁虎", "膨脹螺絲", "白鐵壁虎", "A式壁虎"],
+        "technical_identity_en": "stainless steel expansion anchor",
+        "source_product_name": "壁虎 白鐵Ａ式 2分",
+        "specifications": {
+          "size": "2分",
+          "material": "白鐵／不鏽鋼"
+        }
+      }
+    },
+    {
+      "id": "TW-C10-03",
+      "category_group": "plumbing",
+      "source_page": "https://shop.zhenyu.com.tw/tw/product/4WRP306",
+      "image_hint": "4WRP306",
+      "source_type": "Taiwan hardware retailer",
+      "ground_truth": {
+        "category": "plumbing",
+        "taiwan_purchase_name": "PVC三通",
+        "accepted_names_zh_tw": ["PVC三通", "三通 PVC", "PVC T型三通"],
+        "technical_identity_en": "PVC tee fitting",
+        "source_product_name": "三通 PVC OT 3/4吋 20mm",
+        "specifications": {
+          "material": "PVC",
+          "size": "3/4吋／20mm",
+          "shape": "三通"
+        }
+      }
+    },
+    {
+      "id": "TW-C10-04",
+      "category_group": "plumbing",
+      "source_page": "https://shop.zhenyu.com.tw/tw/product/4WZ0P2",
+      "image_hint": "4WZ0P2",
+      "source_type": "Taiwan hardware retailer",
+      "ground_truth": {
+        "category": "plumbing",
+        "taiwan_purchase_name": "PVC凡而",
+        "accepted_names_zh_tw": ["PVC凡而", "PVC球閥", "PVC球塞閥", "PVC閥門"],
+        "technical_identity_en": "PVC ball valve",
+        "source_product_name": "凡而 PVC LD-828",
+        "specifications": {
+          "material": "PVC",
+          "valve_type": "球閥"
+        }
+      }
+    },
+    {
+      "id": "TW-C10-05",
+      "category_group": "electrical",
+      "source_page": "https://www.chientai.com.tw/products/terminal/insulated-ring-terminals/rf-2-4/",
+      "image_url": "https://res.cloudinary.com/chientai/image/upload/c_limit%2Cw_400/f_auto/q_auto/chientai_2_F7fd80b8b_fbca_46d2_bcfc_a6ba5f36d1ed_kc_038_dd5a3dcfc5?_a=BAVAr0Gd0",
+      "source_type": "Taiwan manufacturer",
+      "ground_truth": {
+        "category": "electrical",
+        "taiwan_purchase_name": "R型絕緣端子",
+        "accepted_names_zh_tw": ["R型絕緣端子", "圓型絕緣端子", "O型絕緣端子", "環形端子"],
+        "technical_identity_en": "insulated ring terminal",
+        "source_product_name": "RF 2-4",
+        "specifications": {
+          "wire_size": "2 mm²",
+          "stud_hole": "4 mm",
+          "awg": "16-14"
+        }
+      }
+    },
+    {
+      "id": "TW-C10-06",
+      "category_group": "electrical",
+      "source_page": "https://www.kss.com.tw/index.php?action=products4&cid=370&fid=6&id=9090&sid=115",
+      "image_url": "https://www.kss.com.tw/upload/product/0606-1-2.jpg",
+      "source_type": "Taiwan manufacturer",
+      "ground_truth": {
+        "category": "electrical",
+        "taiwan_purchase_name": "電纜固定頭",
+        "accepted_names_zh_tw": ["電纜固定頭", "電纜防水接頭", "Cable Gland"],
+        "technical_identity_en": "nylon cable gland",
+        "source_product_name": "CEG-13.5 電纜固定頭",
+        "specifications": {
+          "thread": "PG13.5",
+          "cable_outer_diameter": "6-12 mm",
+          "material": "NYLON 66",
+          "protection": "IP68"
+        }
+      }
+    },
+    {
+      "id": "TW-C10-07",
+      "category_group": "building-hardware",
+      "source_page": "https://shop.zhenyu.com.tw/tw/product/1ZRWSB6",
+      "image_hint": "1ZRWSB6",
+      "source_type": "Taiwan hardware retailer",
+      "ground_truth": {
+        "category": "building-hardware",
+        "taiwan_purchase_name": "寬角角鐵",
+        "accepted_names_zh_tw": ["寬角角鐵", "L型角鐵", "L型角碼", "角碼"],
+        "technical_identity_en": "L-shaped angle bracket",
+        "source_product_name": "寬角角鐵 45×45mm",
+        "specifications": {
+          "nominal_size": "45×45 mm",
+          "shape": "L型"
+        }
+      }
+    },
+    {
+      "id": "TW-C10-08",
+      "category_group": "building-hardware",
+      "source_page": "https://shop.zhenyu.com.tw/tw/product/11D1RH1479C",
+      "image_hint": "11D1RH1479C",
+      "source_type": "Taiwan hardware retailer",
+      "ground_truth": {
+        "category": "building-hardware",
+        "taiwan_purchase_name": "可拆西德後鈕（入柱）",
+        "accepted_names_zh_tw": ["西德後鈕", "西德鉸鏈", "隱藏式鉸鏈", "櫥櫃鉸鏈"],
+        "technical_identity_en": "detachable concealed cabinet hinge, inset type",
+        "source_product_name": "可拆西德後鈕 入柱 RH1479C 35mm 2入",
+        "specifications": {
+          "cup_hole": "35 mm",
+          "mounting_type": "入柱／inset",
+          "detachable": "是"
+        }
+      }
+    },
+    {
+      "id": "TW-C10-09",
+      "category_group": "general-repair",
+      "source_page": "https://shop.zhenyu.com.tw/tw/product/4EGSF7",
+      "image_hint": "4EGSF7",
+      "source_type": "Taiwan hardware retailer",
+      "ground_truth": {
+        "category": "general-repair",
+        "taiwan_purchase_name": "ST起子式管束（美式）",
+        "accepted_names_zh_tw": ["起子式管束", "美式管束", "白鐵管束", "管夾"],
+        "technical_identity_en": "worm-drive hose clamp",
+        "source_product_name": "管束 ST 起子式（有孔 美）",
+        "specifications": {
+          "mechanism": "蝸桿／螺絲起子式",
+          "band_style": "有孔"
+        }
+      }
+    },
+    {
+      "id": "TW-C10-10",
+      "category_group": "general-repair",
+      "source_page": "https://shop.zhenyu.com.tw/tw/product/4EGE04",
+      "image_hint": "4EGE04",
+      "source_type": "Taiwan hardware retailer",
+      "ground_truth": {
+        "category": "general-repair",
+        "taiwan_purchase_name": "鋼線管束",
+        "accepted_names_zh_tw": ["鋼線管束", "鋼絲管束", "鋼線管夾"],
+        "technical_identity_en": "wire hose clamp",
+        "source_product_name": "管束 鋼線 4分 13MM",
+        "specifications": {
+          "size": "4分／13 mm",
+          "construction": "鋼線式"
+        }
+      }
+    }
+  ]
+}
