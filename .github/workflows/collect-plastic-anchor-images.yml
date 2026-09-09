@@ -21,157 +21,140 @@ jobs:
           python-version: '3.12'
 
       - name: Install image tools
-        run: pip install pillow requests
+        run: pip install pillow requests beautifulsoup4
 
-      - name: Download and validate candidate photos
+      - name: Discover, download, and validate real forum photos
         env:
           PYTHONUNBUFFERED: '1'
         run: |
           python - <<'PY'
           from pathlib import Path
-          import hashlib, json, io
+          import hashlib, json, io, re, html
           import requests
+          from bs4 import BeautifulSoup
           from PIL import Image, ImageOps, ImageDraw
 
-          candidates = [
-            {
-              'id': 'C01',
-              'url': 'https://i.imgur.com/kB7xjYJ.jpeg',
-              'source': 'https://www.ptt.cc/bbs/e-shopping/M.1700402254.A.093.html',
-              'note': 'PTT user photo; post explicitly says this is the 6 mm wall anchor they bought.'
-            },
-            {
-              'id': 'C02',
-              'url': 'https://i.imgur.com/ZMA30Ye.jpeg',
-              'source': 'https://www.ptt.cc/bbs/FixMyHouse/M.1729942004.A.3F0.html',
-              'note': 'PTT user photo; post explicitly calls this the included green wall anchor.'
-            },
-            {
-              'id': 'C03',
-              'url': 'https://i.imgur.com/zjkWl8N.jpg',
-              'source': 'https://www.ptt.cc/bbs/FixMyHouse/M.1700365154.A.B4B.html',
-              'note': 'PTT user photo explicitly captioned plastic wall anchor.'
-            },
-            {
-              'id': 'C04',
-              'url': 'https://i.imgur.com/tccFzzy.jpg',
-              'source': 'https://www.ptt.cc/bbs/FixMyHouse/M.1700365154.A.B4B.html',
-              'note': 'PTT user photo explicitly captioned plastic wall anchor and masonry bit.'
-            },
-            {
-              'id': 'C05',
-              'url': 'https://i.imgur.com/8uzO1Mp.jpg',
-              'source': 'https://www.ptt.cc/bbs/FixMyHouse/M.1700365154.A.B4B.html',
-              'note': 'PTT user comparison photo with the same physical plastic wall anchor and drill bits.'
-            },
-            {
-              'id': 'C06',
-              'url': 'https://i.imgur.com/nlKPIoz.jpeg',
-              'source': 'https://www.ptt.cc/bbs/FixMyHouse/M.1734960751.A.8DD.html',
-              'note': 'PTT user photo; post discusses this physical wall anchor and its open tip.'
-            },
-            {
-              'id': 'C07',
-              'url': 'https://i.imgur.com/dYhny2L.jpeg',
-              'source': 'https://www.ptt.cc/bbs/FixMyHouse/M.1734960751.A.8DD.html',
-              'note': 'PTT user photo; post discusses this physical wall anchor and its closed tip.'
-            },
-            {
-              'id': 'C08',
-              'url': 'https://i.imgur.com/wX2IwOr.jpg',
-              'source': 'https://www.ptt.cc/bbs/PC_Shopping/M.1652118729.A.221.html',
-              'note': 'PTT user photo; post identifies supplied grey plastic anchor as 10 x 50 mm.'
-            },
-            {
-              'id': 'C09',
-              'url': 'https://attach.mobile01.com/attach/201209/mobile01-09b31ce0176e717ca44864c16f615ace.jpg',
-              'source': 'https://www.mobile01.com/topicdetail.php?f=335&t=2960644',
-              'note': 'Mobile01 DIY user photo; text immediately identifies the right-hand item as a plastic wall anchor.'
-            },
-            {
-              'id': 'C10',
-              'url': 'https://attach.mobile01.com/attach/201209/mobile01-6582556846c281fd44f4e7d928bcdc07.jpg',
-              'source': 'https://www.mobile01.com/topicdetail.php?f=335&t=2960644',
-              'note': 'Second Mobile01 user photo in the same real DIY wall-anchor comparison.'
-            },
-            {
-              'id': 'C11',
-              'url': 'https://attach.mobile01.com/attach/201209/mobile01-d76607e912407038770a6c4dd00bb01f.jpg',
-              'source': 'https://www.mobile01.com/topicdetail.php?f=335&t=2960644',
-              'note': 'Mobile01 reply photo immediately under text calling this a household plastic plug/anchor.'
-            },
-            {
-              'id': 'C12',
-              'url': 'https://attach.mobile01.com/attach/201802/mobile01-e1c19ad2dc9c719bae73511eb04a9885.jpg',
-              'source': 'https://www.mobile01.com/topicdetail.php?f=360&p=2&t=5399743',
-              'note': 'Mobile01 user comparison photo showing a white nylon self-drilling wall anchor.'
-            },
+          # Taiwan DIY/forum threads whose surrounding text explicitly discusses
+          # plastic wall anchors / wall plugs. We scrape their user-uploaded
+          # Mobile01 attachment images, then inspect them manually before any API test.
+          pages = [
+            ('M01-2960644', 'https://www.mobile01.com/topicdetail.php?f=335&t=2960644'),
+            ('M01-5947967', 'https://www.mobile01.com/topicdetail.php?f=335&t=5947967'),
+            ('M01-4337513', 'https://www.mobile01.com/topicdetail.php?f=335&t=4337513'),
+            ('M01-835653',  'https://www.mobile01.com/topicdetail.php?f=335&t=835653'),
+            ('M01-6083434', 'https://www.mobile01.com/topicdetail.php?f=335&t=6083434'),
+            ('M01-2799217', 'https://www.mobile01.com/topicdetail.php?f=335&t=2799217'),
+            ('M01-7225758', 'https://www.mobile01.com/topicdetail.php?f=335&t=7225758'),
+            ('M01-5925833', 'https://www.mobile01.com/topicdetail.php?f=335&t=5925833'),
+            ('M01-1842771', 'https://www.mobile01.com/topicdetail.php?f=335&t=1842771'),
+            ('M01-2530569', 'https://www.mobile01.com/topicdetail.php?f=635&t=2530569'),
+            ('M01-5399743p2', 'https://www.mobile01.com/topicdetail.php?f=360&p=2&t=5399743'),
+          ]
+
+          # Four already-proven direct attachments from the first pass are kept
+          # even if a page changes its HTML later.
+          seeded = [
+            ('seed-01','https://attach.mobile01.com/attach/201209/mobile01-09b31ce0176e717ca44864c16f615ace.jpg','https://www.mobile01.com/topicdetail.php?f=335&t=2960644'),
+            ('seed-02','https://attach.mobile01.com/attach/201209/mobile01-6582556846c281fd44f4e7d928bcdc07.jpg','https://www.mobile01.com/topicdetail.php?f=335&t=2960644'),
+            ('seed-03','https://attach.mobile01.com/attach/201209/mobile01-d76607e912407038770a6c4dd00bb01f.jpg','https://www.mobile01.com/topicdetail.php?f=335&t=2960644'),
+            ('seed-04','https://attach.mobile01.com/attach/201802/mobile01-e1c19ad2dc9c719bae73511eb04a9885.jpg','https://www.mobile01.com/topicdetail.php?f=360&p=2&t=5399743'),
           ]
 
           out = Path('plastic-anchor-candidates')
           out.mkdir(exist_ok=True)
-          session = requests.Session()
-          session.headers.update({'User-Agent': 'Mozilla/5.0 HCSI benchmark image collector'})
-          manifest = []
+          s = requests.Session()
+          s.headers.update({'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130 Safari/537.36'})
 
-          for c in candidates:
-            print(f"Downloading {c['id']} {c['url']}")
+          discovered = []
+          seen = set()
+          for ident, url, source in seeded:
+            discovered.append({'id':ident,'url':url,'source':source,'origin':'seed'})
+            seen.add(url)
+
+          # Scrape only Mobile01 user-uploaded attachment hosts. This deliberately
+          # excludes avatars, emojis, ads, and unrelated CDN graphics.
+          attachment_re = re.compile(r'https?://attach\.mobile01\.com/attach/[^\"\'<> ]+?\.(?:jpe?g|png|webp)', re.I)
+          for page_id, page_url in pages:
+            print('PAGE', page_id, page_url)
             try:
-              headers = {'Referer': c['source']}
-              r = session.get(c['url'], headers=headers, timeout=40)
-              status = r.status_code
-              ct = r.headers.get('content-type', '')
-              if status != 200:
-                raise RuntimeError(f'HTTP {status}')
-              if len(r.content) < 1000:
-                raise RuntimeError(f'too small: {len(r.content)} bytes')
-              img = Image.open(io.BytesIO(r.content))
-              img.load()
-              w, h = img.size
-              if w < 180 or h < 180:
-                raise RuntimeError(f'image too small: {w}x{h}')
-              fmt = (img.format or 'JPEG').upper()
-              ext = '.png' if fmt == 'PNG' else '.jpg'
-              path = out / f"{c['id']}{ext}"
-              if fmt == 'PNG':
-                img.save(path, 'PNG')
-              else:
-                img.convert('RGB').save(path, 'JPEG', quality=95)
-              sha = hashlib.sha256(path.read_bytes()).hexdigest()
-              row = {**c, 'ok': True, 'http_status': status, 'content_type': ct,
-                     'width': w, 'height': h, 'sha256': sha, 'file': path.name}
-              print(f"OK {c['id']}: {w}x{h}, {path.stat().st_size} bytes")
+              r = s.get(page_url, timeout=40)
+              print(' page status', r.status_code, 'bytes', len(r.content))
+              r.raise_for_status()
+              text = html.unescape(r.text.replace('\\/','/'))
+              urls = set(attachment_re.findall(text))
+              # Also inspect src/data-src/href values in case URLs are relative.
+              soup = BeautifulSoup(r.text, 'html.parser')
+              for tag in soup.find_all(['img','a','source']):
+                for attr in ('src','data-src','data-original','href','srcset'):
+                  val = tag.get(attr)
+                  if not val: continue
+                  vals = str(val).split(',')
+                  for vv in vals:
+                    candidate = html.unescape(vv.strip().split(' ')[0]).replace('\\/','/')
+                    if candidate.startswith('//attach.mobile01.com/'):
+                      candidate = 'https:' + candidate
+                    if candidate.startswith('https://attach.mobile01.com/attach/') and re.search(r'\.(jpe?g|png|webp)(?:\?|$)', candidate, re.I):
+                      candidate = candidate.split('?')[0]
+                      urls.add(candidate)
+              print(' attachments found', len(urls))
+              for u in sorted(urls):
+                u = u.split('?')[0]
+                if u in seen: continue
+                seen.add(u)
+                discovered.append({'id':f'{page_id}-{len(discovered)+1:03d}','url':u,'source':page_url,'origin':'scraped'})
             except Exception as e:
-              row = {**c, 'ok': False, 'error': str(e)}
-              print(f"FAIL {c['id']}: {e}")
+              print(' page failed:', e)
+
+          print('TOTAL DISCOVERED', len(discovered))
+          manifest=[]
+          for idx,c in enumerate(discovered, 1):
+            try:
+              r=s.get(c['url'], headers={'Referer':c['source']}, timeout=40)
+              if r.status_code != 200: raise RuntimeError(f'HTTP {r.status_code}')
+              if len(r.content) < 1500: raise RuntimeError(f'too small {len(r.content)}')
+              im=Image.open(io.BytesIO(r.content)); im.load()
+              w,h=im.size
+              if w < 180 or h < 180: raise RuntimeError(f'dimensions {w}x{h}')
+              # Exclude tiny square profile/avatar-like graphics; article photos can
+              # still be square, so only a conservative size threshold is used.
+              fname=f'P{idx:03d}.jpg'
+              p=out/fname
+              im.convert('RGB').save(p,'JPEG',quality=95)
+              sha=hashlib.sha256(p.read_bytes()).hexdigest()
+              row={**c,'ok':True,'file':fname,'width':w,'height':h,'bytes':p.stat().st_size,'sha256':sha}
+              print('OK',fname,w,h,c['url'])
+            except Exception as e:
+              row={**c,'ok':False,'error':str(e)}
+              print('FAIL',c['url'],e)
             manifest.append(row)
 
-          ok = [m for m in manifest if m['ok']]
-          (out / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
+          ok=[x for x in manifest if x.get('ok')]
+          (out/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
+          (out/'summary.txt').write_text(f'discovered={len(discovered)}\nvalid={len(ok)}\n',encoding='utf-8')
 
-          if len(ok) < 10:
-            raise SystemExit(f'Only {len(ok)} valid images downloaded; need at least 10')
+          # Contact sheets, 12 images per sheet, for manual visual selection.
+          per_sheet=12
+          for start in range(0,len(ok),per_sheet):
+            batch=ok[start:start+per_sheet]
+            tiles=[]
+            for m in batch:
+              im=Image.open(out/m['file']).convert('RGB')
+              im=ImageOps.contain(im,(360,270))
+              tile=Image.new('RGB',(400,330),'white')
+              tile.paste(im,((400-im.width)//2,8+(270-im.height)//2))
+              d=ImageDraw.Draw(tile)
+              label=f"{m['file']} | {m['id']} | {m['width']}x{m['height']}"
+              d.text((8,286),label,fill='black')
+              d.text((8,306),m['source'].split('t=')[-1][:24],fill='black')
+              tiles.append(tile)
+            cols=3; rows=(len(tiles)+cols-1)//cols
+            sheet=Image.new('RGB',(cols*400,rows*330),'white')
+            for i,t in enumerate(tiles): sheet.paste(t,((i%cols)*400,(i//cols)*330))
+            sheet.save(out/f'contact-sheet-{start//per_sheet+1:02d}.jpg','JPEG',quality=92)
 
-          # Create contact sheet for human review; no semantic image generation/editing.
-          thumbs = []
-          for m in ok:
-            im = Image.open(out / m['file']).convert('RGB')
-            im = ImageOps.contain(im, (420, 320))
-            canvas = Image.new('RGB', (460, 390), 'white')
-            x = (460 - im.width)//2
-            y = 10 + (320 - im.height)//2
-            canvas.paste(im, (x, y))
-            d = ImageDraw.Draw(canvas)
-            d.text((12, 342), f"{m['id']}  {m['width']}x{m['height']}", fill='black')
-            d.text((12, 362), m['source'][:60], fill='black')
-            thumbs.append(canvas)
-          cols = 2
-          rows = (len(thumbs)+cols-1)//cols
-          sheet = Image.new('RGB', (cols*460, rows*390), 'white')
-          for i,im in enumerate(thumbs):
-            sheet.paste(im, ((i%cols)*460, (i//cols)*390))
-          sheet.save(out / 'contact-sheet.jpg', 'JPEG', quality=92)
-          print(f'Downloaded {len(ok)} valid candidate images')
+          if not ok:
+            raise SystemExit('No valid photos downloaded')
+          print('VALID DOWNLOADS',len(ok))
           PY
 
       - name: Upload candidate images
