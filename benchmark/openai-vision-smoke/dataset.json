@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "policy": {
+    "generated_images_allowed": false,
+    "notes": "All cases must use real product photography from external vendor/brand sources. Images are downloaded at runtime, validated, and are not committed to this repository."
+  },
+  "cases": [
+    {
+      "id": "V01",
+      "category": "plumbing",
+      "expected_names": ["PVC tee", "PVC 三通", "三通管件", "tee fitting"],
+      "image_url": "https://static.grainger.com/rp/s/is/image/Grainger/22FK93_AS02",
+      "source": "Grainger product photography",
+      "must_not_infer": ["exact nominal size", "schedule", "brand from appearance alone"]
+    },
+    {
+      "id": "V02",
+      "category": "building-hardware",
+      "expected_names": ["concealed cabinet hinge", "隱藏式鉸鏈", "櫥櫃鉸鏈", "杯鉸"],
+      "image_url": "https://www.amerock.com/product/image/large/concealed-face-frame-hinge_amerock_3-4in-overlay-soft-close_bp9237scff_silo-primary_24.jpg",
+      "source": "Amerock product photography",
+      "must_not_infer": ["exact opening angle", "exact cup diameter unless visibly measurable", "load rating"]
+    },
+    {
+      "id": "V03",
+      "category": "general-repair",
+      "expected_names": ["worm gear hose clamp", "worm drive hose clamp", "喉箍", "管束", "束環"],
+      "image_url": "https://static.grainger.com/rp/s/is/image/Grainger/16P251__QX0K_v2",
+      "source": "Grainger product photography",
+      "must_not_infer": ["exact SAE number", "exact clamping diameter", "metal grade from appearance alone"]
+    }
+  ]
+}
