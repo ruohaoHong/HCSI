@@ -14,149 +14,85 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Install image tools
-        run: pip install pillow requests beautifulsoup4
-
-      - name: Discover, download, and validate real forum photos
+      - run: pip install pillow requests
+      - name: Download and validate real plastic wall-anchor photos
         env:
           PYTHONUNBUFFERED: '1'
         run: |
           python - <<'PY'
           from pathlib import Path
-          import hashlib, json, io, re, html
+          from urllib.parse import quote
+          import hashlib, json, io
           import requests
-          from bs4 import BeautifulSoup
           from PIL import Image, ImageOps, ImageDraw
 
-          # Taiwan DIY/forum threads whose surrounding text explicitly discusses
-          # plastic wall anchors / wall plugs. We scrape their user-uploaded
-          # Mobile01 attachment images, then inspect them manually before any API test.
-          pages = [
-            ('M01-2960644', 'https://www.mobile01.com/topicdetail.php?f=335&t=2960644'),
-            ('M01-5947967', 'https://www.mobile01.com/topicdetail.php?f=335&t=5947967'),
-            ('M01-4337513', 'https://www.mobile01.com/topicdetail.php?f=335&t=4337513'),
-            ('M01-835653',  'https://www.mobile01.com/topicdetail.php?f=335&t=835653'),
-            ('M01-6083434', 'https://www.mobile01.com/topicdetail.php?f=335&t=6083434'),
-            ('M01-2799217', 'https://www.mobile01.com/topicdetail.php?f=335&t=2799217'),
-            ('M01-7225758', 'https://www.mobile01.com/topicdetail.php?f=335&t=7225758'),
-            ('M01-5925833', 'https://www.mobile01.com/topicdetail.php?f=335&t=5925833'),
-            ('M01-1842771', 'https://www.mobile01.com/topicdetail.php?f=335&t=1842771'),
-            ('M01-2530569', 'https://www.mobile01.com/topicdetail.php?f=635&t=2530569'),
-            ('M01-5399743p2', 'https://www.mobile01.com/topicdetail.php?f=360&p=2&t=5399743'),
+          m01 = 'https://www.mobile01.com/topicdetail.php'
+          candidates = [
+            # Taiwan Mobile01 user-uploaded real DIY photos.
+            {'id':'TW01','url':'https://attach.mobile01.com/attach/201209/mobile01-09b31ce0176e717ca44864c16f615ace.jpg','source':m01+'?f=335&t=2960644','gt':'塑膠壁虎／塑膠塞子','basis':'Mobile01 DIY post explicitly identifies the photographed right-hand item as the included plastic wall anchor.'},
+            {'id':'TW02','url':'https://attach.mobile01.com/attach/201209/mobile01-6582556846c281fd44f4e7d928bcdc07.jpg','source':m01+'?f=335&t=2960644','gt':'塑膠壁虎／塑膠塞子','basis':'Same Mobile01 DIY post; second user photo in the wall-anchor comparison.'},
+            {'id':'TW03','url':'https://attach.mobile01.com/attach/201209/mobile01-d76607e912407038770a6c4dd00bb01f.jpg','source':m01+'?f=335&t=2960644','gt':'塑膠壁虎／塑膠塞子','basis':'Reply immediately labels this photographed object as a household plastic plug; states 6.5 mm drill size.'},
+            {'id':'TW04','url':'https://attach.mobile01.com/attach/201802/mobile01-e1c19ad2dc9c719bae73511eb04a9885.jpg','source':m01+'?f=360&p=2&t=5399743','gt':'尼龍／塑膠牆體固定壁虎','basis':'Mobile01 user-taken comparison photo in a wall-fixing discussion; white nylon plastic anchor is visible.'},
           ]
 
-          # Four already-proven direct attachments from the first pass are kept
-          # even if a page changes its HTML later.
-          seeded = [
-            ('seed-01','https://attach.mobile01.com/attach/201209/mobile01-09b31ce0176e717ca44864c16f615ace.jpg','https://www.mobile01.com/topicdetail.php?f=335&t=2960644'),
-            ('seed-02','https://attach.mobile01.com/attach/201209/mobile01-6582556846c281fd44f4e7d928bcdc07.jpg','https://www.mobile01.com/topicdetail.php?f=335&t=2960644'),
-            ('seed-03','https://attach.mobile01.com/attach/201209/mobile01-d76607e912407038770a6c4dd00bb01f.jpg','https://www.mobile01.com/topicdetail.php?f=335&t=2960644'),
-            ('seed-04','https://attach.mobile01.com/attach/201802/mobile01-e1c19ad2dc9c719bae73511eb04a9885.jpg','https://www.mobile01.com/topicdetail.php?f=360&p=2&t=5399743'),
+          commons_files = [
+            ('CM01','S-Plug 8mm.jpg','8 mm 尼龍塑膠壁虎','Wikimedia Commons own-work photo; file description identifies fischer S-Plug 8mm, a nylon wall plug.'),
+            ('CM02','Taco de plástico.JPG','塑膠壁虎','Wikimedia Commons own-work photograph explicitly described as wall plug made of plastic.'),
+            ('CM03','Tacos material macizo.JPG','塑膠壁虎','Wikimedia Commons own-work photograph explicitly described as plastic wallplugs for masonry/solid material.'),
+            ('CM04','Tarugos.JPG','塑膠壁虎／螺絲壁虎','Wikimedia Commons own-work photograph explicitly described as wall plugs or screw anchors.'),
+            ('CM05','Thorsman-plugg.jpg','塑膠壁虎','Wikimedia Commons own-work photograph; description identifies color-coded Thorsman plugs for brick/concrete.'),
+            ('CM06','Дюбели.JPG','壁虎／牆塞','Wikimedia Commons own-work photograph categorized as Wall plugs.'),
+            ('CM07','Wall plugs plastic.jpg','塑膠壁虎','Wikimedia Commons photograph explicitly described as Rawlplug wall plugs; metadata says directly photographed image.'),
+            ('CM08','Tasselli wall plug.jpg','塑膠與金屬壁虎','Wikimedia Commons own-work photograph explicitly described as plastic and metal wall plugs.'),
           ]
+          for ident, filename, gt, basis in commons_files:
+            candidates.append({
+              'id':ident,
+              'url':'https://commons.wikimedia.org/wiki/Special:Redirect/file/'+quote(filename, safe=''),
+              'source':'https://commons.wikimedia.org/wiki/File:'+quote(filename.replace(' ','_'), safe=':_()'),
+              'gt':gt,
+              'basis':basis,
+            })
 
-          out = Path('plastic-anchor-candidates')
-          out.mkdir(exist_ok=True)
-          s = requests.Session()
-          s.headers.update({'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130 Safari/537.36'})
-
-          discovered = []
-          seen = set()
-          for ident, url, source in seeded:
-            discovered.append({'id':ident,'url':url,'source':source,'origin':'seed'})
-            seen.add(url)
-
-          # Scrape only Mobile01 user-uploaded attachment hosts. This deliberately
-          # excludes avatars, emojis, ads, and unrelated CDN graphics.
-          attachment_re = re.compile(r'https?://attach\.mobile01\.com/attach/[^\"\'<> ]+?\.(?:jpe?g|png|webp)', re.I)
-          for page_id, page_url in pages:
-            print('PAGE', page_id, page_url)
-            try:
-              r = s.get(page_url, timeout=40)
-              print(' page status', r.status_code, 'bytes', len(r.content))
-              r.raise_for_status()
-              text = html.unescape(r.text.replace('\\/','/'))
-              urls = set(attachment_re.findall(text))
-              # Also inspect src/data-src/href values in case URLs are relative.
-              soup = BeautifulSoup(r.text, 'html.parser')
-              for tag in soup.find_all(['img','a','source']):
-                for attr in ('src','data-src','data-original','href','srcset'):
-                  val = tag.get(attr)
-                  if not val: continue
-                  vals = str(val).split(',')
-                  for vv in vals:
-                    candidate = html.unescape(vv.strip().split(' ')[0]).replace('\\/','/')
-                    if candidate.startswith('//attach.mobile01.com/'):
-                      candidate = 'https:' + candidate
-                    if candidate.startswith('https://attach.mobile01.com/attach/') and re.search(r'\.(jpe?g|png|webp)(?:\?|$)', candidate, re.I):
-                      candidate = candidate.split('?')[0]
-                      urls.add(candidate)
-              print(' attachments found', len(urls))
-              for u in sorted(urls):
-                u = u.split('?')[0]
-                if u in seen: continue
-                seen.add(u)
-                discovered.append({'id':f'{page_id}-{len(discovered)+1:03d}','url':u,'source':page_url,'origin':'scraped'})
-            except Exception as e:
-              print(' page failed:', e)
-
-          print('TOTAL DISCOVERED', len(discovered))
+          out=Path('plastic-anchor-candidates'); out.mkdir(exist_ok=True)
+          s=requests.Session(); s.headers.update({'User-Agent':'HCSI benchmark collector/1.0 (real-photo validation)'})
           manifest=[]
-          for idx,c in enumerate(discovered, 1):
+          for i,c in enumerate(candidates,1):
             try:
-              r=s.get(c['url'], headers={'Referer':c['source']}, timeout=40)
-              if r.status_code != 200: raise RuntimeError(f'HTTP {r.status_code}')
-              if len(r.content) < 1500: raise RuntimeError(f'too small {len(r.content)}')
-              im=Image.open(io.BytesIO(r.content)); im.load()
-              w,h=im.size
-              if w < 180 or h < 180: raise RuntimeError(f'dimensions {w}x{h}')
-              # Exclude tiny square profile/avatar-like graphics; article photos can
-              # still be square, so only a conservative size threshold is used.
-              fname=f'P{idx:03d}.jpg'
-              p=out/fname
-              im.convert('RGB').save(p,'JPEG',quality=95)
+              r=s.get(c['url'],headers={'Referer':c['source']},timeout=60,allow_redirects=True)
+              if r.status_code!=200: raise RuntimeError(f'HTTP {r.status_code}')
+              if len(r.content)<1500: raise RuntimeError(f'too small {len(r.content)} bytes')
+              im=Image.open(io.BytesIO(r.content)); im.load(); w,h=im.size
+              if w<180 or h<180: raise RuntimeError(f'image too small {w}x{h}')
+              p=out/f"{c['id']}.jpg"; im.convert('RGB').save(p,'JPEG',quality=95)
               sha=hashlib.sha256(p.read_bytes()).hexdigest()
-              row={**c,'ok':True,'file':fname,'width':w,'height':h,'bytes':p.stat().st_size,'sha256':sha}
-              print('OK',fname,w,h,c['url'])
+              row={**c,'ok':True,'file':p.name,'width':w,'height':h,'bytes':p.stat().st_size,'sha256':sha,'final_url':r.url}
+              print('OK',c['id'],w,h,p.stat().st_size,r.url)
             except Exception as e:
-              row={**c,'ok':False,'error':str(e)}
-              print('FAIL',c['url'],e)
+              row={**c,'ok':False,'error':str(e)}; print('FAIL',c['id'],e)
             manifest.append(row)
 
-          ok=[x for x in manifest if x.get('ok')]
+          ok=[m for m in manifest if m.get('ok')]
           (out/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
-          (out/'summary.txt').write_text(f'discovered={len(discovered)}\nvalid={len(ok)}\n',encoding='utf-8')
 
-          # Contact sheets, 12 images per sheet, for manual visual selection.
-          per_sheet=12
-          for start in range(0,len(ok),per_sheet):
-            batch=ok[start:start+per_sheet]
-            tiles=[]
-            for m in batch:
-              im=Image.open(out/m['file']).convert('RGB')
-              im=ImageOps.contain(im,(360,270))
-              tile=Image.new('RGB',(400,330),'white')
-              tile.paste(im,((400-im.width)//2,8+(270-im.height)//2))
-              d=ImageDraw.Draw(tile)
-              label=f"{m['file']} | {m['id']} | {m['width']}x{m['height']}"
-              d.text((8,286),label,fill='black')
-              d.text((8,306),m['source'].split('t=')[-1][:24],fill='black')
-              tiles.append(tile)
-            cols=3; rows=(len(tiles)+cols-1)//cols
-            sheet=Image.new('RGB',(cols*400,rows*330),'white')
-            for i,t in enumerate(tiles): sheet.paste(t,((i%cols)*400,(i//cols)*330))
-            sheet.save(out/f'contact-sheet-{start//per_sheet+1:02d}.jpg','JPEG',quality=92)
-
-          if not ok:
-            raise SystemExit('No valid photos downloaded')
-          print('VALID DOWNLOADS',len(ok))
+          # One visual review sheet of every successfully downloaded file.
+          tiles=[]
+          for m in ok:
+            im=Image.open(out/m['file']).convert('RGB'); im=ImageOps.contain(im,(360,270))
+            tile=Image.new('RGB',(400,330),'white'); tile.paste(im,((400-im.width)//2,8+(270-im.height)//2))
+            d=ImageDraw.Draw(tile); d.text((10,286),f"{m['id']}  {m['width']}x{m['height']}",fill='black'); d.text((10,306),m['gt'],fill='black')
+            tiles.append(tile)
+          cols=3; rows=(len(tiles)+cols-1)//cols
+          sheet=Image.new('RGB',(cols*400,max(1,rows)*330),'white')
+          for j,t in enumerate(tiles): sheet.paste(t,((j%cols)*400,(j//cols)*330))
+          sheet.save(out/'contact-sheet.jpg','JPEG',quality=92)
+          (out/'summary.txt').write_text(f'total={len(candidates)}\nvalid={len(ok)}\n',encoding='utf-8')
+          if len(ok)<10: raise SystemExit(f'Need >=10 valid photos, got {len(ok)}')
+          print('READY FOR MANUAL REVIEW:',len(ok),'valid real photos')
           PY
-
       - name: Upload candidate images
         uses: actions/upload-artifact@v4
         with:
