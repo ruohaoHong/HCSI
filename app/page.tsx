@@ -1,100 +1,372 @@
 'use client'
 
 import { ChangeEvent, useEffect, useRef, useState } from 'react'
-import { AlertCircle, ArrowUpRight, Camera, Check, ChevronRight, CircleHelp, FileImage, Loader2, RotateCcw, ScanLine, ShieldCheck, Sparkles, Upload, X } from 'lucide-react'
+import {
+  AlertCircle,
+  ArrowUpRight,
+  Camera,
+  Check,
+  ChevronRight,
+  CircleHelp,
+  FileImage,
+  Loader2,
+  RotateCcw,
+  ScanLine,
+  ShieldCheck,
+  Sparkles,
+  Upload,
+  X,
+} from 'lucide-react'
+import {
+  CATEGORY_LABELS,
+  type AnalysisResponse,
+  type EvidenceLevel,
+  type Provider,
+} from '@/lib/identification'
 
-type Phase = 'idle' | 'processing' | 'success' | 'error'
-type Provider = 'gemini' | 'openai'
-
-const sampleResult = `零件種類：六角法蘭螺栓
-預估尺寸規格：M8 × 35 mm；螺距約 1.25 mm；頭部對邊約 13 mm
-材質／外觀特徵：疑似碳鋼鍍鋅，表面呈銀灰色，具規則六角頭與法蘭面
-判讀信心：中高。建議以游標卡尺及螺紋規再次確認。`
+const PROVIDERS: Array<{
+  id: Provider
+  label: string
+  endpoint: string
+  note: string
+}> = [
+  { id: 'gemini', label: 'Gemini', endpoint: '/api/analyze', note: 'Gemini 3.7 Flash' },
+  { id: 'openai', label: 'OpenAI', endpoint: '/api/analyze-openai', note: 'GPT-5.6 Sol' },
+  { id: 'grok', label: 'Grok', endpoint: '/api/analyze-grok', note: 'Grok 4.6' },
+]
 
 export default function Page() {
   const [imageUrl, setImageUrl] = useState('')
   const [imageData, setImageData] = useState('')
-  const [phase, setPhase] = useState<Phase>('idle')
-  const [provider, setProvider] = useState<Provider | null>(null)
-  const [result, setResult] = useState('')
-  const [error, setError] = useState('')
+  const [processingProvider, setProcessingProvider] = useState<Provider | null>(null)
+  const [results, setResults] = useState<Partial<Record<Provider, AnalysisResponse>>>({})
+  const [errors, setErrors] = useState<Partial<Record<Provider, string>>>({})
   const inputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => () => { if (imageUrl) URL.revokeObjectURL(imageUrl) }, [imageUrl])
+  useEffect(() => () => {
+    if (imageUrl) URL.revokeObjectURL(imageUrl)
+  }, [imageUrl])
 
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     if (!file) return
-    setError('')
-    setResult('')
-    setPhase('idle')
-    setProvider(null)
+
+    setResults({})
+    setErrors({})
+    setProcessingProvider(null)
+
     const previewUrl = URL.createObjectURL(file)
-    setImageUrl((previous) => { if (previous) URL.revokeObjectURL(previous); return previewUrl })
-    const compressed = await compressImage(file)
-    setImageData(compressed)
+    setImageUrl((previous) => {
+      if (previous) URL.revokeObjectURL(previous)
+      return previewUrl
+    })
+
+    try {
+      setImageData(await compressImage(file))
+    } catch (error) {
+      setImageData('')
+      setErrors({ gemini: error instanceof Error ? error.message : '影像讀取失敗' })
+    }
   }
 
   function clearImage() {
+    if (imageUrl) URL.revokeObjectURL(imageUrl)
     setImageUrl('')
     setImageData('')
-    setResult('')
-    setError('')
-    setPhase('idle')
-    setProvider(null)
+    setResults({})
+    setErrors({})
+    setProcessingProvider(null)
     if (inputRef.current) inputRef.current.value = ''
   }
 
-  async function analyze(selectedProvider: Provider) {
-    if (!imageData) return
-    setProvider(selectedProvider)
-    setPhase('processing')
-    setError('')
+  async function analyze(provider: Provider) {
+    if (!imageData || processingProvider) return
+    const config = PROVIDERS.find((item) => item.id === provider)
+    if (!config) return
+
+    setProcessingProvider(provider)
+    setErrors((previous) => ({ ...previous, [provider]: undefined }))
+
     try {
-      const endpoint = selectedProvider === 'openai' ? '/api/analyze-openai' : '/api/analyze'
-      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: imageData }) })
+      const response = await fetch(config.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: imageData }),
+      })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error || '辨識服務暫時無法使用')
-      setResult(data.result)
-      setPhase('success')
+      if (!response.ok) throw new Error(data.error || `${config.label} 辨識服務暫時無法使用`)
+      setResults((previous) => ({ ...previous, [provider]: data as AnalysisResponse }))
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '發生未知錯誤，請稍後再試')
-      setPhase('error')
+      setErrors((previous) => ({
+        ...previous,
+        [provider]: caught instanceof Error ? caught.message : '發生未知錯誤，請稍後再試',
+      }))
+    } finally {
+      setProcessingProvider(null)
     }
   }
+
+  const completedCount = Object.keys(results).length
 
   return (
     <main className="min-h-screen overflow-hidden bg-background text-foreground">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-5 pb-10 sm:px-8 lg:px-12">
         <header className="flex items-center justify-between border-b border-border py-5">
-          <div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground"><ScanLine size={19} /></div><div><p className="font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">FIELD TOOL / 01</p><p className="text-sm font-semibold tracking-tight">尺寸辨識工作台</p></div></div>
-          <div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground sm:flex"><span className="size-1.5 rounded-full bg-accent" />AI 視覺分析</div>
+          <div className="flex items-center gap-3">
+            <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
+              <ScanLine size={19} />
+            </div>
+            <div>
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">HCSI / FIELD IDENTIFIER</p>
+              <p className="text-sm font-semibold tracking-tight">五金水電零件辨識</p>
+            </div>
+          </div>
+          <div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground sm:flex">
+            <span className="size-1.5 rounded-full bg-accent" />
+            3 API COMPARE
+          </div>
         </header>
 
         <section className="grid flex-1 gap-10 py-10 lg:grid-cols-[0.82fr_1.18fr] lg:items-center lg:gap-20 lg:py-16">
           <div className="space-y-7">
-            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground"><span className="size-1.5 rounded-full bg-accent" /> 工程現場工具</div>
-            <div className="space-y-4"><h1 className="max-w-xl text-balance text-4xl font-semibold leading-[1.05] tracking-[-0.05em] sm:text-5xl lg:text-6xl">五金元件<br /><span className="text-accent">尺寸辨識</span></h1><p className="max-w-md text-pretty text-sm leading-6 text-muted-foreground sm:text-base">拍下零件，讓 AI 協助判讀種類、規格與材質。適合現場盤點、採購核對與維修紀錄。</p></div>
-            <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground"><span>01 / 拍攝</span><ChevronRight size={13} /><span>02 / 分析</span><ChevronRight size={13} /><span>03 / 確認</span></div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              <span className="size-1.5 rounded-full bg-accent" /> 居家 DIY / 工地工具
+            </div>
+            <div className="space-y-4">
+              <h1 className="max-w-xl text-balance text-4xl font-semibold leading-[1.05] tracking-[-0.05em] sm:text-5xl lg:text-6xl">
+                不知道這是什麼？<br />
+                <span className="text-accent">拍下來辨識</span>
+              </h1>
+              <p className="max-w-md text-pretty text-sm leading-6 text-muted-foreground sm:text-base">
+                辨識居家 DIY 與工地常見的緊固件、水管件、電氣配線、裝潢五金與維修零件，並整理可能規格、近似候選與採購描述。
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              {['緊固／固定', '水管／管件', '電氣／配線', '裝潢五金', '維修零件'].map((label) => (
+                <span key={label} className="rounded-full border border-border bg-card px-3 py-1.5">{label}</span>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              <span>01 / 拍攝</span><ChevronRight size={13} /><span>02 / 選 API</span><ChevronRight size={13} /><span>03 / 比較</span>
+            </div>
           </div>
 
           <div className="relative">
             <div className="absolute -inset-2 rounded-2xl border border-accent/20" />
             <div className="relative overflow-hidden rounded-xl border border-border bg-card shadow-xl shadow-primary/5">
-              {!imageUrl ? <button type="button" onClick={() => inputRef.current?.click()} className="group flex min-h-[330px] w-full flex-col items-center justify-center gap-5 p-8 text-center transition-colors hover:bg-muted/50 sm:min-h-[390px]"><span className="grid size-16 place-items-center rounded-2xl border border-border bg-muted text-muted-foreground transition-all group-hover:border-accent group-hover:bg-accent/10 group-hover:text-accent"><Camera size={28} strokeWidth={1.5} /></span><span><strong className="block text-base font-semibold">拍照或上傳零件</strong><span className="mt-1 block text-sm text-muted-foreground">支援 JPG、PNG · 自動最佳化影像</span></span><span className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground"><Upload size={15} /> 選擇影像</span></button> : <div className="relative"><img src={imageUrl} alt="待辨識的五金零件預覽" className="max-h-[460px] min-h-[300px] w-full object-contain bg-muted/30 p-3" /><div className="absolute left-5 top-5 flex items-center gap-2 rounded-md bg-primary/90 px-2.5 py-1.5 font-mono text-[10px] text-primary-foreground"><FileImage size={13} /> 已載入影像</div><button type="button" onClick={clearImage} aria-label="清除影像" className="absolute right-5 top-5 grid size-9 place-items-center rounded-md bg-primary/90 text-primary-foreground transition-colors hover:bg-accent"><X size={17} /></button></div>}
+              {!imageUrl ? (
+                <button
+                  type="button"
+                  onClick={() => inputRef.current?.click()}
+                  className="group flex min-h-[330px] w-full flex-col items-center justify-center gap-5 p-8 text-center transition-colors hover:bg-muted/50 sm:min-h-[390px]"
+                >
+                  <span className="grid size-16 place-items-center rounded-2xl border border-border bg-muted text-muted-foreground transition-all group-hover:border-accent group-hover:bg-accent/10 group-hover:text-accent">
+                    <Camera size={28} strokeWidth={1.5} />
+                  </span>
+                  <span>
+                    <strong className="block text-base font-semibold">拍照或上傳零件</strong>
+                    <span className="mt-1 block text-sm text-muted-foreground">保留刻印、接口與整體形狀會更有幫助</span>
+                  </span>
+                  <span className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground">
+                    <Upload size={15} /> 選擇影像
+                  </span>
+                </button>
+              ) : (
+                <div className="relative">
+                  <img src={imageUrl} alt="待辨識零件預覽" className="max-h-[460px] min-h-[300px] w-full bg-muted/30 object-contain p-3" />
+                  <div className="absolute left-5 top-5 flex items-center gap-2 rounded-md bg-primary/90 px-2.5 py-1.5 font-mono text-[10px] text-primary-foreground">
+                    <FileImage size={13} /> 已載入影像
+                  </div>
+                  <button type="button" onClick={clearImage} aria-label="清除影像" className="absolute right-5 top-5 grid size-9 place-items-center rounded-md bg-primary/90 text-primary-foreground transition-colors hover:bg-accent">
+                    <X size={17} />
+                  </button>
+                </div>
+              )}
               <input ref={inputRef} className="sr-only" type="file" accept="image/*" onChange={handleFile} />
-              {imageUrl && <div className="flex flex-col gap-3 border-t border-border p-4 sm:flex-row"><button type="button" onClick={() => inputRef.current?.click()} className="flex flex-1 items-center justify-center gap-2 rounded-md border border-border px-4 py-3 text-sm font-medium transition-colors hover:bg-muted"><RotateCcw size={15} /> 重新拍攝</button><button type="button" onClick={() => analyze('gemini')} disabled={phase === 'processing'} className="flex flex-1 items-center justify-center gap-2 rounded-md bg-accent px-4 py-3 text-sm font-semibold text-accent-foreground transition-all hover:brightness-95 disabled:cursor-wait disabled:opacity-70">{phase === 'processing' && provider === 'gemini' ? <><Loader2 size={16} className="animate-spin" /> Gemini 分析中...</> : <><Sparkles size={16} /> Gemini 分析 <ArrowUpRight size={15} /></>}</button><button type="button" onClick={() => analyze('openai')} disabled={phase === 'processing'} className="flex flex-1 items-center justify-center gap-2 rounded-md border border-border px-4 py-3 text-sm font-semibold transition-colors hover:bg-muted disabled:cursor-wait disabled:opacity-70">{phase === 'processing' && provider === 'openai' ? <><Loader2 size={16} className="animate-spin" /> OpenAI 分析中...</> : <><Sparkles size={16} /> OpenAI 分析 <ArrowUpRight size={15} /></>}</button></div>}
+
+              {imageUrl && (
+                <div className="border-t border-border p-4">
+                  <button type="button" onClick={() => inputRef.current?.click()} className="mb-3 flex w-full items-center justify-center gap-2 rounded-md border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted">
+                    <RotateCcw size={15} /> 重新拍攝
+                  </button>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {PROVIDERS.map((item) => {
+                      const isProcessing = processingProvider === item.id
+                      const hasResult = Boolean(results[item.id])
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => analyze(item.id)}
+                          disabled={!imageData || Boolean(processingProvider)}
+                          className="flex min-h-16 items-center justify-center gap-2 rounded-md border border-border px-3 py-3 text-sm font-semibold transition-colors hover:border-accent hover:bg-accent/5 disabled:cursor-wait disabled:opacity-60"
+                        >
+                          {isProcessing ? <Loader2 size={16} className="animate-spin" /> : hasResult ? <Check size={16} className="text-accent" /> : <Sparkles size={16} />}
+                          <span className="text-left">
+                            <span className="block">{item.label}</span>
+                            <span className="block font-mono text-[9px] font-normal text-muted-foreground">{item.note}</span>
+                          </span>
+                          {!isProcessing && <ArrowUpRight size={14} />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="mt-3 text-center text-[11px] leading-5 text-muted-foreground">
+                    三個 provider 使用相同分類邏輯、reference 架構與輸出 schema；已完成 {completedCount}/3。
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </section>
 
-        <section aria-live="polite" className="pb-10">{phase === 'processing' && <div className="rounded-xl border border-border bg-card p-5"><div className="mb-4 flex items-center gap-3"><div className="grid size-8 place-items-center rounded-full bg-accent/15 text-accent"><Loader2 size={16} className="animate-spin" /></div><div><p className="text-sm font-semibold">{provider === 'openai' ? 'OpenAI' : 'Gemini'} 正在檢視元件特徵</p><p className="text-xs text-muted-foreground">比對形狀、比例與表面特徵...</p></div></div><div className="space-y-2"><div className="h-2 animate-pulse rounded bg-muted" /><div className="h-2 w-4/5 animate-pulse rounded bg-muted" /></div></div>}{phase === 'success' && <div className="result-card rounded-xl border border-accent/30 bg-card p-5 sm:p-7"><div className="mb-5 flex items-start justify-between gap-4"><div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-full bg-accent/15 text-accent"><Check size={18} /></div><div><p className="font-mono text-[10px] uppercase tracking-widest text-accent">Analysis complete</p><h2 className="mt-1 text-lg font-semibold">{provider === 'openai' ? 'OpenAI' : 'Gemini'} 辨識結果</h2></div></div><ShieldCheck size={19} className="text-muted-foreground" aria-label="安全輸出" /></div><pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-card-foreground">{result || sampleResult}</pre><p className="mt-5 border-t border-border pt-4 text-xs leading-5 text-muted-foreground">AI 辨識結果僅供參考，實際尺寸請使用量具確認。</p></div>}{phase === 'error' && <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-card p-5 text-sm"><AlertCircle size={18} className="mt-0.5 shrink-0 text-destructive" /><div><p className="font-semibold">辨識未完成</p><p className="mt-1 text-muted-foreground">{error}</p></div></div>}</section>
-        <footer className="flex flex-col gap-3 border-t border-border pt-5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between"><span className="flex items-center gap-2"><CircleHelp size={14} /> 建議在光線充足、背景單純的環境拍攝</span><span className="font-mono text-[10px] uppercase tracking-wider">HARDWARE / VISION LAB</span></footer>
+        <section aria-live="polite" className="pb-10">
+          {processingProvider && (
+            <div className="mb-5 rounded-xl border border-border bg-card p-5">
+              <div className="flex items-center gap-3">
+                <div className="grid size-8 place-items-center rounded-full bg-accent/15 text-accent"><Loader2 size={16} className="animate-spin" /></div>
+                <div>
+                  <p className="text-sm font-semibold">{providerLabel(processingProvider)} 正在先分類，再進行專科辨識</p>
+                  <p className="text-xs text-muted-foreground">同一張照片會經過兩階段模型判讀，不使用舊螺絲 benchmark。</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {Object.keys(errors).length > 0 && (
+            <div className="mb-5 space-y-2">
+              {PROVIDERS.map((item) => errors[item.id] ? (
+                <div key={item.id} className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-card p-4 text-sm">
+                  <AlertCircle size={18} className="mt-0.5 shrink-0 text-destructive" />
+                  <div><p className="font-semibold">{item.label} 辨識未完成</p><p className="mt-1 text-muted-foreground">{errors[item.id]}</p></div>
+                </div>
+              ) : null)}
+            </div>
+          )}
+
+          {completedCount > 0 && (
+            <div className="grid gap-5 lg:grid-cols-3">
+              {PROVIDERS.map((item) => results[item.id] ? <ResultCard key={item.id} response={results[item.id]!} /> : null)}
+            </div>
+          )}
+        </section>
+
+        <footer className="flex flex-col gap-3 border-t border-border pt-5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+          <span className="flex items-center gap-2"><CircleHelp size={14} /> AI 目測不是實際量測；採購與施工前仍應核對關鍵尺寸與額定規格</span>
+          <span className="font-mono text-[10px] uppercase tracking-wider">HCSI / HARDWARE FIELD IDENTIFIER</span>
+        </footer>
       </div>
     </main>
   )
 }
 
+function ResultCard({ response }: { response: AnalysisResponse }) {
+  const result = response.result
+  return (
+    <article className="rounded-xl border border-accent/25 bg-card p-5">
+      <div className="mb-5 flex items-start justify-between gap-3 border-b border-border pb-4">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-widest text-accent">{providerLabel(response.provider)} / {response.model}</p>
+          <h2 className="mt-1 text-lg font-semibold">{result.item_name}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">路由：{CATEGORY_LABELS[response.routing.category]} → 最終：{CATEGORY_LABELS[result.category]}</p>
+        </div>
+        <ShieldCheck size={18} className="shrink-0 text-muted-foreground" />
+      </div>
+
+      <div className="space-y-5 text-sm leading-6">
+        <Section title="最可能是">
+          <p className="font-medium">{result.most_likely_identification}</p>
+          {result.common_names.length > 0 && <p className="mt-1 text-xs text-muted-foreground">常見叫法：{result.common_names.join('／')}</p>}
+        </Section>
+
+        <Section title="可見特徵">
+          <ul className="space-y-1 text-muted-foreground">{result.visible_features.map((item, index) => <li key={`${item}-${index}`}>• {item}</li>)}</ul>
+        </Section>
+
+        {result.specifications.length > 0 && (
+          <Section title="規格判讀">
+            <div className="space-y-2">
+              {result.specifications.map((spec, index) => (
+                <div key={`${spec.label}-${index}`} className="rounded-md bg-muted/55 px-3 py-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="font-medium">{spec.label}</span>
+                    <EvidenceBadge level={spec.evidence_level} />
+                  </div>
+                  <p className="mt-1 text-muted-foreground">{spec.value}</p>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+
+        <Section title="最容易混淆">
+          <p>{result.confusable_candidate}</p>
+          <p className="mt-1 text-muted-foreground">{result.key_differentiator}</p>
+        </Section>
+
+        <Section title="通常用途"><p className="text-muted-foreground">{result.typical_use}</p></Section>
+
+        <Section title="去材料行可以這樣說">
+          <p className="rounded-md border border-accent/25 bg-accent/5 px-3 py-2.5 font-medium">{result.purchase_description}</p>
+        </Section>
+
+        {result.uncertain_fields.length > 0 && (
+          <Section title="仍需確認">
+            <ul className="space-y-1 text-muted-foreground">{result.uncertain_fields.map((item, index) => <li key={`${item}-${index}`}>• {item}</li>)}</ul>
+          </Section>
+        )}
+
+        <p className="border-t border-border pt-4 text-xs leading-5 text-muted-foreground">{result.safety_note}</p>
+      </div>
+    </article>
+  )
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return <section><h3 className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{title}</h3>{children}</section>
+}
+
+function EvidenceBadge({ level }: { level: EvidenceLevel }) {
+  const labels: Record<EvidenceLevel, string> = {
+    observed: '可見',
+    estimated: '目測',
+    unconfirmed: '未確認',
+  }
+  return <span className="shrink-0 rounded-full border border-border px-2 py-0.5 font-mono text-[9px] text-muted-foreground">{labels[level]}</span>
+}
+
+function providerLabel(provider: Provider) {
+  return PROVIDERS.find((item) => item.id === provider)?.label ?? provider
+}
+
 function compressImage(file: File): Promise<string> {
-  return new Promise((resolve, reject) => { const image = new Image(); image.onload = () => { const scale = Math.min(1, 1280 / image.width); const canvas = document.createElement('canvas'); canvas.width = Math.round(image.width * scale); canvas.height = Math.round(image.height * scale); const context = canvas.getContext('2d'); if (!context) return reject(new Error('無法處理影像')); context.drawImage(image, 0, 0, canvas.width, canvas.height); resolve(canvas.toDataURL('image/jpeg', 0.82).split(',')[1]); }; image.onerror = () => reject(new Error('影像讀取失敗')); image.src = URL.createObjectURL(file) })
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    const sourceUrl = URL.createObjectURL(file)
+
+    image.onload = () => {
+      try {
+        const maxEdge = 1800
+        const scale = Math.min(1, maxEdge / image.width, maxEdge / image.height)
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(image.width * scale)
+        canvas.height = Math.round(image.height * scale)
+        const context = canvas.getContext('2d')
+        if (!context) throw new Error('無法處理影像')
+        context.drawImage(image, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', 0.86).split(',')[1])
+      } catch (error) {
+        reject(error)
+      } finally {
+        URL.revokeObjectURL(sourceUrl)
+      }
+    }
+
+    image.onerror = () => {
+      URL.revokeObjectURL(sourceUrl)
+      reject(new Error('影像讀取失敗'))
+    }
+
+    image.src = sourceUrl
+  })
 }
