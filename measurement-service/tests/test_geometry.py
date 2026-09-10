@@ -32,12 +32,12 @@ def test_extracts_rotated_hardware_geometry_while_excluding_ruler():
     assert result.ruler_alignment_deg < 12
 
 
-def test_rejects_object_that_is_not_parallel_to_ruler():
+def test_large_ruler_alignment_is_risk_not_hard_rejection():
     image = np.full((500, 700, 3), 245, dtype=np.uint8)
     marks = np.array([[x, 80.0] for x in range(100, 601, 50)], dtype=np.float32)
     box = cv2.boxPoints(((350.0, 320.0), (180.0, 35.0), 55.0)).astype(np.int32)
     cv2.fillConvexPoly(image, box, (20, 20, 20))
     result = extract_object_geometry(image, marks, 50.0, (1.0, 0.0), max_alignment_deg=20.0)
     assert result.detected
-    assert not result.contour_reliable
-    assert "object_not_parallel_to_ruler" in result.gate_reasons
+    assert result.contour_reliable, result.gate_reasons
+    assert "object_ruler_alignment_large" in result.risk_signals
