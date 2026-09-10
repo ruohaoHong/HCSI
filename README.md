@@ -2,16 +2,99 @@
 
 HCSI 是一個面向居家 DIY 與工地情境的通用五金／水電零件影像辨識實驗工具。
 
-同一張照片可以分別交給 **Gemini、OpenAI、Grok** 三個 provider，方便比較模型在相同辨識流程與相同輸出 schema 下的差異。
+同一張照片可以分別交給 **Gemini、OpenAI、Grok** 三個 provider，比較模型在相同辨識流程、reference 與 deterministic measurement evidence 下的差異。
 
-## 現行架構
+## 現行辨識架構
 
-每個 provider 都走相同的兩階段流程：
+每個 provider 都走相同的兩階段 LLM 流程：
 
 1. **Category Router**：先把主要物件暫時分到緊固／固定件、水管／管件、電氣／配線、裝潢／建築五金、通用維修件或 unknown。
 2. **Specialist Identification**：載入共用辨識原則與該類別的精簡 reference，再由同一個 provider 重新看原圖並做最終判斷。
 
 第一階段分類只負責挑選 reference；第二階段模型可以推翻路由結果。程式不以傳統規則引擎替模型決定零件種類或規格。
+
+## Ruler measurement PoC
+
+`feature/ruler-measurement-poc` 加入獨立的 Python measurement service：
+
+```text
+compressed user image
+        ↓
+Measurement Preflight
+├─ RulerNet ONNX：公制尺 centimeter marks / image scale
+├─ OpenCV：主要五金 contour
+├─ PCA / minAreaRect：pixel geometry
+└─ evidence gate：判斷是否可安全輸出實際尺寸
+        ↓
+measurement JSON
+        ↓
+Gemini / OpenAI / Grok
+```
+
+Measurement 與 LLM 辨識刻意分離。Vision LLM 不得只靠 pixel 大小或主觀目測自行產生 mm / cm / inch 數值。
+
+### Preflight 三態
+
+- `valid` → `measurement_assisted`：尺與幾何證據足以產生 `length_mm` / `width_mm`，尺寸證據可交給 LLM。
+- `no_reference` → `appearance_only`：目前沒有建立出可確認尺度；仍可辨識種類與結構，但不提供實際尺寸。
+- `unreliable` → `appearance_only`：有尺度／幾何線索，但不足以可靠量測；UI 建議重拍，且失敗的 diagnostics 不得當成尺寸證據。
+
+`measurement_valid=false` 時所有絕對尺寸欄位保持 `null`。量測服務本身不可用屬於 infrastructure error，與 `no_reference` 分開處理，避免錯怪使用者照片。
+
+### 第一版拍攝條件
+
+- 五金與尺應放在同一平面。
+- 優先近似垂直俯拍。
+- 公制尺至少露出多個完整公分刻度。
+- 尺與五金主要方向接近平行會降低透視風險，但**不是單獨的 hard gate**。
+- RulerNet 能建模尺方向上的透視 progression，但一把一維尺不等於完整 2D 平面標定；強透視時系統不輸出絕對尺寸。
+- 第一版假設單一主要五金、背景相對簡單；OpenCV contour 不穩時才考慮加入 SAM / Grounded SAM 2。
+
+### RulerNet license
+
+PoC 使用 `ymp5078/RulerNet` 的官方 ONNX 模型。模型與相關材料標示為 **CC BY-NC 4.0**，因此本分支只定位為研究／PoC。未來若商業化，需要取得商用授權或替換 implementation。
+
+模型不直接 commit 進 HCSI repo。可設定：
+
+```bash
+RULERNET_MODEL_PATH=/models/model.onnx
+```
+
+PoC / CI 若要明確允許下載非商用模型，可設定：
+
+```bash
+RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD=true
+```
+
+## Measurement service
+
+```bash
+cd measurement-service
+pip install -r requirements.txt
+uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
+Next.js server 端設定：
+
+```bash
+HCSI_MEASUREMENT_SERVICE_URL=http://localhost:8000
+HCSI_MEASUREMENT_TOKEN=
+```
+
+`HCSI_MEASUREMENT_TOKEN` 若有設定，Next.js 與 Python service 之間使用 Bearer token。量測結果含輸入 JPEG 的 SHA-256，Next.js 會驗證結果是否屬於同一張影像。
+
+## Measurement benchmark
+
+`benchmark/measurement-poc` 會計算實際值與量測值的誤差，例如：
+
+```text
+actual_length_mm = 40.0
+measured_length_mm = 39.7
+absolute_error_mm = 0.3
+relative_error_pct = 0.75%
+```
+
+GitHub Actions 另有 synthetic/unit/integration tests 與官方 RulerNet ONNX smoke test。真正的產品準確度仍需以包含 ground truth 的真實拍攝資料集評估，不能只用 synthetic tests 證明。
 
 ## Structured Output
 
@@ -27,7 +110,7 @@ HCSI 是一個面向居家 DIY 與工地情境的通用五金／水電零件影�
 - purchase description
 - safety note
 
-`observed`、`estimated`、`unconfirmed` 用來區分照片直接證據、合理目測與照片無法確認的規格。
+`observed`、`estimated`、`unconfirmed` 用來區分照片直接證據、合理推論與照片無法確認的規格。Measurement PoC 的 deterministic 尺寸在 prompt 中明確標示為「系統實測」，不得被描述成 LLM 目測。
 
 ## Reference packs
 
@@ -41,7 +124,7 @@ data/reference/
 └── general-repair/
 ```
 
-Reference 只提供辨識原則與具有辨識力的提示，不作為完整百科或規則引擎。舊的螺絲專用 reference、thread geometry benchmark 與相關 CI 已移除，新的 HCSI 從通用零件架構重新開始。
+Reference 只提供辨識原則與具有辨識力的提示，不作為完整百科或規則引擎。
 
 ## Environment variables
 
@@ -49,6 +132,9 @@ Reference 只提供辨識原則與具有辨識力的提示，不作為完整百�
 GEMINI_API_KEY=
 OPENAI_API_KEY=
 XAI_API_KEY=
+
+HCSI_MEASUREMENT_SERVICE_URL=
+HCSI_MEASUREMENT_TOKEN=
 
 # optional logging
 NEXT_PUBLIC_SUPABASE_URL=
