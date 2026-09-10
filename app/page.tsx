@@ -11,6 +11,7 @@ import {
   FileImage,
   Loader2,
   RotateCcw,
+  Ruler,
   ScanLine,
   ShieldCheck,
   Sparkles,
@@ -23,6 +24,7 @@ import {
   type EvidenceLevel,
   type Provider,
 } from '@/lib/identification'
+import { isMeasurementResult, type MeasurementResult } from '@/lib/measurement'
 
 const PROVIDERS: Array<{
   id: Provider
@@ -35,12 +37,18 @@ const PROVIDERS: Array<{
   { id: 'grok', label: 'Grok', endpoint: '/api/analyze-grok', note: 'Grok 4.6' },
 ]
 
+type PreflightState = 'idle' | 'checking' | 'ready' | 'unavailable'
+type ProviderResponse = AnalysisResponse & { measurement?: MeasurementResult | null }
+
 export default function Page() {
   const [imageUrl, setImageUrl] = useState('')
   const [imageData, setImageData] = useState('')
   const [processingProvider, setProcessingProvider] = useState<Provider | null>(null)
   const [results, setResults] = useState<Partial<Record<Provider, AnalysisResponse>>>({})
   const [errors, setErrors] = useState<Partial<Record<Provider, string>>>({})
+  const [measurement, setMeasurement] = useState<MeasurementResult | null>(null)
+  const [preflightState, setPreflightState] = useState<PreflightState>('idle')
+  const [preflightError, setPreflightError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => () => {
@@ -54,6 +62,9 @@ export default function Page() {
     setResults({})
     setErrors({})
     setProcessingProvider(null)
+    setMeasurement(null)
+    setPreflightState('checking')
+    setPreflightError('')
 
     const previewUrl = URL.createObjectURL(file)
     setImageUrl((previous) => {
@@ -62,10 +73,39 @@ export default function Page() {
     })
 
     try {
-      setImageData(await compressImage(file))
+      const compressed = await compressImage(file)
+      setImageData(compressed)
+      await runPreflight(compressed)
     } catch (error) {
       setImageData('')
+      setPreflightState('idle')
       setErrors({ gemini: error instanceof Error ? error.message : '影像讀取失敗' })
+    }
+  }
+
+  async function runPreflight(image: string) {
+    setPreflightState('checking')
+    setPreflightError('')
+    try {
+      const response = await fetch('/api/measure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        setMeasurement(null)
+        setPreflightError(data.error || '量測服務目前無法使用。')
+        setPreflightState('unavailable')
+        return
+      }
+      if (!isMeasurementResult(data.measurement)) throw new Error('量測預檢結果格式不完整')
+      setMeasurement(data.measurement)
+      setPreflightState('ready')
+    } catch (error) {
+      setMeasurement(null)
+      setPreflightError(error instanceof Error ? error.message : '量測服務目前無法使用。')
+      setPreflightState('unavailable')
     }
   }
 
@@ -75,12 +115,15 @@ export default function Page() {
     setImageData('')
     setResults({})
     setErrors({})
+    setMeasurement(null)
+    setPreflightState('idle')
+    setPreflightError('')
     setProcessingProvider(null)
     if (inputRef.current) inputRef.current.value = ''
   }
 
   async function analyze(provider: Provider) {
-    if (!imageData || processingProvider) return
+    if (!imageData || processingProvider || preflightState === 'checking') return
     const config = PROVIDERS.find((item) => item.id === provider)
     if (!config) return
 
@@ -93,9 +136,13 @@ export default function Page() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: imageData }),
       })
-      const data = await response.json()
+      const data = await response.json() as ProviderResponse & { error?: string }
       if (!response.ok) throw new Error(data.error || `${config.label} 辨識服務暫時無法使用`)
       setResults((previous) => ({ ...previous, [provider]: data as AnalysisResponse }))
+      if (!measurement && data.measurement && isMeasurementResult(data.measurement)) {
+        setMeasurement(data.measurement)
+        setPreflightState('ready')
+      }
     } catch (caught) {
       setErrors((previous) => ({
         ...previous,
@@ -138,7 +185,7 @@ export default function Page() {
                 <span className="text-accent">拍下來辨識</span>
               </h1>
               <p className="max-w-md text-pretty text-sm leading-6 text-muted-foreground sm:text-base">
-                辨識居家 DIY 與工地常見的緊固件、水管件、電氣配線、裝潢五金與維修零件，並整理可能規格、近似候選與採購描述。
+                辨識居家 DIY 與工地常見的緊固件、水管件、電氣配線、裝潢五金與維修零件；若照片含可靠尺度參考，會先量測再交給模型判讀。
               </p>
             </div>
             <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -146,8 +193,8 @@ export default function Page() {
                 <span key={label} className="rounded-full border border-border bg-card px-3 py-1.5">{label}</span>
               ))}
             </div>
-            <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-              <span>01 / 拍攝</span><ChevronRight size={13} /><span>02 / 選 API</span><ChevronRight size={13} /><span>03 / 比較</span>
+            <div className="flex flex-wrap gap-x-3 gap-y-2 border-t border-border pt-5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              <span>01 / 拍攝</span><ChevronRight size={13} /><span>02 / 尺度預檢</span><ChevronRight size={13} /><span>03 / 選 API</span><ChevronRight size={13} /><span>04 / 比較</span>
             </div>
           </div>
 
@@ -165,7 +212,7 @@ export default function Page() {
                   </span>
                   <span>
                     <strong className="block text-base font-semibold">拍照或上傳零件</strong>
-                    <span className="mt-1 block text-sm text-muted-foreground">保留刻印、接口與整體形狀會更有幫助</span>
+                    <span className="mt-1 block text-sm text-muted-foreground">有公制尺可一起入鏡；沒有尺仍可辨識五金種類</span>
                   </span>
                   <span className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground">
                     <Upload size={15} /> 選擇影像
@@ -186,7 +233,8 @@ export default function Page() {
 
               {imageUrl && (
                 <div className="border-t border-border p-4">
-                  <button type="button" onClick={() => inputRef.current?.click()} className="mb-3 flex w-full items-center justify-center gap-2 rounded-md border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted">
+                  <MeasurementPreflight measurement={measurement} state={preflightState} error={preflightError} />
+                  <button type="button" onClick={() => inputRef.current?.click()} className="mb-3 mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted">
                     <RotateCcw size={15} /> 重新拍攝
                   </button>
                   <div className="grid gap-2 sm:grid-cols-3">
@@ -198,7 +246,7 @@ export default function Page() {
                           key={item.id}
                           type="button"
                           onClick={() => analyze(item.id)}
-                          disabled={!imageData || Boolean(processingProvider)}
+                          disabled={!imageData || Boolean(processingProvider) || preflightState === 'checking'}
                           className="flex min-h-16 items-center justify-center gap-2 rounded-md border border-border px-3 py-3 text-sm font-semibold transition-colors hover:border-accent hover:bg-accent/5 disabled:cursor-wait disabled:opacity-60"
                         >
                           {isProcessing ? <Loader2 size={16} className="animate-spin" /> : hasResult ? <Check size={16} className="text-accent" /> : <Sparkles size={16} />}
@@ -212,7 +260,7 @@ export default function Page() {
                     })}
                   </div>
                   <p className="mt-3 text-center text-[11px] leading-5 text-muted-foreground">
-                    三個 provider 使用相同分類邏輯、reference 架構與輸出 schema；已完成 {completedCount}/3。
+                    三個 provider 使用相同 reference 與量測原則；已完成 {completedCount}/3。
                   </p>
                 </div>
               )}
@@ -226,8 +274,8 @@ export default function Page() {
               <div className="flex items-center gap-3">
                 <div className="grid size-8 place-items-center rounded-full bg-accent/15 text-accent"><Loader2 size={16} className="animate-spin" /></div>
                 <div>
-                  <p className="text-sm font-semibold">{providerLabel(processingProvider)} 正在先分類，再進行專科辨識</p>
-                  <p className="text-xs text-muted-foreground">同一張照片會經過兩階段模型判讀，不使用舊螺絲 benchmark。</p>
+                  <p className="text-sm font-semibold">{providerLabel(processingProvider)} 正在分類並進行專科辨識</p>
+                  <p className="text-xs text-muted-foreground">有可靠量測時使用 deterministic 尺寸證據；沒有尺度時只做外觀辨識，不自行猜 mm。</p>
                 </div>
               </div>
             </div>
@@ -252,12 +300,29 @@ export default function Page() {
         </section>
 
         <footer className="flex flex-col gap-3 border-t border-border pt-5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-          <span className="flex items-center gap-2"><CircleHelp size={14} /> AI 目測不是實際量測；採購與施工前仍應核對關鍵尺寸與額定規格</span>
+          <span className="flex items-center gap-2"><CircleHelp size={14} /> 沒有可信尺度時，HCSI 不會從影像像素自行推算實際 mm；採購與施工前仍應核對關鍵規格</span>
           <span className="font-mono text-[10px] uppercase tracking-wider">HCSI / HARDWARE FIELD IDENTIFIER</span>
         </footer>
       </div>
     </main>
   )
+}
+
+function MeasurementPreflight({ measurement, state, error }: { measurement: MeasurementResult | null; state: PreflightState; error: string }) {
+  if (state === 'checking') {
+    return <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm"><Loader2 size={16} className="animate-spin" /><div><p className="font-medium">正在確認影像尺度</p><p className="text-xs text-muted-foreground">先找公制尺與可用幾何證據，再決定辨識模式。</p></div></div>
+  }
+  if (state === 'unavailable') {
+    return <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm"><AlertCircle size={16} className="mt-0.5 shrink-0" /><div><p className="font-medium">量測服務目前不可用</p><p className="text-xs leading-5 text-muted-foreground">{error || '仍可使用外觀辨識，但本次不會有 deterministic 尺寸證據。'}</p></div></div>
+  }
+  if (!measurement) return null
+  if (measurement.measurement_status === 'valid') {
+    return <div className="flex items-start gap-3 rounded-lg border border-accent/30 bg-accent/5 p-3 text-sm"><Ruler size={16} className="mt-0.5 shrink-0 text-accent" /><div><p className="font-medium">尺度已建立 · 實測約 {measurement.length_mm} × {measurement.width_mm} mm</p><p className="text-xs leading-5 text-muted-foreground">將以同一張照片的 deterministic 尺寸證據輔助三家 Vision LLM 判讀。</p></div></div>
+  }
+  if (measurement.measurement_status === 'no_reference') {
+    return <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm"><CircleHelp size={16} className="mt-0.5 shrink-0" /><div><p className="font-medium">未建立可確認的尺度參考</p><p className="text-xs leading-5 text-muted-foreground">仍可辨識五金種類與可見結構，但精確尺寸／規格可能無法確認。之後可補拍含尺度參考的照片再辨識。</p></div></div>
+  }
+  return <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm"><AlertCircle size={16} className="mt-0.5 shrink-0" /><div><p className="font-medium">目前無法可靠量測，建議重新拍攝</p><p className="text-xs leading-5 text-muted-foreground">偵測到尺度或幾何線索，但不足以安全輸出實際尺寸。仍可只做外觀辨識；本次不會把失敗量測交給 LLM 當尺寸證據。</p></div></div>
 }
 
 function ResultCard({ response }: { response: AnalysisResponse }) {
