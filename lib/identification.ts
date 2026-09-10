@@ -9,7 +9,7 @@ export const HARDWARE_CATEGORIES = [
 
 export type HardwareCategory = (typeof HARDWARE_CATEGORIES)[number]
 export type Provider = 'gemini' | 'openai' | 'grok'
-export type EvidenceLevel = 'observed' | 'estimated' | 'unconfirmed'
+export type EvidenceLevel = 'measured' | 'observed' | 'estimated' | 'unconfirmed'
 
 export interface CategoryRoutingResult {
   category: HardwareCategory
@@ -109,7 +109,7 @@ export const IDENTIFICATION_JSON_SCHEMA = {
           value: { type: 'string' },
           evidence_level: {
             type: 'string',
-            enum: ['observed', 'estimated', 'unconfirmed'],
+            enum: ['measured', 'observed', 'estimated', 'unconfirmed'],
           },
         },
         required: ['label', 'value', 'evidence_level'],
@@ -189,8 +189,8 @@ ${categoryReference}
 ===== 作答要求 =====
 1. 最終判斷權在你。reference 只是辨識提示，不是規則引擎，也不是待辨識物件。
 2. 先觀察，再推論。不要把 reference 中的常見規格當成照片已證明的規格。
-3. 不要因為沒有尺、卡尺或標示就拒絕所有估計；可以做合理目測，但必須把規格的 evidence_level 標成 estimated。
-4. 只有照片能直接支持的資訊才標 observed；無法由照片確認的欄位標 unconfirmed，value 寫「照片無法確認」或具體說明缺少什麼證據。
+3. 非尺寸屬性可以做合理推論並標 estimated；但任何數值 mm / cm / inch 尺寸不得靠 pixel 大小、視覺比例或主觀目測產生。沒有 HCSI 尺寸證據層的 deterministic measurement 時，數值尺寸必須標 unconfirmed。
+4. 只有照片能直接支持的資訊才標 observed；由 HCSI deterministic measurement JSON 直接提供的尺寸標 measured；無法確認的欄位標 unconfirmed，value 寫「照片無法確認」或具體說明缺少什麼證據。
 5. 不可從單純 pixel 大小直接推出真實 mm / inch，也不可捏造看不到的品牌、型號、額定值、線徑、壓力等級或材質等級。
 6. 若有一個合理的最可能答案，請明確選出，不要只列一串可能性。confusable_candidate 只放一個最容易混淆的候選；若沒有有意義的候選，寫「無明顯近似候選」。
 7. common_names 優先提供台灣居家 DIY、五金行或工地可能使用的常見叫法；不確定的俗名不要硬編。
