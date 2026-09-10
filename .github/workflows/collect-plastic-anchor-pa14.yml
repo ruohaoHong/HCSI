@@ -1,0 +1,55 @@
+name: Collect Plastic Anchor PA14
+
+on:
+  push:
+    paths:
+      - '.github/workflows/collect-plastic-anchor-pa14.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pillow requests
+      - name: Download and validate PA14
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, io, json, requests
+          from PIL import Image
+
+          page='https://www.cosmosye.com/product/nylon-anchor/nylon-wall-plug.html'
+          image='https://www.cosmosye.com/cosmosye/2022/08/16/1_0001_210.jpg'
+          out=Path('plastic-anchor-pa14'); out.mkdir(exist_ok=True)
+          s=requests.Session(); s.headers.update({'User-Agent':'Mozilla/5.0 HCSI benchmark collector'})
+          r=s.get(image,headers={'Referer':page},timeout=60,allow_redirects=True)
+          r.raise_for_status()
+          if len(r.content)<2500: raise SystemExit('image too small in bytes')
+          im=Image.open(io.BytesIO(r.content)); im.load()
+          w,h=im.size
+          if w<250 or h<250: raise SystemExit(f'image too small: {w}x{h}')
+          p=out/'PA14.jpg'; im.convert('RGB').save(p,'JPEG',quality=95)
+          sha=hashlib.sha256(p.read_bytes()).hexdigest()
+          manifest={
+            'id':'PA14','name':'Yuyao Yuxin 222 Nylon Wall Plug 12x60',
+            'source_page':page,'image_url':image,
+            'ground_truth':{'item':'塑膠壁虎／尼龍壁虎','diameter_mm':12,'length_mm':60},
+            'evidence':'Manufacturer Nylon Wall Plug page lists 222A/222B 12x60; the selected single-anchor photo itself visibly carries 12x60 molded marking.',
+            'width':w,'height':h,'sha256':sha,'file':p.name
+          }
+          (out/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
+          print('CONFIRMED PA14',w,h,sha)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plastic-anchor-pa14
+          path: plastic-anchor-pa14/
+          if-no-files-found: error
+          retention-days: 7
