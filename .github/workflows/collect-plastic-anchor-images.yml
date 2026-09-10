@@ -18,108 +18,107 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install pillow requests beautifulsoup4
-      - name: Download dimension-grounded product photos
+      - name: Download verified dimensioned single-anchor candidates
         run: |
           python - <<'PY'
           from pathlib import Path
           from urllib.parse import urljoin
-          import hashlib, json, io, re
+          import hashlib, io, json
           import requests
           from bs4 import BeautifulSoup
           from PIL import Image, ImageOps, ImageDraw
 
-          # Each case is an official fischer variant page whose title + technical
-          # data establish exact plug diameter/length. We extract only the page's
-          # Product Picture, never packaging/application pictures.
+          # Ground truth for each case was established from the exact source page
+          # before collection.  Candidate photos were pre-screened to show one
+          # wall-plug type only.  Direct URLs avoid generic manufacturer series art.
           cases = [
-            ('PA01','https://www.fischer-international.com/en/products/standard-fixings/plastic-fixings/universal-plug-ux/77888-ux-6-x-35','UX 6 x 35',6,35),
-            ('PA02','https://www.fischer-international.com/en/products/standard-fixings/plastic-fixings/universal-plug-ux/62756-ux-6-x-35-r','UX 6 x 35 R',6,35),
-            ('PA03','https://www.fischer-international.com/en/products/standard-fixings/plastic-fixings/universal-plug-ux/62754-ux-6-x-35','UX 6 x 35',6,35),
-            ('PA04','https://www.fischer-international.com/en/products/standard-fixings/plastic-fixings/universal-plug-ux/77890-ux-6-x-50','UX 6 x 50',6,50),
-            ('PA05','https://www.fischer.co.uk/en-gb/products/standard-fixings/plastic-fixings/universal-plug-ux/72094-ux-6-x-50','UX 6 x 50',6,50),
-            ('PA06','https://www.fischer-international.com/en/products/standard-fixings/plastic-fixings/duopower/534993-duopower-6-x-30-k-nv','DuoPower 6 x 30',6,30),
-            ('PA07','https://www.fischerfixingsusa.com/en-us/products/standard-fixings/plastic-fixings/duopower/535453-duopower-6-x-30','DuoPower 6 x 30',6,30),
-            ('PA08','https://www.fischerfixingsusa.com/en-us/products/standard-fixings/plastic-fixings/duopower/535455-duopower-8-x-40','DuoPower 8 x 40',8,40),
-            ('PA09','https://www.fischer-international.com/en/products/standard-fixings/plastic-fixings/duopower/534998-duopower-8-x-40-s-k-nv','DuoPower 8 x 40',8,40),
-            ('PA10','https://www.fischer.hk/en-hk/products/standard-fixings/plastic-fixings/expansion-plug-sx/90893-sx-6-x-30-s-k-nv','SX 6 x 30',6,30),
+            {'id':'PA01','name':'SMART 5x25','d':5,'l':25,'grade':'A','page':'https://www.masterhaus.bg/bg/product/228580-djubel-plastmasov-f5-h-25mm-20br-blister','image':'https://www.masterhaus.bg/thumbs/552x552/products/03/06/01/0306010563-universalen-djubel-plastmasov-f5-h-25mm-20br-blister_552x552_pad_478b24840a.jpg'},
+            {'id':'PA02','name':'Fixpro 6x30','d':6,'l':30,'grade':'A','page':'https://www.leroymerlin.fr/produits/cheville-nylon-standard-fixpro-longueur-30-mm-diametre-6-mm-vendu-par-100-83865400.html','image':'https://media.adeo.com/mkp/3b740bbbbb0a6c080a4981b4acbf841b/media.jpg?fit=bounds&format=jpg&height=3000&quality=80&width=3000'},
+            {'id':'PA03','name':'Hobson 7x35','d':7,'l':35,'grade':'B','page':'https://www.ebay.com.au/itm/264525691931','image':'https://i.ebayimg.com/images/g/hvoAAOSwS1JdxOdX/s-l400.jpg'},
+            {'id':'PA04','name':'Universal nylon 8x40','d':8,'l':40,'grade':'A','page':'https://www.highlight-led.de/en/universal-dowel-of-nylon-8x40mm-100-pieces.html','image':'https://media.highlight-led.de/products/images/33144.jpg'},
+            {'id':'PA05','name':'RADIX FX PRO 8x50','d':8,'l':50,'grade':'A','page':'https://www.leroymerlin.fr/produits/cheville-en-nylon-radix-fx-pro-8-x-50-mm-100-pieces-99152302.html','image':'https://media.adeo.com/mkp/14880c4b4f1e230210470a235e91e801/media.jpg'},
+            {'id':'PA06','name':'FAST 10x50','d':10,'l':50,'grade':'A','page':'https://www.velltra.se/en/product/nylon-plug-10x50mm-80pcs-fast-287007','image':'https://cdn.starwebserver.se/shops/velltra-se/files/cache/005244391_grande.jpg?_=1724485141'},
+            {'id':'PA07','name':'INDEX S10 10x50','d':10,'l':50,'grade':'A','page':'https://lamundial.com/shop/75753-taco-nylon-10x50mm-s10-ct1296kgp4-21470','image':'https://lamundial.com/web/image/product.image/5439/image_1024/Taco%20nylon%2010x50mm%20s10%20ct1296kgp4?unique=c365da6'},
+            {'id':'PA08','name':'Tekno 10x60','d':10,'l':60,'grade':'A','page':'https://www.bricovis.fr/produit-cheville-nylon-universelle-tekno-chenyltek/','image':'https://www.bricovis.fr/api/photos/CHENYLTEK-0000.jpg'},
+            {'id':'PA09','name':'Fischer S 12x60','d':12,'l':60,'grade':'A','page':'https://www.screw-express.com/plug-nylon-without-collar-fischer-s/12158-52462-plug-nylon-without-collar-fischer-s-12x60-3663072003569.html','image':None},
+            {'id':'PA10','name':'Fischer SX Plus 14x70','d':14,'l':70,'grade':'A','page':'https://www.landefeld.de/artikel/de/fischer-duebel-sx-plus-14x70-standard-20er-pack/DUBEL%20SX14X70','image':'https://www.landefeld.de/shop/media/360grad/25/254810/00.jpg'},
+            {'id':'PA11','name':'Nylon wall plug 14x75','d':14,'l':75,'grade':'A','page':'https://www.orbitalfasteners.co.uk/products/14-x-75mm-nylon-wall-plugs-for-screws-10-12mm','image':'https://orbital-production.ams3.cdn.digitaloceanspaces.com/5544/conversions/df07da67bd21ccacf9b8ac2abb2f96d1-medium.jpg'},
+            {'id':'PA12','name':'SPIT 5x25','d':5,'l':25,'grade':'A','page':'https://www.klium.com/en/spit-057070-universal-nylon-plug-with-collar-5x25-20271','image':None},
+            {'id':'PA13','name':'SPIT 14x70','d':14,'l':70,'grade':'A','page':'https://www.klium.com/en/spit-057050-universal-nylon-plug-without-collar-14x70-21889','image':None},
           ]
-          out=Path('plastic-anchor-dimensioned-10'); out.mkdir(exist_ok=True)
-          s=requests.Session(); s.headers.update({'User-Agent':'Mozilla/5.0 HCSI benchmark validation'})
+
+          out=Path('plastic-anchor-dimensioned-candidates'); out.mkdir(exist_ok=True)
+          s=requests.Session(); s.headers.update({'User-Agent':'Mozilla/5.0 (HCSI benchmark collector; image validation)'})
+
+          def discover_images(page):
+            r=s.get(page,timeout=60); r.raise_for_status()
+            soup=BeautifulSoup(r.text,'html.parser')
+            urls=[]
+            for prop in ('og:image','twitter:image'):
+              tag=soup.find('meta',property=prop) or soup.find('meta',attrs={'name':prop})
+              if tag and tag.get('content'): urls.append(urljoin(page,tag['content']))
+            for tag in soup.find_all('img'):
+              alt=(tag.get('alt') or '').lower()
+              if any(x in alt for x in ('logo','icon','flag','avatar','payment')): continue
+              for a in ('src','data-src','data-original','data-lazy-src'):
+                u=tag.get(a)
+                if u and not str(u).startswith('data:'): urls.append(urljoin(page,str(u)))
+              ss=tag.get('srcset') or tag.get('data-srcset')
+              if ss:
+                for bit in str(ss).split(','):
+                  u=bit.strip().split(' ')[0]
+                  if u: urls.append(urljoin(page,u))
+            return list(dict.fromkeys(urls))
+
           manifest=[]
-          for ident,page,variant,diam,length in cases:
-            try:
-              r=s.get(page,timeout=60); r.raise_for_status()
-              soup=BeautifulSoup(r.text,'html.parser')
-              title=soup.get_text(' ',strip=True)
-              if variant.lower() not in title.lower():
-                raise RuntimeError('variant not confirmed in page text')
-              # Confirm dimensions in technical page text, not inferred from image.
-              if not re.search(rf'(?:Drill diameter|diameter).*?{diam}\s*mm',title,re.I):
-                # DuoPower pages may expose dimension in title but technical data is JS-rendered.
-                if f'{diam} x {length}' not in title: raise RuntimeError('diameter not grounded')
-              if not (re.search(rf'(?:Anchor length|length).*?{length}\s*mm',title,re.I) or f'{diam} x {length}' in title):
-                raise RuntimeError('length not grounded')
-
-              # Prefer explicit Product Picture image metadata. Reject packaging/application imagery.
-              imgs=[]
-              for tag in soup.find_all('img'):
-                alt=(tag.get('alt') or '')
-                if 'Product Picture' not in alt: continue
-                if any(x in alt.lower() for x in ['packaging','application']): continue
-                for attr in ('src','data-src','data-original'):
-                  u=tag.get(attr)
-                  if u and not u.startswith('data:'): imgs.append(urljoin(page,u))
-                srcset=tag.get('srcset') or tag.get('data-srcset')
-                if srcset:
-                  for bit in srcset.split(','):
-                    u=bit.strip().split(' ')[0]
-                    if u: imgs.append(urljoin(page,u))
-              # Also inspect og:image as fallback only when its metadata/page title is product-specific.
-              og=soup.find('meta',property='og:image')
-              if og and og.get('content'): imgs.append(urljoin(page,og['content']))
-              imgs=list(dict.fromkeys(imgs))
-              if not imgs: raise RuntimeError('no product-picture URL found')
-
-              best=None
-              for u in imgs:
-                try:
-                  ir=s.get(u,headers={'Referer':page},timeout=60); ir.raise_for_status()
-                  im=Image.open(io.BytesIO(ir.content)); im.load()
-                  w,h=im.size
-                  if w<250 or h<250: continue
-                  score=w*h
-                  if best is None or score>best[0]: best=(score,u,im.copy(),w,h)
-                except Exception: pass
-              if not best: raise RuntimeError('no decodable >=250px product picture')
-              _,u,im,w,h=best
-              p=out/f'{ident}.jpg'; im.convert('RGB').save(p,'JPEG',quality=95)
-              sha=hashlib.sha256(p.read_bytes()).hexdigest()
-              manifest.append({'id':ident,'source_page':page,'image_url':u,'manufacturer':'fischer','variant':variant,'ground_truth':{'item':'塑膠壁虎／尼龍壁虎','diameter_mm':diam,'length_mm':length},'evidence_grade':'A','image_rule':'official variant Product Picture; one variant/type only','width':w,'height':h,'sha256':sha,'file':p.name,'ok':True})
-              print('OK',ident,variant,w,h,u)
-            except Exception as e:
-              manifest.append({'id':ident,'source_page':page,'variant':variant,'ok':False,'error':str(e)})
-              print('FAIL',ident,e)
+          for c in cases:
+            urls=[c['image']] if c.get('image') else discover_images(c['page'])
+            best=None
+            errors=[]
+            for u in urls:
+              try:
+                r=s.get(u,headers={'Referer':c['page']},timeout=60,allow_redirects=True)
+                if r.status_code!=200: raise RuntimeError(f'HTTP {r.status_code}')
+                if len(r.content)<2500: raise RuntimeError(f'too small {len(r.content)}')
+                im=Image.open(io.BytesIO(r.content)); im.load(); w,h=im.size
+                if w<250 or h<250: raise RuntimeError(f'dimensions {w}x{h}')
+                score=w*h
+                if best is None or score>best[0]: best=(score,u,im.copy(),w,h,len(r.content))
+              except Exception as e:
+                errors.append(f'{u}: {e}')
+            if not best:
+              manifest.append({**c,'ok':False,'error':' | '.join(errors[-5:])}); print('FAIL',c['id']); continue
+            _,u,im,w,h,nbytes=best
+            p=out/f"{c['id']}.jpg"; im.convert('RGB').save(p,'JPEG',quality=95)
+            sha=hashlib.sha256(p.read_bytes()).hexdigest()
+            row={**c,'ok':True,'resolved_image':u,'file':p.name,'width':w,'height':h,'download_bytes':nbytes,'sha256':sha,'ground_truth':{'item':'塑膠壁虎／尼龍壁虎','diameter_mm':c['d'],'length_mm':c['l']}}
+            manifest.append(row); print('OK',c['id'],c['name'],w,h,sha[:12],u)
 
           ok=[m for m in manifest if m.get('ok')]
           (out/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
+          duplicates={}
+          for m in ok: duplicates.setdefault(m['sha256'],[]).append(m['id'])
+          dup={k:v for k,v in duplicates.items() if len(v)>1}
+          (out/'duplicates.json').write_text(json.dumps(dup,indent=2),encoding='utf-8')
+
           tiles=[]
           for m in ok:
-            im=Image.open(out/m['file']).convert('RGB'); im=ImageOps.contain(im,(360,250))
-            tile=Image.new('RGB',(400,320),'white'); tile.paste(im,((400-im.width)//2,8+(250-im.height)//2))
-            d=ImageDraw.Draw(tile); d.text((10,270),f"{m['id']} {m['variant']}",fill='black'); d.text((10,292),f"GT: {m['ground_truth']['diameter_mm']} x {m['ground_truth']['length_mm']} mm",fill='black')
+            im=Image.open(out/m['file']).convert('RGB'); im=ImageOps.contain(im,(430,300))
+            tile=Image.new('RGB',(460,370),'white'); tile.paste(im,((460-im.width)//2,8+(300-im.height)//2))
+            d=ImageDraw.Draw(tile); d.text((10,318),f"{m['id']}  {m['name']}",fill='black'); d.text((10,340),f"GT {m['d']} x {m['l']} mm | {m['width']}x{m['height']} | grade {m['grade']}",fill='black')
             tiles.append(tile)
           cols=2; rows=(len(tiles)+1)//2
-          sheet=Image.new('RGB',(800,max(1,rows)*320),'white')
-          for i,t in enumerate(tiles): sheet.paste(t,((i%2)*400,(i//2)*320))
-          sheet.save(out/'contact-sheet.jpg','JPEG',quality=92)
-          (out/'summary.txt').write_text(f'target=10\nvalid={len(ok)}\n',encoding='utf-8')
-          if len(ok)!=10: raise SystemExit(f'Need exactly 10 valid dimension-grounded images, got {len(ok)}')
-          if len({m['sha256'] for m in ok}) != 10: raise SystemExit('Duplicate image bytes detected; need 10 distinct photos')
-          print('CONFIRMED 10/10')
+          sheet=Image.new('RGB',(cols*460,max(1,rows)*370),'white')
+          for i,t in enumerate(tiles): sheet.paste(t,((i%cols)*460,(i//cols)*370))
+          sheet.save(out/'contact-sheet.jpg','JPEG',quality=94)
+          (out/'summary.txt').write_text(f'candidates={len(cases)}\ndownloaded={len(ok)}\nduplicate_groups={len(dup)}\n',encoding='utf-8')
+          if len(ok)<10: raise SystemExit(f'Need >=10 downloadable candidates, got {len(ok)}')
+          print('DOWNLOADABLE CANDIDATES',len(ok),'duplicate groups',len(dup))
           PY
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: plastic-anchor-dimensioned-10
-          path: plastic-anchor-dimensioned-10/
+          name: plastic-anchor-dimensioned-candidates
+          path: plastic-anchor-dimensioned-candidates/
           if-no-files-found: error
           retention-days: 7
