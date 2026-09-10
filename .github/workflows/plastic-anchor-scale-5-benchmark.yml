@@ -1,0 +1,107 @@
+name: Plastic Anchor Scale 5 Benchmark
+
+on:
+  push:
+    paths:
+      - '.github/workflows/plastic-anchor-scale-5-benchmark.yml'
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pillow requests
+      - name: Run five-case blind benchmark
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64, hashlib, json, os, requests
+          from PIL import Image
+          from io import BytesIO
+
+          cases = [
+            {
+              'id':'SCALE-01','name':'8x40 dimension graphic + molded marking','diameter_mm':8,'length_mm':40,
+              'url':'https://plazavea.vteximg.com.br/arquivos/ids/30220614-418-418/imageUrl_2.jpg'
+            },
+            {
+              'id':'SCALE-02','name':'6x30 single anchor with dimension arrows','diameter_mm':6,'length_mm':30,
+              'url':'https://down-my.img.susercontent.com/file/3db52fcd72277e347ae48b6314f61520'
+            },
+            {
+              'id':'SCALE-03','name':'8mm nylon anchor beside physical tape measure','diameter_mm':8,'length_mm':40,
+              'url':'https://static.comercialapoio.com.br/public/apoioforros/imagens/produtos/bucha-de-nylon-08mm-637bdc0715fe4.jpg'
+            },
+            {
+              'id':'SCALE-04','name':'8x40 single anchor with explicit 8mm/40mm dimensions','diameter_mm':8,'length_mm':40,
+              'url':'https://image.made-in-china.com/202f0j00vLUqsSCRlypF/Wall-Plug-Anchor-Nylon-PA6-Plastic-PE-Drilling-Screw-Anchor.webp'
+            },
+            {
+              'id':'SCALE-05','name':'8x40 single anchor with independent dimension lines','diameter_mm':8,'length_mm':40,
+              'url':'https://http2.mlstatic.com/D_NQ_NP_661647-MLC31885678300_082019-O.webp'
+            },
+          ]
+
+          out = Path('plastic-anchor-scale-5-results'); out.mkdir(exist_ok=True)
+          imgdir = out/'images'; imgdir.mkdir(exist_ok=True)
+          prompt = (
+            "你正在協助台灣使用者辨識照片中的一個常見五金零件。這是一個盲測，只可以使用照片本身，不得使用檔名、來源頁、Ground Truth、品牌資料或外部資料。\n"
+            "目標不是猜原始 SKU，而是產生足以讓台灣使用者去五金行購買相容替代品的辨識結果。\n"
+            "不要為了完整而猜尺寸；沒有可靠尺度、清楚可讀的本體刻字、圖中明確尺寸標線或其他足以支持毫米數值的證據，就填 unknown。\n"
+            "若照片同時存在本體刻字、尺寸標線、尺或其他比例參考，請各自記錄可觀察證據，並在 diagnostic.size_evidence 說明最終尺寸主要依據哪一類證據，以及其他證據是否一致。\n"
+            "dimension_basis 只能是 marking、scale_reference、visual_estimate、unknown；若多種證據同時存在，填你實際最主要依賴的那一種。\n"
+            "key_visual_evidence 只寫可觀察的視覺依據，不要輸出隱藏 chain-of-thought。名稱優先使用台灣常見繁體中文採購詞。\n"
+            "只輸出 JSON，欄位必須包含 item_name_zh_tw, common_names_zh_tw, technical_name_en, subtype, material, diameter_mm, length_mm, dimension_basis, visible_text_or_markings, purchase_phrase_zh_tw, missing_purchase_info, confidence, diagnostic。\n"
+            "diagnostic 必須包含 key_visual_evidence, size_evidence, confusable_candidate, key_differentiator, uncertain_points。"
+          )
+          key=os.environ['OPENAI_API_KEY'].strip()
+          if not key: raise SystemExit('OPENAI_API_KEY empty')
+          rows=[]
+          for c in cases:
+            print('DOWNLOAD', c['id'], c['url'])
+            rr=requests.get(c['url'],timeout=60,headers={'User-Agent':'Mozilla/5.0'}); rr.raise_for_status()
+            data=rr.content
+            im=Image.open(BytesIO(data)); im.load(); w,h=im.size; fmt=(im.format or 'JPEG').upper()
+            mime={'JPEG':'image/jpeg','PNG':'image/png','WEBP':'image/webp','GIF':'image/gif'}.get(fmt,'image/jpeg')
+            ext={'JPEG':'jpg','PNG':'png','WEBP':'webp','GIF':'gif'}.get(fmt,'jpg')
+            (imgdir/f"{c['id']}.{ext}").write_bytes(data)
+            sha=hashlib.sha256(data).hexdigest()
+            row={'case_id':c['id'],'ground_truth':{'item':'塑膠壁虎／尼龍壁虎','diameter_mm':c['diameter_mm'],'length_mm':c['length_mm']},'image':{'url':c['url'],'width':w,'height':h,'sha256':sha}}
+            try:
+              payload={'model':'gpt-5.6-sol','input':[{'role':'user','content':[{'type':'input_text','text':prompt},{'type':'input_image','image_url':f'data:{mime};base64,'+base64.b64encode(data).decode(),'detail':'high'}]}],'max_output_tokens':1800}
+              r=requests.post('https://api.openai.com/v1/responses',headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},json=payload,timeout=180); r.raise_for_status(); obj=r.json()
+              text=''.join(part.get('text','') for item in obj.get('output',[]) for part in item.get('content',[]) if part.get('type')=='output_text').strip()
+              if text.startswith('```json'): text=text[7:]
+              elif text.startswith('```'): text=text[3:]
+              if text.endswith('```'): text=text[:-3]
+              ans=json.loads(text.strip())
+              row['api_status']='ok'; row['ai_response']=ans
+              d=ans.get('diameter_mm'); l=ans.get('length_mm')
+              row['comparison']={'diameter_exact':isinstance(d,(int,float)) and float(d)==c['diameter_mm'],'length_exact':isinstance(l,(int,float)) and float(l)==c['length_mm'],'dimension_basis':ans.get('dimension_basis')}
+              print(c['id'],json.dumps(ans,ensure_ascii=False))
+            except Exception as e:
+              row['api_status']='failed'; row['error']=str(e); print(c['id'],'FAILED',e)
+            rows.append(row)
+          summary={'total':len(rows),'api_ok':sum(x.get('api_status')=='ok' for x in rows),'diameter_exact':sum(x.get('comparison',{}).get('diameter_exact',False) for x in rows),'length_exact':sum(x.get('comparison',{}).get('length_exact',False) for x in rows),'basis_counts':{}}
+          for x in rows:
+            b=x.get('comparison',{}).get('dimension_basis','unknown'); summary['basis_counts'][b]=summary['basis_counts'].get(b,0)+1
+          result={'model':'gpt-5.6-sol','dataset':'PLASTIC-ANCHOR-SCALE-5','ground_truth_policy':'established before inference; model received image only, not GT/source/name','summary':summary,'cases':rows}
+          (out/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+          print('SUMMARY',json.dumps(summary,ensure_ascii=False))
+          if summary['api_ok'] != 5: raise SystemExit('not all five inference calls succeeded')
+          PY
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plastic-anchor-scale-5-results
+          path: plastic-anchor-scale-5-results
+          if-no-files-found: error
+          retention-days: 14
