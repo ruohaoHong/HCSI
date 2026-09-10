@@ -110,7 +110,7 @@ GitHub Actions 另有 synthetic/unit/integration tests 與官方 RulerNet ONNX s
 - purchase description
 - safety note
 
-`observed`、`estimated`、`unconfirmed` 用來區分照片直接證據、合理推論與照片無法確認的規格。Measurement PoC 的 deterministic 尺寸在 prompt 中明確標示為「系統實測」，不得被描述成 LLM 目測。
+`measured`、`observed`、`estimated`、`unconfirmed` 分別表示 HCSI deterministic 系統實測、照片直接可見、非尺寸屬性的合理推論，以及目前證據無法確認。沒有可信 deterministic measurement 時，Vision LLM 不得自行產生數值 mm / cm / inch 尺寸。
 
 ## Reference packs
 
