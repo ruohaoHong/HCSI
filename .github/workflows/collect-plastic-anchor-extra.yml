@@ -1,0 +1,72 @@
+name: Collect Plastic Anchor Extra
+
+on:
+  push:
+    paths:
+      - '.github/workflows/collect-plastic-anchor-extra.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pillow requests
+      - name: Download exact-size candidates
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, io, json, requests
+          from PIL import Image
+
+          cases=[
+            {
+              'id':'PA15','name':'Vis-Express Nylon Plug 5x25','d':5,'l':25,
+              'page':'https://www.vis-express.fr/cheville-nylon-a-collerette/22299-cheville-nylon-a-collerette-5x25-grise.html',
+              'image':'https://www.vis-express.fr/987972-thickbox_default/cheville-nylon-a-collerette-5x25-grise.jpg'
+            },
+            {
+              'id':'PA16','name':'Wovar Nylon Plug 6x30','d':6,'l':30,
+              'page':'https://gadero.de/wovar-nylon-pluggen-6-x-30-mm/',
+              'image':'https://9e9aed304128bdada8a1-a26ec9f720dbe6e212857003c57388fb.ssl.cf3.rackcdn.com/pluggen_nylon-fWmTTwXi.jpg'
+            },
+            {
+              'id':'PA17','name':'HOMEFIX Nylon Plug 10x50','d':10,'l':50,
+              'page':'https://www.hoenderdaal-fasteners.nl/nl-nl/producten/pluggen-ankers-nylon-pluggen/homefix-plug-nylon-blister/10-5',
+              'image':'https://www.hoenderdaal-fasteners.nl/files/assets/E0001436.jpg'
+            }
+          ]
+          out=Path('plastic-anchor-extra'); out.mkdir(exist_ok=True)
+          s=requests.Session(); s.headers.update({'User-Agent':'Mozilla/5.0 HCSI benchmark collector'})
+          manifest=[]
+          for c in cases:
+            try:
+              r=s.get(c['image'],headers={'Referer':c['page']},timeout=60,allow_redirects=True)
+              if r.status_code!=200: raise RuntimeError(f'HTTP {r.status_code}')
+              if len(r.content)<2500: raise RuntimeError(f'too small {len(r.content)}')
+              im=Image.open(io.BytesIO(r.content)); im.load(); w,h=im.size
+              if w<250 or h<250: raise RuntimeError(f'dimensions {w}x{h}')
+              p=out/f"{c['id']}.jpg"; im.convert('RGB').save(p,'JPEG',quality=95)
+              sha=hashlib.sha256(p.read_bytes()).hexdigest()
+              row={**c,'ok':True,'file':p.name,'width':w,'height':h,'sha256':sha,
+                   'ground_truth':{'item':'塑膠壁虎／尼龍壁虎','diameter_mm':c['d'],'length_mm':c['l']}}
+              print('OK',c['id'],w,h,sha)
+            except Exception as e:
+              row={**c,'ok':False,'error':str(e)}; print('FAIL',c['id'],e)
+            manifest.append(row)
+          (out/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
+          if sum(1 for x in manifest if x['ok'])<2: raise SystemExit('Need at least 2 valid extra photos')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: plastic-anchor-extra
+          path: plastic-anchor-extra/
+          if-no-files-found: error
+          retention-days: 7
