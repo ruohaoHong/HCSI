@@ -1,4 +1,4 @@
-name: Plastic Anchor Scale 5 Benchmark
+name: Plastic Anchor SCALE-03 GPT-6 Benchmark
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install pillow requests
-      - name: Run five-case blind benchmark
+      - name: Run SCALE-03 blind benchmark with GPT-6 Astra
         shell: bash
         run: |
           python - <<'PY'
@@ -26,30 +26,12 @@ jobs:
           from PIL import Image
           from io import BytesIO
 
-          cases = [
-            {
-              'id':'SCALE-01','name':'8x40 dimension graphic + molded marking','diameter_mm':8,'length_mm':40,
-              'url':'https://plazavea.vteximg.com.br/arquivos/ids/30220614-418-418/imageUrl_2.jpg'
-            },
-            {
-              'id':'SCALE-02','name':'6x30 single anchor with dimension arrows','diameter_mm':6,'length_mm':30,
-              'url':'https://down-my.img.susercontent.com/file/3db52fcd72277e347ae48b6314f61520'
-            },
-            {
-              'id':'SCALE-03','name':'8mm nylon anchor beside physical tape measure','diameter_mm':8,'length_mm':40,
-              'url':'https://static.comercialapoio.com.br/public/apoioforros/imagens/produtos/bucha-de-nylon-08mm-637bdc0715fe4.jpg'
-            },
-            {
-              'id':'SCALE-04','name':'8x40 single anchor with explicit 8mm/40mm dimensions','diameter_mm':8,'length_mm':40,
-              'url':'https://image.made-in-china.com/202f0j00vLUqsSCRlypF/Wall-Plug-Anchor-Nylon-PA6-Plastic-PE-Drilling-Screw-Anchor.webp'
-            },
-            {
-              'id':'SCALE-05','name':'8x40 single anchor with independent dimension lines','diameter_mm':8,'length_mm':40,
-              'url':'https://http2.mlstatic.com/D_NQ_NP_661647-MLC31885678300_082019-O.webp'
-            },
-          ]
+          c = {
+            'id':'SCALE-03','name':'8mm nylon anchor beside physical tape measure','diameter_mm':8,'length_mm':40,
+            'url':'https://static.comercialapoio.com.br/public/apoioforros/imagens/produtos/bucha-de-nylon-08mm-637bdc0715fe4.jpg'
+          }
 
-          out = Path('plastic-anchor-scale-5-results'); out.mkdir(exist_ok=True)
+          out = Path('plastic-anchor-scale03-gpt6-results'); out.mkdir(exist_ok=True)
           imgdir = out/'images'; imgdir.mkdir(exist_ok=True)
           prompt = (
             "你正在協助台灣使用者辨識照片中的一個常見五金零件。這是一個盲測，只可以使用照片本身，不得使用檔名、來源頁、Ground Truth、品牌資料或外部資料。\n"
@@ -63,45 +45,41 @@ jobs:
           )
           key=os.environ['OPENAI_API_KEY'].strip()
           if not key: raise SystemExit('OPENAI_API_KEY empty')
-          rows=[]
-          for c in cases:
-            print('DOWNLOAD', c['id'], c['url'])
-            rr=requests.get(c['url'],timeout=60,headers={'User-Agent':'Mozilla/5.0'}); rr.raise_for_status()
-            data=rr.content
-            im=Image.open(BytesIO(data)); im.load(); w,h=im.size; fmt=(im.format or 'JPEG').upper()
-            mime={'JPEG':'image/jpeg','PNG':'image/png','WEBP':'image/webp','GIF':'image/gif'}.get(fmt,'image/jpeg')
-            ext={'JPEG':'jpg','PNG':'png','WEBP':'webp','GIF':'gif'}.get(fmt,'jpg')
-            (imgdir/f"{c['id']}.{ext}").write_bytes(data)
-            sha=hashlib.sha256(data).hexdigest()
-            row={'case_id':c['id'],'ground_truth':{'item':'塑膠壁虎／尼龍壁虎','diameter_mm':c['diameter_mm'],'length_mm':c['length_mm']},'image':{'url':c['url'],'width':w,'height':h,'sha256':sha}}
-            try:
-              payload={'model':'gpt-5.6-sol','input':[{'role':'user','content':[{'type':'input_text','text':prompt},{'type':'input_image','image_url':f'data:{mime};base64,'+base64.b64encode(data).decode(),'detail':'high'}]}],'max_output_tokens':1800}
-              r=requests.post('https://api.openai.com/v1/responses',headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},json=payload,timeout=180); r.raise_for_status(); obj=r.json()
-              text=''.join(part.get('text','') for item in obj.get('output',[]) for part in item.get('content',[]) if part.get('type')=='output_text').strip()
-              if text.startswith('```json'): text=text[7:]
-              elif text.startswith('```'): text=text[3:]
-              if text.endswith('```'): text=text[:-3]
-              ans=json.loads(text.strip())
-              row['api_status']='ok'; row['ai_response']=ans
-              d=ans.get('diameter_mm'); l=ans.get('length_mm')
-              row['comparison']={'diameter_exact':isinstance(d,(int,float)) and float(d)==c['diameter_mm'],'length_exact':isinstance(l,(int,float)) and float(l)==c['length_mm'],'dimension_basis':ans.get('dimension_basis')}
-              print(c['id'],json.dumps(ans,ensure_ascii=False))
-            except Exception as e:
-              row['api_status']='failed'; row['error']=str(e); print(c['id'],'FAILED',e)
-            rows.append(row)
-          summary={'total':len(rows),'api_ok':sum(x.get('api_status')=='ok' for x in rows),'diameter_exact':sum(x.get('comparison',{}).get('diameter_exact',False) for x in rows),'length_exact':sum(x.get('comparison',{}).get('length_exact',False) for x in rows),'basis_counts':{}}
-          for x in rows:
-            b=x.get('comparison',{}).get('dimension_basis','unknown'); summary['basis_counts'][b]=summary['basis_counts'].get(b,0)+1
-          result={'model':'gpt-5.6-sol','dataset':'PLASTIC-ANCHOR-SCALE-5','ground_truth_policy':'established before inference; model received image only, not GT/source/name','summary':summary,'cases':rows}
+
+          print('DOWNLOAD', c['id'], c['url'])
+          rr=requests.get(c['url'],timeout=60,headers={'User-Agent':'Mozilla/5.0'}); rr.raise_for_status()
+          data=rr.content
+          im=Image.open(BytesIO(data)); im.load(); w,h=im.size; fmt=(im.format or 'JPEG').upper()
+          mime={'JPEG':'image/jpeg','PNG':'image/png','WEBP':'image/webp','GIF':'image/gif'}.get(fmt,'image/jpeg')
+          ext={'JPEG':'jpg','PNG':'png','WEBP':'webp','GIF':'gif'}.get(fmt,'jpg')
+          (imgdir/f"{c['id']}.{ext}").write_bytes(data)
+          sha=hashlib.sha256(data).hexdigest()
+          row={'case_id':c['id'],'ground_truth':{'item':'塑膠壁虎／尼龍壁虎','diameter_mm':c['diameter_mm'],'length_mm':c['length_mm']},'image':{'url':c['url'],'width':w,'height':h,'sha256':sha}}
+
+          try:
+            payload={'model':'gpt-6-astra','input':[{'role':'user','content':[{'type':'input_text','text':prompt},{'type':'input_image','image_url':f'data:{mime};base64,'+base64.b64encode(data).decode(),'detail':'high'}]}],'max_output_tokens':1800}
+            r=requests.post('https://api.openai.com/v1/responses',headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},json=payload,timeout=240); r.raise_for_status(); obj=r.json()
+            text=''.join(part.get('text','') for item in obj.get('output',[]) for part in item.get('content',[]) if part.get('type')=='output_text').strip()
+            if text.startswith('```json'): text=text[7:]
+            elif text.startswith('```'): text=text[3:]
+            if text.endswith('```'): text=text[:-3]
+            ans=json.loads(text.strip())
+            row['api_status']='ok'; row['ai_response']=ans
+            d=ans.get('diameter_mm'); l=ans.get('length_mm')
+            row['comparison']={'diameter_exact':isinstance(d,(int,float)) and float(d)==c['diameter_mm'],'length_exact':isinstance(l,(int,float)) and float(l)==c['length_mm'],'dimension_basis':ans.get('dimension_basis')}
+            print(c['id'],json.dumps(ans,ensure_ascii=False))
+          except Exception as e:
+            row['api_status']='failed'; row['error']=str(e); print(c['id'],'FAILED',e)
+
+          result={'model':'gpt-6-astra','dataset':'PLASTIC-ANCHOR-SCALE03-ONLY','ground_truth_policy':'established before inference; model received image only, not GT/source/name','case':row}
           (out/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
-          print('SUMMARY',json.dumps(summary,ensure_ascii=False))
-          if summary['api_ok'] != 5: raise SystemExit('not all five inference calls succeeded')
+          if row.get('api_status') != 'ok': raise SystemExit('inference failed')
           PY
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: plastic-anchor-scale-5-results
-          path: plastic-anchor-scale-5-results
+          name: plastic-anchor-scale03-gpt6-results
+          path: plastic-anchor-scale03-gpt6-results
           if-no-files-found: error
           retention-days: 14
