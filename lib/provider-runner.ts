@@ -10,6 +10,9 @@ import {
   type IdentificationResult,
   type Provider,
 } from '@/lib/identification'
+import { runMeasurementPreflight, MeasurementServiceError } from '@/lib/measurement-client'
+import { buildMeasurementEvidencePrompt } from '@/lib/measurement-prompt'
+import type { MeasurementResult } from '@/lib/measurement'
 import { loadReferencePack } from '@/lib/reference-loader'
 
 const MAX_IMAGE_LENGTH = 7_000_000
@@ -34,6 +37,11 @@ const PROVIDER_CONFIG = {
 
 type JsonSchema = Record<string, unknown>
 
+type MeasurementServiceFallback = {
+  code: string
+  message: string
+} | null
+
 export async function handleIdentificationRequest(request: Request, provider: Provider) {
   try {
     const body = await request.json()
@@ -48,6 +56,20 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
 
     if (!apiKey) {
       return NextResponse.json({ error: `${config.label} 分析服務尚未完成設定。` }, { status: 503 })
+    }
+
+    let measurement: MeasurementResult | null = null
+    let measurementServiceError: MeasurementServiceFallback = null
+    try {
+      measurement = await runMeasurementPreflight(image)
+    } catch (error) {
+      if (error instanceof MeasurementServiceError) {
+        measurementServiceError = { code: error.code, message: error.message }
+        console.warn(`[HCSI] ${provider} continuing without deterministic measurement:`, error.code)
+      } else {
+        measurementServiceError = { code: 'measurement_unexpected_error', message: '量測服務目前無法使用。' }
+        console.warn(`[HCSI] ${provider} continuing without deterministic measurement: unexpected error`)
+      }
     }
 
     const routingRaw = await runStructuredProvider({
@@ -66,13 +88,14 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     }
 
     const reference = await loadReferencePack(routingRaw.category)
+    const measurementPrompt = buildMeasurementEvidencePrompt(measurement, measurementServiceError?.code)
 
     const identificationRaw = await runStructuredProvider({
       provider,
       apiKey,
       model: config.model,
       image,
-      prompt: buildIdentificationPrompt(routingRaw, reference.core, reference.category),
+      prompt: `${buildIdentificationPrompt(routingRaw, reference.core, reference.category)}\n${measurementPrompt}`,
       schemaName: 'hcsi_hardware_identification',
       schema: IDENTIFICATION_JSON_SCHEMA as unknown as JsonSchema,
       maxOutputTokens: 2400,
@@ -82,13 +105,15 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       throw new Error(`${config.label} 最終辨識輸出格式不完整`)
     }
 
-    await logResult(provider, config.model, routingRaw.category, identificationRaw)
+    await logResult(provider, config.model, routingRaw.category, identificationRaw, measurement)
 
     return NextResponse.json({
       provider,
       model: config.model,
       routing: routingRaw,
       result: identificationRaw,
+      measurement,
+      measurement_service_error: measurementServiceError,
     })
   } catch (error) {
     console.error(`[HCSI] ${provider} analyze failed:`, error)
@@ -255,14 +280,15 @@ async function logResult(
   provider: Provider,
   model: string,
   routedCategory: string,
-  result: IdentificationResult
+  result: IdentificationResult,
+  measurement: MeasurementResult | null
 ) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   if (!supabaseUrl || !supabaseKey) return
 
   const supabase = createClient(supabaseUrl, supabaseKey)
-  const payload = JSON.stringify({ provider, model, routedCategory, result })
+  const payload = JSON.stringify({ provider, model, routedCategory, result, measurement })
   const { error } = await supabase.from('hardware_logs').insert({
     result_text: payload.slice(0, 12000),
   })
