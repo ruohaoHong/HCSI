@@ -25,8 +25,8 @@ jobs:
           import hashlib, io, json, requests
           from PIL import Image
 
-          page='https://www.cosmosye.com/product/nylon-anchor/nylon-wall-plug.html'
-          image='https://www.cosmosye.com/cosmosye/2022/08/16/1_0001_210.jpg'
+          page='https://www.schroeven-online.nl/fischer-s-nylon-plug-12-x-60mm-25-stuks/50112'
+          image='https://www.schroeven-online.nl/media/5c/e7/5c/1755078794/f338e4577a4bfa2ed25b03af7f3d0cf1.jpg?ts=1756223728'
           out=Path('plastic-anchor-pa14'); out.mkdir(exist_ok=True)
           s=requests.Session(); s.headers.update({'User-Agent':'Mozilla/5.0 HCSI benchmark collector'})
           r=s.get(image,headers={'Referer':page},timeout=60,allow_redirects=True)
@@ -38,10 +38,10 @@ jobs:
           p=out/'PA14.jpg'; im.convert('RGB').save(p,'JPEG',quality=95)
           sha=hashlib.sha256(p.read_bytes()).hexdigest()
           manifest={
-            'id':'PA14','name':'Yuyao Yuxin 222 Nylon Wall Plug 12x60',
+            'id':'PA14','name':'Fischer S Nylon Plug 12x60',
             'source_page':page,'image_url':image,
             'ground_truth':{'item':'塑膠壁虎／尼龍壁虎','diameter_mm':12,'length_mm':60},
-            'evidence':'Manufacturer Nylon Wall Plug page lists 222A/222B 12x60; the selected single-anchor photo itself visibly carries 12x60 molded marking.',
+            'evidence':'Exact retailer product page is titled Fischer S Nylon plug 12 x 60mm and lists plug diameter 12 mm and plug length 60 mm; selected gallery image is attached to that exact product.',
             'width':w,'height':h,'sha256':sha,'file':p.name
           }
           (out/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
