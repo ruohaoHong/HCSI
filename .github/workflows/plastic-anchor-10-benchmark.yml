@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   benchmark:
@@ -16,72 +17,64 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
+      - name: Download previously validated real-image artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: plastic-anchor-candidates
+          path: plastic-anchor-images
+          run-id: 34381245342
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: pip install pillow requests
-      - name: Run exact-GT plastic-anchor benchmark
+      - name: Verify exact selected images and run OpenAI benchmark
         run: |
           python - <<'PY'
           from pathlib import Path
-          import base64, hashlib, io, json, os, requests
+          import base64, hashlib, json, os, requests
           from PIL import Image
 
-          cases = [
-            ('PA01','SMART Nylon Plug',5,25,'https://www.pgb-europe.com/en-gb/219314/smart-nylon-exp-plug-w-o-collar-5x25','https://www.pgb-europe.com/media/catalog/product/cache/1/image/1200x/040ec09b1e35df139433887a97daa66f/2/1/219314_1.jpg'),
-            ('PA02','Fixpro Nylon Plug',6,30,'https://fixpro.eu/product/nylon-plug-6x30/','https://fixpro.eu/wp-content/uploads/2024/02/nylon-plug-6x30.jpg'),
-            ('PA03','AKIFIX Nylon Wall Plug',6,30,'https://www.ebay.it/itm/251388512052','https://i.ebayimg.com/images/g/pNkAAOSwpMFh6DnF/s-l1200.jpg'),
-            ('PA04','Hobson MWPNUG07',7,35,'https://www.ebay.com.au/itm/264525691931','https://i.ebayimg.com/images/g/HTQAAOSwmyFeCH61/s-l1600.jpg'),
-            ('PA05','Universal Nylon Plug',8,40,'https://www.screwsline.co.uk/product/nylon-wall-plugs-8-x-40mm/','https://www.screwsline.co.uk/wp-content/uploads/2021/06/8x40-plug.jpg'),
-            ('PA06','FAST 287007 Nylon Plug',10,50,'https://www.velltra.se/en/product/nylon-plug-10x50mm-80pcs-fast-287007','https://www.velltra.se/image/0/287007.jpg'),
-            ('PA07','INDEX S10 Nylon Plug',10,50,'https://www.ferreteriaonlinevtc.com/taco-nylon-10x50mm-s10-index','https://www.ferreteriaonlinevtc.com/imagenes/10x50-s10-index.jpg'),
-            ('PA08','HOMEFIX Nylon Plug',10,50,'https://www.hoenderdaal-fasteners.nl/nl-nl/producten/pluggen-ankers-nylon-pluggen/homefix-plug-nylon-blister/10-5','https://www.hoenderdaal-fasteners.nl/files/assets/E0001436.jpg'),
-            ('PA09','Fischer S Nylon Plug',12,60,'https://www.schroeven-online.nl/fischer-s-nylon-plug-12-x-60mm-25-stuks/50112','https://www.schroeven-online.nl/media/catalog/product/5/0/50112.jpg'),
-            ('PA10','Fischer SX Plus',14,70,'https://www.conrad.com/en/p/fischer-568014-sx-plus-spring-toggle-70-mm-14-mm-20-pc-s-2859280.html','https://asset.conrad.com/media10/isa/160267/c1/-/en/2859280_BB_00_FB/image.jpg'),
-          ]
-          # Known-good fallback image URLs from the previously validated collection.
-          # Try primary; if unavailable, scrape og:image/product image from the exact source page.
-          session=requests.Session(); session.headers.update({'User-Agent':'Mozilla/5.0 HCSI Plastic Anchor Benchmark'})
+          root=Path('plastic-anchor-images')
+          manifest=json.loads((root/'manifest.json').read_text(encoding='utf-8'))
+          byid={x['id']:x for x in manifest}
+          selected=['TW01','CM01','CM02','CM03','CM04','CM06','CM07','CM09','CM10','CM11']
           out=Path('plastic-anchor-10-results'); out.mkdir(exist_ok=True)
-          prompt='''你正在協助台灣使用者辨識照片中的五金零件。只根據照片本身判斷，不得使用商品頁、Ground Truth 或外部資料。目標是讓使用者拿答案去台灣五金行購買可用替代品。不要因為需要完整答案而猜測照片無法支持的尺寸；如果尺寸不能從照片可靠判定，請明確寫 unknown。名稱使用台灣常見繁體中文購買用語。只輸出 JSON：{"item_name_zh_tw":"","common_names_zh_tw":[],"diameter_mm":"number or unknown","length_mm":"number or unknown","purchase_phrase_zh_tw":"","missing_purchase_info":[],"confidence":0.0,"diagnostic":{"key_visual_evidence":[],"size_evidence":"","uncertain_points":[]}}'''
+          prompt='''你正在協助台灣使用者辨識照片中的五金零件。只根據照片本身判斷，不得使用來源頁、Ground Truth 或外部資料。目標是讓使用者能拿答案去台灣五金行購買可用替代品。不要因為需要完整答案而猜測照片無法支持的尺寸、材質或型號；不能可靠判定就寫 unknown。名稱優先使用台灣常見繁體中文購買用語。照片可能包含一個或多個同類零件。只輸出 JSON：{"item_name_zh_tw":"","common_names_zh_tw":[],"technical_name_en":"","object_count_or_scope":"","material":"visible/inferable value or unknown","diameter_mm":"number/list/range or unknown","length_mm":"number/list/range or unknown","purchase_phrase_zh_tw":"","missing_purchase_info":[],"confidence":0.0,"diagnostic":{"key_visual_evidence":[],"size_evidence":"","uncertain_points":[]}}'''
           rows=[]
-          def get_image(page, image):
-            urls=[image]
+          # Global preflight: exact bytes must match the hashes recorded when the images were collected/validated.
+          for cid in selected:
+            m=byid[cid]; p=root/m['file']; data=p.read_bytes(); sha=hashlib.sha256(data).hexdigest()
+            if sha != m['sha256']: raise SystemExit(f'{cid} hash mismatch: {sha} != {m["sha256"]}')
+            with Image.open(p) as im: im.verify()
+          print('PRE-FLIGHT: all 10 exact validated images passed hash + Pillow verification')
+          key=os.environ['OPENAI_API_KEY'].strip()
+          for n,cid in enumerate(selected,1):
+            m=byid[cid]; p=root/m['file']; data=p.read_bytes()
+            with Image.open(p) as im:
+              fmt=(im.format or 'JPEG').upper(); size=im.size
+            mime={'JPEG':'image/jpeg','PNG':'image/png','WEBP':'image/webp'}.get(fmt,'image/jpeg')
+            row={'case':f'PA10-{n:02d}','source_id':cid,'ground_truth':{'identity':m['gt'],'basis':m['basis'],'source':m['source']},'image':{'file':m['file'],'width':size[0],'height':size[1],'sha256':m['sha256']}}
             try:
-              html=session.get(page,timeout=30).text
-              import re
-              for pat in [r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)',r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image']:
-                m=re.search(pat,html,re.I)
-                if m: urls.append(requests.compat.urljoin(page,m.group(1)))
-            except Exception: pass
-            err=[]
-            for u in urls:
-              try:
-                r=session.get(u,headers={'Referer':page},timeout=45); r.raise_for_status()
-                im=Image.open(io.BytesIO(r.content)); im.load()
-                if min(im.size)<200: raise ValueError(f'too small {im.size}')
-                b=io.BytesIO(); im.convert('RGB').save(b,'JPEG',quality=95); return b.getvalue(),u,im.size
-              except Exception as e: err.append(f'{u}: {e}')
-            raise RuntimeError('; '.join(err))
-          for cid,name,d,l,page,image in cases:
-            row={'id':cid,'ground_truth':{'item':'塑膠壁虎／尼龍壁虎','diameter_mm':d,'length_mm':l,'source_name':name},'source_page':page}
-            try:
-              data,url,size=get_image(page,image); row['image']={'url':url,'size':size,'sha256':hashlib.sha256(data).hexdigest()}
-              payload={'model':'gpt-5.6-sol','input':[{'role':'user','content':[{'type':'input_text','text':prompt},{'type':'input_image','image_url':'data:image/jpeg;base64,'+base64.b64encode(data).decode(),'detail':'high'}]}],'max_output_tokens':1200}
-              key=os.environ['OPENAI_API_KEY'].strip()
+              payload={'model':'gpt-5.6-sol','input':[{'role':'user','content':[{'type':'input_text','text':prompt},{'type':'input_image','image_url':f'data:{mime};base64,'+base64.b64encode(data).decode(),'detail':'high'}]}],'max_output_tokens':1400}
               r=requests.post('https://api.openai.com/v1/responses',headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},json=payload,timeout=180); r.raise_for_status(); obj=r.json()
-              text=''.join(c.get('text','') for item in obj.get('output',[]) for c in item.get('content',[]) if c.get('type')=='output_text').strip().removeprefix('```json').removeprefix('```').removesuffix('```').strip()
-              row['ai_response']=json.loads(text); row['api_status']='ok'; print(cid,json.dumps(row['ai_response'],ensure_ascii=False))
+              text=''.join(c.get('text','') for item in obj.get('output',[]) for c in item.get('content',[]) if c.get('type')=='output_text').strip()
+              if text.startswith('```json'): text=text[7:]
+              elif text.startswith('```'): text=text[3:]
+              if text.endswith('```'): text=text[:-3]
+              row['ai_response']=json.loads(text.strip()); row['api_status']='ok'
+              print(row['case'],cid,json.dumps(row['ai_response'],ensure_ascii=False))
             except Exception as e:
-              row['api_status']='failed'; row['error']=str(e); print(cid,'FAILED',e)
+              row['api_status']='failed'; row['error']=str(e); print(row['case'],cid,'FAILED',e)
             rows.append(row)
-          (out/'results.json').write_text(json.dumps({'model':'gpt-5.6-sol','cases':rows},ensure_ascii=False,indent=2),encoding='utf-8')
-          if any(x['api_status']!='ok' for x in rows): raise SystemExit('one or more cases failed')
+          result={'model':'gpt-5.6-sol','dataset':'validated-plastic-anchor-10','ground_truth_policy':'source-established before inference; AI never changes GT','cases':rows}
+          (out/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+          if any(x['api_status']!='ok' for x in rows): raise SystemExit('one or more inference calls failed')
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: plastic-anchor-10-benchmark-results
+          name: plastic-anchor-10-benchmark-results-v2
           path: plastic-anchor-10-results/results.json
           if-no-files-found: error
           retention-days: 14
