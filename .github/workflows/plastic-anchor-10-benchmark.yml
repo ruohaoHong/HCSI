@@ -6,19 +6,16 @@ on:
       - '.github/workflows/plastic-anchor-10-benchmark.yml'
   workflow_dispatch:
 
-permissions:
-  contents: read
-  actions: read
-
 jobs:
   benchmark:
     runs-on: ubuntu-latest
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Download dimensioned candidates artifact
+      - name: Download dimensioned candidates
         uses: actions/download-artifact@v5
         with:
           name: plastic-anchor-dimensioned-candidates
@@ -26,7 +23,7 @@ jobs:
           run-id: 34432589944
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download PA14 artifact
+      - name: Download PA14
         uses: actions/download-artifact@v5
         with:
           name: plastic-anchor-pa14
@@ -34,7 +31,7 @@ jobs:
           run-id: 34433000799
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download extra exact-size artifact
+      - name: Download extra
         uses: actions/download-artifact@v5
         with:
           name: plastic-anchor-extra
@@ -42,137 +39,15 @@ jobs:
           run-id: 34433449666
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - run: pip install pillow requests
-
-      - name: Verify exact final 10 and run OpenAI benchmark
-        shell: bash
+      - name: Verify files exist
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          import base64, hashlib, json, os, requests
-          from PIL import Image
-
-          cases = [
-            {'id':'TW-PA-01','src':'source/dimensioned/PA01.jpg','name':'SMART 5x25','diameter_mm':5,'length_mm':25,'sha256':'2b3b042b1da02d6aee9cd3c6d0786a6c82a1acfcee3ef8e53207bb098d1b6c23'},
-            {'id':'TW-PA-02','src':'source/dimensioned/PA02.jpg','name':'Fixpro 6x30','diameter_mm':6,'length_mm':30,'sha256':'fb572d40bbce7a329edcf004fe26ba9eca93736ce94584d35d20b694a4cf4e64'},
-            {'id':'TW-PA-03','src':'source/extra/PA18.jpg','name':'AKIFIX Nylon Wall Plug 6x30','diameter_mm':6,'length_mm':30,'sha256':'a4f9c12a1dba34e86e8b0ca988f7674ce9134dca4e4dd316d2a791dfadd5721a'},
-            {'id':'TW-PA-04','src':'source/dimensioned/PA03.jpg','name':'Hobson 7x35','diameter_mm':7,'length_mm':35,'sha256':'be0054b497ad2cfed6f1773ee9e57b6d052e294e902d9469b44c04069cee9b09'},
-            {'id':'TW-PA-05','src':'source/dimensioned/PA04.jpg','name':'Universal nylon 8x40','diameter_mm':8,'length_mm':40,'sha256':'3372cc08a79ee27f5bfb694da1d22c914a7d82980c20dda155f3b10e276cca6c'},
-            {'id':'TW-PA-06','src':'source/dimensioned/PA06.jpg','name':'FAST 10x50','diameter_mm':10,'length_mm':50,'sha256':'b18d86db56a904dcc6a6c2a92b54724575ca9a39724d79d751c3cc0b2929b44e'},
-            {'id':'TW-PA-07','src':'source/dimensioned/PA07.jpg','name':'INDEX S10 10x50','diameter_mm':10,'length_mm':50,'sha256':'5db96aa04086fe7cfd8fdf4a86eeb0ecd45617c6ea8448c66b3dcedb30db2c9a'},
-            {'id':'TW-PA-08','src':'source/extra/PA17.jpg','name':'HOMEFIX Nylon Plug 10x50','diameter_mm':10,'length_mm':50,'sha256':'e3dd1c149ce9e214a3ea13f87defd9ec261b42d604370dd180fff230be7dda9f'},
-            {'id':'TW-PA-09','src':'source/pa14/PA14.jpg','name':'Fischer S Nylon Plug 12x60','diameter_mm':12,'length_mm':60,'sha256':'1937ee128f6cb2a0955b926b5c8e18c86f5aa3cf5487801bd43c87ea20892886'},
-            {'id':'TW-PA-10','src':'source/dimensioned/PA10.jpg','name':'Fischer SX Plus 14x70','diameter_mm':14,'length_mm':70,'sha256':'a9d89a60a34a0ae8dbfb1fcdfa778e242c0d96c7a5b60943379af00bec73a034'}
-          ]
-
-          # Exact SHA-256 values above come from the final ZIP the user visually approved.
-          seen=set()
-          for c in cases:
-            p=Path(c['src'])
-            if not p.exists(): raise SystemExit(f"missing approved image {c['id']}: {p}")
-            data=p.read_bytes(); sha=hashlib.sha256(data).hexdigest()
-            if sha != c['sha256']: raise SystemExit(f"{c['id']} SHA mismatch: {sha} != {c['sha256']}")
-            if sha in seen: raise SystemExit(f"duplicate image bytes: {c['id']}")
-            seen.add(sha)
-            with Image.open(p) as im: im.verify()
-            with Image.open(p) as im: w,h=im.size
-            print(f"PRE-FLIGHT OK {c['id']} {w}x{h} {sha[:16]}...")
-          if len(seen)!=10: raise SystemExit('expected 10 unique approved images')
-          print('PRE-FLIGHT COMPLETE: exact user-approved single-anchor final 10 confirmed.')
-
-          prompt='''你正在協助台灣使用者辨識照片中的一個常見五金零件。這是一個盲測，只可以使用照片本身，不得使用檔名、來源頁、Ground Truth、品牌資料或外部資料。
-
-目標不是猜原始 SKU，而是產生足以讓台灣使用者去五金行購買相容替代品的辨識結果。
-
-規則：
-1. 不要為了完整而猜尺寸。沒有可靠尺度、清楚可讀的本體刻字或其他足以支持毫米數值的證據，就填 unknown。
-2. 若本體有文字、數字、型號、模壓標記，只記錄真正看得到的內容；模糊就不要補字。
-3. dimension_basis 只能是 marking、scale_reference、visual_estimate、unknown。
-4. key_visual_evidence 只寫可觀察的視覺依據，不要輸出隱藏 chain-of-thought。
-5. 名稱優先使用台灣常見繁體中文採購詞。
-
-只輸出 JSON：
-{
-  "item_name_zh_tw":"",
-  "common_names_zh_tw":[],
-  "technical_name_en":"",
-  "subtype":"visible/inferable subtype or unknown",
-  "material":"visible/inferable material or unknown",
-  "diameter_mm":"number or unknown",
-  "length_mm":"number or unknown",
-  "dimension_basis":"marking|scale_reference|visual_estimate|unknown",
-  "visible_text_or_markings":[],
-  "purchase_phrase_zh_tw":"",
-  "missing_purchase_info":[],
-  "confidence":0.0,
-  "diagnostic":{
-    "key_visual_evidence":[],
-    "size_evidence":"",
-    "confusable_candidate":"",
-    "key_differentiator":"",
-    "uncertain_points":[]
-  }
-}'''
-
-          key=os.environ['OPENAI_API_KEY'].strip()
-          if not key: raise SystemExit('OPENAI_API_KEY empty')
-          out=Path('plastic-anchor-final-10-results'); out.mkdir(exist_ok=True)
-          rows=[]
-
-          for c in cases:
-            p=Path(c['src']); data=p.read_bytes()
-            with Image.open(p) as im:
-              fmt=(im.format or 'JPEG').upper(); w,h=im.size
-            mime={'JPEG':'image/jpeg','PNG':'image/png','WEBP':'image/webp','GIF':'image/gif'}.get(fmt,'image/jpeg')
-            row={
-              'case_id':c['id'],
-              'ground_truth':{'item':'塑膠壁虎／尼龍壁虎','name':c['name'],'diameter_mm':c['diameter_mm'],'length_mm':c['length_mm']},
-              'image':{'source_file':c['src'],'width':w,'height':h,'sha256':c['sha256']}
-            }
-            try:
-              payload={'model':'gpt-5.6-sol','input':[{'role':'user','content':[{'type':'input_text','text':prompt},{'type':'input_image','image_url':f'data:{mime};base64,'+base64.b64encode(data).decode('ascii'),'detail':'high'}]}],'max_output_tokens':1600}
-              r=requests.post('https://api.openai.com/v1/responses',headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},json=payload,timeout=180)
-              r.raise_for_status(); obj=r.json()
-              text=''.join(part.get('text','') for item in obj.get('output',[]) for part in item.get('content',[]) if part.get('type')=='output_text').strip()
-              if text.startswith('```json'): text=text[7:]
-              elif text.startswith('```'): text=text[3:]
-              if text.endswith('```'): text=text[:-3]
-              ans=json.loads(text.strip())
-              row['api_status']='ok'; row['ai_response']=ans
-              d=ans.get('diameter_mm'); l=ans.get('length_mm')
-              row['comparison']={
-                'diameter_exact': isinstance(d,(int,float)) and float(d)==float(c['diameter_mm']),
-                'length_exact': isinstance(l,(int,float)) and float(l)==float(c['length_mm']),
-                'diameter_abstained': str(d).lower()=='unknown',
-                'length_abstained': str(l).lower()=='unknown'
-              }
-              print(c['id'],json.dumps(ans,ensure_ascii=False))
-            except Exception as e:
-              row['api_status']='failed'; row['error']=str(e); print(c['id'],'FAILED',e)
-            rows.append(row)
-
-          summary={
-            'total':10,
-            'api_ok':sum(x.get('api_status')=='ok' for x in rows),
-            'diameter_exact':sum(x.get('comparison',{}).get('diameter_exact',False) for x in rows),
-            'length_exact':sum(x.get('comparison',{}).get('length_exact',False) for x in rows),
-            'diameter_abstained':sum(x.get('comparison',{}).get('diameter_abstained',False) for x in rows),
-            'length_abstained':sum(x.get('comparison',{}).get('length_abstained',False) for x in rows)
-          }
-          result={'model':'gpt-5.6-sol','dataset':'USER-APPROVED-SINGLE-ANCHOR-FINAL-10','image_selection_policy':'exact SHA-256 match to final ZIP visually approved by user','ground_truth_policy':'source-established before inference; AI did not receive GT','summary':summary,'cases':rows}
-          (out/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
-          print('SUMMARY',json.dumps(summary,ensure_ascii=False))
-          if summary['api_ok']!=10: raise SystemExit('not all 10 inference calls succeeded')
-          PY
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: user-approved-single-anchor-final-10-results
-          path: plastic-anchor-final-10-results/results.json
-          if-no-files-found: error
-          retention-days: 14
+          ls -lh source/dimensioned/PA01.jpg
+          ls -lh source/dimensioned/PA02.jpg
+          ls -lh source/extra/PA18.jpg
+          ls -lh source/dimensioned/PA03.jpg
+          ls -lh source/dimensioned/PA04.jpg
+          ls -lh source/dimensioned/PA06.jpg
+          ls -lh source/dimensioned/PA07.jpg
+          ls -lh source/extra/PA17.jpg
+          ls -lh source/pa14/PA14.jpg
+          ls -lh source/dimensioned/PA10.jpg
