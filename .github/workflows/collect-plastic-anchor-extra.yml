@@ -27,19 +27,16 @@ jobs:
 
           cases=[
             {
-              'id':'PA15','name':'Vis-Express Nylon Plug 5x25','d':5,'l':25,
-              'page':'https://www.vis-express.fr/cheville-nylon-a-collerette/22299-cheville-nylon-a-collerette-5x25-grise.html',
-              'image':'https://www.vis-express.fr/987972-thickbox_default/cheville-nylon-a-collerette-5x25-grise.jpg'
-            },
-            {
-              'id':'PA16','name':'Wovar Nylon Plug 6x30','d':6,'l':30,
-              'page':'https://gadero.de/wovar-nylon-pluggen-6-x-30-mm/',
-              'image':'https://9e9aed304128bdada8a1-a26ec9f720dbe6e212857003c57388fb.ssl.cf3.rackcdn.com/pluggen_nylon-fWmTTwXi.jpg'
-            },
-            {
               'id':'PA17','name':'HOMEFIX Nylon Plug 10x50','d':10,'l':50,
               'page':'https://www.hoenderdaal-fasteners.nl/nl-nl/producten/pluggen-ankers-nylon-pluggen/homefix-plug-nylon-blister/10-5',
-              'image':'https://www.hoenderdaal-fasteners.nl/files/assets/E0001436.jpg'
+              'image':'https://www.hoenderdaal-fasteners.nl/files/assets/E0001436.jpg',
+              'evidence':'Exact HOMEFIX 10x50 nylon plug product page; selected product image contains one plug type only.'
+            },
+            {
+              'id':'PA18','name':'AKIFIX Nylon Wall Plug 6x30','d':6,'l':30,
+              'page':'https://www.ebay.it/itm/251388512052',
+              'image':'https://i.ebayimg.com/images/g/pNkAAOSwpMFh6DnF/s-l1200.jpg',
+              'evidence':'Exact listing title specifies universal 6x30 mm nylon wall plug; selected single-plug product photo visibly carries the molded 6x30 marking.'
             }
           ]
           out=Path('plastic-anchor-extra'); out.mkdir(exist_ok=True)
@@ -61,7 +58,9 @@ jobs:
               row={**c,'ok':False,'error':str(e)}; print('FAIL',c['id'],e)
             manifest.append(row)
           (out/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
-          if sum(1 for x in manifest if x['ok'])<2: raise SystemExit('Need at least 2 valid extra photos')
+          if sum(1 for x in manifest if x['ok'])!=2: raise SystemExit('Need both exact-size photos')
+          if len({x['sha256'] for x in manifest if x['ok']})!=2: raise SystemExit('Duplicate bytes')
+          print('CONFIRMED EXTRA 2/2')
           PY
       - uses: actions/upload-artifact@v4
         if: always()
