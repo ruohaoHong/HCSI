@@ -1,0 +1,45 @@
+name: RulerNet ONNX Smoke
+
+on:
+  push:
+    branches:
+      - feature/ruler-measurement-poc
+    paths:
+      - 'measurement-service/**'
+      - '.github/workflows/measurement-rulernet-smoke.yml'
+  workflow_dispatch:
+
+jobs:
+  rulernet-onnx-smoke:
+    runs-on: ubuntu-latest
+    env:
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: measurement-service/requirements.txt
+      - run: pip install -r measurement-service/requirements.txt
+      - name: Download official demo sample
+        run: curl --fail --location --retry 3 -o /tmp/ruler-sample.jpg https://huggingface.co/spaces/ymp5078/RulerNet-Demo/resolve/main/examples/sample1.jpg
+      - name: Run official ONNX model through HCSI adapter
+        run: |
+          PYTHONPATH=measurement-service python - <<'PY'
+          from PIL import Image
+          import numpy as np
+          from rulernet import infer_ruler
+
+          image = np.asarray(Image.open('/tmp/ruler-sample.jpg').convert('RGB'))
+          result = infer_ruler(image)
+          print('detected=', result.detected)
+          print('marks=', len(result.mark_points_px))
+          print('median_px_per_cm=', result.median_px_per_cm)
+          print('perspective_ratio=', result.perspective_ratio)
+          print('gate_reasons=', result.gate_reasons)
+          if not result.detected:
+              raise SystemExit('RulerNet smoke did not produce a usable ruler observation')
+          if result.median_px_per_cm is None or result.median_px_per_cm <= 0:
+              raise SystemExit('RulerNet smoke produced an invalid scale')
+          PY
