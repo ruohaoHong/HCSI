@@ -23,6 +23,7 @@ class ObjectGeometry:
     ruler_alignment_deg: float | None
     segmentation_method: str
     gate_reasons: tuple[str, ...]
+    risk_signals: tuple[str, ...]
 
 
 def _background_difference_mask(image_rgb: np.ndarray) -> np.ndarray:
@@ -91,7 +92,7 @@ def _axis_alignment_deg(axis: np.ndarray, ruler_direction: tuple[float, float] |
 def extract_object_geometry(image_rgb: np.ndarray, ruler_mark_points_px: np.ndarray, px_per_cm: float, ruler_direction: tuple[float, float] | None, max_alignment_deg: float = 20.0) -> ObjectGeometry:
     height, width = image_rgb.shape[:2]
     if height < 32 or width < 32:
-        return ObjectGeometry(False, False, None, None, None, None, None, None, None, None, None, None, "border_lab+edges", ("image_too_small",))
+        return ObjectGeometry(False, False, None, None, None, None, None, None, None, None, None, None, "border_lab+edges", ("image_too_small",), ())
 
     color_mask = _background_difference_mask(image_rgb)
     edge_mask = _edge_mask(image_rgb)
@@ -123,7 +124,7 @@ def extract_object_geometry(image_rgb: np.ndarray, ruler_mark_points_px: np.ndar
         candidates.append((score, contour, area_ratio, solidity, border))
 
     if not candidates:
-        return ObjectGeometry(False, False, None, None, None, None, None, None, None, None, None, None, "border_lab+edges", ("object_contour_not_found",))
+        return ObjectGeometry(False, False, None, None, None, None, None, None, None, None, None, None, "border_lab+edges", ("object_contour_not_found",), ())
 
     _, contour, area_ratio, solidity, border = max(candidates, key=lambda item: item[0])
     points = contour[:, 0, :].astype(np.float64)
@@ -148,6 +149,7 @@ def extract_object_geometry(image_rgb: np.ndarray, ruler_mark_points_px: np.ndar
     angle = _angle_deg(major_axis)
     alignment = _axis_alignment_deg(major_axis, ruler_direction)
     reasons: list[str] = []
+    risks: list[str] = []
     if border:
         reasons.append("object_contour_touches_image_border")
     if solidity < 0.20:
@@ -155,9 +157,12 @@ def extract_object_geometry(image_rgb: np.ndarray, ruler_mark_points_px: np.ndar
     if principal_length < 12 or principal_width < 2:
         reasons.append("object_geometry_too_small")
     if alignment is None:
-        reasons.append("object_ruler_alignment_unknown")
+        risks.append("object_ruler_alignment_unknown")
     elif alignment > max_alignment_deg:
-        reasons.append("object_not_parallel_to_ruler")
+        # Alignment alone is not a geometric invalidation under an approximately
+        # orthographic, same-plane capture. Keep it as a diagnostic risk signal;
+        # perspective is gated separately by the ruler model.
+        risks.append("object_ruler_alignment_large")
 
     if len(ruler_mark_points_px) >= 2 and exclusion_radius > 0:
         p0 = ruler_mark_points_px[0].astype(np.float64)
@@ -170,4 +175,20 @@ def extract_object_geometry(image_rgb: np.ndarray, ruler_mark_points_px: np.ndar
             if distance < exclusion_radius * 0.95:
                 reasons.append("selected_contour_too_close_to_ruler")
 
-    return ObjectGeometry(True, len(reasons) == 0, (float(center[0]), float(center[1])), float(cv2.contourArea(contour)), float(area_ratio), float(solidity), principal_length, principal_width, min_area_length, min_area_width, angle, alignment, "border_lab+edges", tuple(reasons))
+    return ObjectGeometry(
+        True,
+        len(reasons) == 0,
+        (float(center[0]), float(center[1])),
+        float(cv2.contourArea(contour)),
+        float(area_ratio),
+        float(solidity),
+        principal_length,
+        principal_width,
+        min_area_length,
+        min_area_width,
+        angle,
+        alignment,
+        "border_lab+edges",
+        tuple(reasons),
+        tuple(risks),
+    )
