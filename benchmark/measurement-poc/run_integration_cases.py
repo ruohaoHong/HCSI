@@ -19,7 +19,11 @@ from app import measure_rgb  # noqa: E402
 
 
 def decode_fixture(name: str, destination: Path) -> None:
-    encoded = (FIXTURE_DIR / f"{name}.jpg.b64").read_text(encoding="utf-8").strip()
+    parts = sorted(FIXTURE_DIR.glob(f"{name}.jpg.b64.part*"))
+    if parts:
+        encoded = "".join(part.read_text(encoding="utf-8").strip() for part in parts)
+    else:
+        encoded = (FIXTURE_DIR / f"{name}.jpg.b64").read_text(encoding="utf-8").strip()
     raw = base64.b64decode(encoded, validate=True)
     if not raw.startswith(b"\xff\xd8"):
         raise RuntimeError(f"{name}: decoded fixture is not a JPEG")
