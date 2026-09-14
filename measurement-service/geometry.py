@@ -26,7 +26,17 @@ class ObjectGeometry:
     risk_signals: tuple[str, ...]
 
 
-def _background_difference_mask(image_rgb: np.ndarray) -> np.ndarray:
+@dataclass(frozen=True)
+class _Candidate:
+    contour: np.ndarray
+    score: float
+    area_ratio: float
+    solidity: float
+    border: bool
+    edge_support: float
+
+
+def _background_distance(image_rgb: np.ndarray) -> tuple[np.ndarray, float]:
     height, width = image_rgb.shape[:2]
     side = max(4, int(min(height, width) * 0.08))
     corners = np.concatenate([
@@ -41,29 +51,170 @@ def _background_difference_mask(image_rgb: np.ndarray) -> np.ndarray:
     corner_distance = np.linalg.norm(corner_lab - background, axis=1)
     median_distance = float(np.median(corner_distance))
     mad = float(np.median(np.abs(corner_distance - median_distance)))
-    threshold = max(14.0, median_distance + 6.0 * max(mad, 1.0))
+    threshold = max(12.0, median_distance + 5.0 * max(mad, 1.0))
     distance = np.linalg.norm(image_lab - background, axis=2)
-    return (distance > threshold).astype(np.uint8) * 255
+    return distance, threshold
 
 
 def _edge_mask(image_rgb: np.ndarray) -> np.ndarray:
     gray = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(blurred, 40, 120)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    edges = cv2.Canny(blurred, 35, 110)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     return cv2.dilate(edges, kernel, iterations=1)
 
 
-def _ruler_exclusion_mask(shape: tuple[int, int], mark_points_px: np.ndarray, px_per_cm: float) -> tuple[np.ndarray, float]:
-    height, width = shape
+def _normalize(vector: np.ndarray) -> np.ndarray | None:
+    norm = float(np.linalg.norm(vector))
+    if norm < 1e-6:
+        return None
+    return vector.astype(np.float64) / norm
+
+
+def _segment_overlap_along_axis(
+    a: np.ndarray,
+    b: np.ndarray,
+    origin: np.ndarray,
+    axis: np.ndarray,
+    expected_min: float,
+    expected_max: float,
+) -> float:
+    s0 = float(np.dot(a - origin, axis))
+    s1 = float(np.dot(b - origin, axis))
+    lo, hi = sorted((s0, s1))
+    overlap = max(0.0, min(hi, expected_max) - max(lo, expected_min))
+    expected = max(expected_max - expected_min, 1.0)
+    return overlap / expected
+
+
+def _ruler_exclusion_mask(
+    image_rgb: np.ndarray,
+    mark_points_px: np.ndarray,
+    px_per_cm: float,
+) -> tuple[np.ndarray, float]:
+    """Estimate the physical ruler body instead of centering a wide corridor on ticks.
+
+    RulerNet marks are often close to one ruler edge, not the ruler centre.  A fixed
+    symmetric corridor can therefore erase nearby hardware.  We use long image
+    edges parallel to the ruler marks to estimate the two ruler-body boundaries.
+    When the image does not contain usable long edges, the fallback is deliberately
+    narrow so that failure degrades to an unreliable object contour rather than
+    deleting a large part of the object.
+    """
+    height, width = image_rgb.shape[:2]
     mask = np.zeros((height, width), dtype=np.uint8)
     if len(mark_points_px) < 2 or px_per_cm <= 0:
         return mask, 0.0
-    radius_px = float(np.clip(px_per_cm * 1.7, 16.0, min(height, width) * 0.18))
-    p0 = tuple(np.round(mark_points_px[0]).astype(int))
-    p1 = tuple(np.round(mark_points_px[-1]).astype(int))
-    cv2.line(mask, p0, p1, 255, thickness=max(1, int(round(radius_px * 2))))
-    return mask, radius_px
+
+    points = mark_points_px.astype(np.float64)
+    p0 = points[0]
+    p1 = points[-1]
+    axis = _normalize(p1 - p0)
+    if axis is None:
+        return mask, 0.0
+    normal = np.array([-axis[1], axis[0]], dtype=np.float64)
+    center = np.mean(points, axis=0)
+    projections = (points - center) @ axis
+    span_min = float(np.min(projections))
+    span_max = float(np.max(projections))
+    mark_span = max(span_max - span_min, px_per_cm)
+
+    gray = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2GRAY)
+    edges = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 45, 135)
+    lines = cv2.HoughLinesP(
+        edges,
+        1,
+        np.pi / 180.0,
+        threshold=max(24, int(mark_span * 0.10)),
+        minLineLength=max(24, int(mark_span * 0.30)),
+        maxLineGap=max(10, int(px_per_cm * 0.35)),
+    )
+
+    max_offset = min(float(min(height, width)) * 0.24, px_per_cm * 3.2)
+    offsets: list[tuple[float, float]] = []
+    if lines is not None:
+        for raw in lines[:, 0, :]:
+            a = np.array([float(raw[0]), float(raw[1])])
+            b = np.array([float(raw[2]), float(raw[3])])
+            segment = b - a
+            direction = _normalize(segment)
+            if direction is None:
+                continue
+            cosine = float(np.clip(abs(np.dot(direction, axis)), 0.0, 1.0))
+            angle = math.degrees(math.acos(cosine))
+            if angle > 12.0:
+                continue
+            overlap = _segment_overlap_along_axis(a, b, center, axis, span_min, span_max)
+            if overlap < 0.24:
+                continue
+            midpoint = (a + b) * 0.5
+            offset = float(np.dot(midpoint - center, normal))
+            if abs(offset) > max_offset:
+                continue
+            length = float(np.linalg.norm(segment))
+            strength = length * (0.5 + overlap)
+            offsets.append((offset, strength))
+
+    # Collapse duplicate Hough detections around the same physical edge.
+    offsets.sort(key=lambda item: item[0])
+    clusters: list[list[tuple[float, float]]] = []
+    cluster_gap = max(3.0, px_per_cm * 0.10)
+    for item in offsets:
+        if not clusters or abs(item[0] - clusters[-1][-1][0]) > cluster_gap:
+            clusters.append([item])
+        else:
+            clusters[-1].append(item)
+    edge_offsets: list[tuple[float, float]] = []
+    for cluster in clusters:
+        weights = np.array([max(v[1], 1.0) for v in cluster], dtype=np.float64)
+        values = np.array([v[0] for v in cluster], dtype=np.float64)
+        edge_offsets.append((float(np.average(values, weights=weights)), float(np.sum(weights))))
+
+    # Prefer a plausible pair of ruler-body edges that brackets the tick line or
+    # places it close to one edge.  Typical hand rulers are roughly 0.5-3.2 cm wide.
+    min_width = max(8.0, px_per_cm * 0.45)
+    max_width = min(max_offset * 1.9, px_per_cm * 3.2)
+    best_pair: tuple[float, float] | None = None
+    best_score = -1.0
+    for i, (off_a, strength_a) in enumerate(edge_offsets):
+        for off_b, strength_b in edge_offsets[i + 1 :]:
+            body_width = abs(off_b - off_a)
+            if body_width < min_width or body_width > max_width:
+                continue
+            lo, hi = sorted((off_a, off_b))
+            distance_to_interval = 0.0 if lo <= 0.0 <= hi else min(abs(lo), abs(hi))
+            if distance_to_interval > px_per_cm * 0.55:
+                continue
+            width_prior = 1.0 - min(abs(body_width / px_per_cm - 1.8) / 2.0, 0.65)
+            score = (strength_a + strength_b) * width_prior
+            if score > best_score:
+                best_score = score
+                best_pair = (lo, hi)
+
+    extension = px_per_cm * 0.35
+    if best_pair is not None:
+        low_offset, high_offset = best_pair
+        # Small safety pad outside the detected body, much smaller than the old
+        # symmetric 1.7 cm radius.
+        pad = float(np.clip(px_per_cm * 0.12, 3.0, 10.0))
+        low_offset -= pad
+        high_offset += pad
+        effective_half_width = max(abs(low_offset), abs(high_offset))
+    else:
+        fallback_half_width = float(np.clip(px_per_cm * 0.42, 10.0, min(height, width) * 0.07))
+        low_offset, high_offset = -fallback_half_width, fallback_half_width
+        effective_half_width = fallback_half_width
+
+    polygon = np.array([
+        center + axis * (span_min - extension) + normal * low_offset,
+        center + axis * (span_max + extension) + normal * low_offset,
+        center + axis * (span_max + extension) + normal * high_offset,
+        center + axis * (span_min - extension) + normal * high_offset,
+    ], dtype=np.float64)
+    polygon[:, 0] = np.clip(polygon[:, 0], 0, width - 1)
+    polygon[:, 1] = np.clip(polygon[:, 1], 0, height - 1)
+    cv2.fillConvexPoly(mask, np.round(polygon).astype(np.int32), 255)
+    return mask, float(effective_half_width)
 
 
 def _touches_border(contour: np.ndarray, width: int, height: int, margin: int = 3) -> bool:
@@ -89,44 +240,36 @@ def _axis_alignment_deg(axis: np.ndarray, ruler_direction: tuple[float, float] |
     return math.degrees(math.acos(cosine))
 
 
-def extract_object_geometry(image_rgb: np.ndarray, ruler_mark_points_px: np.ndarray, px_per_cm: float, ruler_direction: tuple[float, float] | None, max_alignment_deg: float = 20.0) -> ObjectGeometry:
-    height, width = image_rgb.shape[:2]
-    if height < 32 or width < 32:
-        return ObjectGeometry(False, False, None, None, None, None, None, None, None, None, None, None, "border_lab+edges", ("image_too_small",), ())
-
-    color_mask = _background_difference_mask(image_rgb)
-    edge_mask = _edge_mask(image_rgb)
-    foreground = cv2.bitwise_or(color_mask, edge_mask)
-    exclusion, exclusion_radius = _ruler_exclusion_mask((height, width), ruler_mark_points_px, px_per_cm)
-    foreground[exclusion > 0] = 0
-    close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-    open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    foreground = cv2.morphologyEx(foreground, cv2.MORPH_CLOSE, close_kernel, iterations=2)
-    foreground = cv2.morphologyEx(foreground, cv2.MORPH_OPEN, open_kernel, iterations=1)
-    foreground[:2, :] = 0
-    foreground[-2:, :] = 0
-    foreground[:, :2] = 0
-    foreground[:, -2:] = 0
-
-    contours, _ = cv2.findContours(foreground, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    candidates: list[tuple[float, np.ndarray, float, float, bool]] = []
+def _candidate_from_mask(mask: np.ndarray, edge_mask: np.ndarray, width: int, height: int) -> _Candidate | None:
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     image_area = float(height * width)
+    candidates: list[_Candidate] = []
     for contour in contours:
         area = float(cv2.contourArea(contour))
         area_ratio = area / image_area
-        if area_ratio < 0.0005 or area_ratio > 0.55:
+        if area_ratio < 0.00045 or area_ratio > 0.50:
             continue
         hull = cv2.convexHull(contour)
         hull_area = float(cv2.contourArea(hull))
         solidity = area / hull_area if hull_area > 0 else 0.0
         border = _touches_border(contour, width, height)
-        score = area * max(0.2, min(solidity, 1.0)) * (0.55 if border else 1.0)
-        candidates.append((score, contour, area_ratio, solidity, border))
 
-    if not candidates:
-        return ObjectGeometry(False, False, None, None, None, None, None, None, None, None, None, None, "border_lab+edges", ("object_contour_not_found",), ())
+        boundary = np.zeros((height, width), dtype=np.uint8)
+        cv2.drawContours(boundary, [contour], -1, 255, thickness=2)
+        boundary_pixels = int(np.count_nonzero(boundary))
+        edge_support = float(np.count_nonzero(cv2.bitwise_and(edge_mask, boundary))) / max(boundary_pixels, 1)
 
-    _, contour, area_ratio, solidity, border = max(candidates, key=lambda item: item[0])
+        # Smooth illumination/shadow regions can be large but tend to have weak,
+        # unstable boundaries.  Hardware usually has stronger edge agreement.
+        edge_factor = 0.25 + 1.35 * min(edge_support, 0.55)
+        solidity_factor = max(0.18, min(solidity, 1.0))
+        border_factor = 0.45 if border else 1.0
+        score = area * solidity_factor * edge_factor * border_factor
+        candidates.append(_Candidate(contour, score, area_ratio, solidity, border, edge_support))
+    return max(candidates, key=lambda item: item.score) if candidates else None
+
+
+def _geometry_from_contour(contour: np.ndarray) -> tuple[np.ndarray, np.ndarray, float, float, float, float]:
     points = contour[:, 0, :].astype(np.float64)
     center = points.mean(axis=0)
     centered = points - center
@@ -140,28 +283,97 @@ def extract_object_geometry(image_rgb: np.ndarray, ruler_mark_points_px: np.ndar
     principal_width = float(np.ptp(minor_projection))
     if principal_width > principal_length:
         principal_length, principal_width = principal_width, principal_length
-        major_axis, minor_axis = minor_axis, -major_axis
+        major_axis = minor_axis
 
     rect = cv2.minAreaRect(contour)
     rect_w, rect_h = rect[1]
     min_area_length = float(max(rect_w, rect_h))
     min_area_width = float(min(rect_w, rect_h))
+    return center, major_axis, principal_length, principal_width, min_area_length, min_area_width
+
+
+def _contour_similarity(base: _Candidate, other: _Candidate) -> tuple[float, float, float]:
+    base_center, _, base_length, base_width, _, _ = _geometry_from_contour(base.contour)
+    other_center, _, other_length, other_width, _, _ = _geometry_from_contour(other.contour)
+    center_shift = float(np.linalg.norm(other_center - base_center)) / max(base_length, 1.0)
+    length_delta = abs(other_length - base_length) / max(base_length, 1.0)
+    width_delta = abs(other_width - base_width) / max(base_width, 1.0)
+    return center_shift, length_delta, width_delta
+
+
+def extract_object_geometry(
+    image_rgb: np.ndarray,
+    ruler_mark_points_px: np.ndarray,
+    px_per_cm: float,
+    ruler_direction: tuple[float, float] | None,
+    max_alignment_deg: float = 20.0,
+) -> ObjectGeometry:
+    height, width = image_rgb.shape[:2]
+    method = "adaptive_lab+edge_support+ruler_body"
+    if height < 32 or width < 32:
+        return ObjectGeometry(False, False, None, None, None, None, None, None, None, None, None, None, method, ("image_too_small",), ())
+
+    distance, base_threshold = _background_distance(image_rgb)
+    edge_mask = _edge_mask(image_rgb)
+    exclusion, exclusion_radius = _ruler_exclusion_mask(image_rgb, ruler_mark_points_px, px_per_cm)
+
+    close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    threshold_factors = (0.82, 1.0, 1.22)
+    selected: list[_Candidate | None] = []
+    for factor in threshold_factors:
+        color_mask = (distance > base_threshold * factor).astype(np.uint8) * 255
+        color_mask[exclusion > 0] = 0
+        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, close_kernel, iterations=2)
+        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, open_kernel, iterations=1)
+        color_mask[:2, :] = 0
+        color_mask[-2:, :] = 0
+        color_mask[:, :2] = 0
+        color_mask[:, -2:] = 0
+        selected.append(_candidate_from_mask(color_mask, edge_mask, width, height))
+
+    nominal = selected[1]
+    if nominal is None:
+        # A slightly permissive fallback can recover dark/reflective hardware when
+        # the nominal color threshold is too strict, but we mark it as a risk.
+        nominal = selected[0] or selected[2]
+    if nominal is None:
+        return ObjectGeometry(False, False, None, None, None, None, None, None, None, None, None, None, method, ("object_contour_not_found",), ())
+
+    contour = nominal.contour
+    center, major_axis, principal_length, principal_width, min_area_length, min_area_width = _geometry_from_contour(contour)
     angle = _angle_deg(major_axis)
     alignment = _axis_alignment_deg(major_axis, ruler_direction)
+
     reasons: list[str] = []
     risks: list[str] = []
-    if border:
+    if nominal.border:
         reasons.append("object_contour_touches_image_border")
-    if solidity < 0.20:
+    if nominal.solidity < 0.20:
         reasons.append("object_contour_low_solidity")
     if principal_length < 12 or principal_width < 2:
         reasons.append("object_geometry_too_small")
+    if nominal.edge_support < 0.055:
+        reasons.append("object_contour_weak_edge_support")
+
+    stability_observations = 0
+    unstable = False
+    for candidate in (selected[0], selected[2]):
+        if candidate is None or candidate is nominal:
+            continue
+        stability_observations += 1
+        center_shift, length_delta, width_delta = _contour_similarity(nominal, candidate)
+        if center_shift > 0.12 or length_delta > 0.16 or width_delta > 0.24:
+            unstable = True
+    if unstable:
+        # We still report detected=True, but dimensions must not be trusted.
+        reasons.append("object_contour_unstable")
+    elif stability_observations == 0:
+        risks.append("object_contour_stability_unknown")
+
     if alignment is None:
         risks.append("object_ruler_alignment_unknown")
     elif alignment > max_alignment_deg:
-        # Alignment alone is not a geometric invalidation under an approximately
-        # orthographic, same-plane capture. Keep it as a diagnostic risk signal;
-        # perspective is gated separately by the ruler model.
         risks.append("object_ruler_alignment_large")
 
     if len(ruler_mark_points_px) >= 2 and exclusion_radius > 0:
@@ -171,8 +383,8 @@ def extract_object_geometry(image_rgb: np.ndarray, ruler_mark_points_px: np.ndar
         line_norm = float(np.linalg.norm(line))
         if line_norm > 1e-6:
             offset = center - p0
-            distance = abs(float(line[0] * offset[1] - line[1] * offset[0])) / line_norm
-            if distance < exclusion_radius * 0.95:
+            distance_to_tick_line = abs(float(line[0] * offset[1] - line[1] * offset[0])) / line_norm
+            if distance_to_tick_line < exclusion_radius * 0.72:
                 reasons.append("selected_contour_too_close_to_ruler")
 
     return ObjectGeometry(
@@ -180,15 +392,15 @@ def extract_object_geometry(image_rgb: np.ndarray, ruler_mark_points_px: np.ndar
         len(reasons) == 0,
         (float(center[0]), float(center[1])),
         float(cv2.contourArea(contour)),
-        float(area_ratio),
-        float(solidity),
+        float(nominal.area_ratio),
+        float(nominal.solidity),
         principal_length,
         principal_width,
         min_area_length,
         min_area_width,
         angle,
         alignment,
-        "border_lab+edges",
-        tuple(reasons),
-        tuple(risks),
+        method,
+        tuple(dict.fromkeys(reasons)),
+        tuple(dict.fromkeys(risks)),
     )
