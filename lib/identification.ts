@@ -7,13 +7,48 @@ export const HARDWARE_CATEGORIES = [
   'unknown',
 ] as const
 
+export const MEASUREMENT_FAMILIES = [
+  'threaded_bolt',
+  'threaded_screw',
+  'nut',
+  'washer',
+  'anchor',
+  'pipe_fitting',
+  'valve',
+  'connector',
+  'generic_object',
+  'unknown',
+] as const
+
+export const MEASUREMENT_TARGETS = [
+  'overall_length',
+  'under_head_length',
+  'major_diameter',
+  'thread_pitch',
+  'across_flats',
+  'outer_diameter',
+  'inner_diameter',
+  'body_diameter',
+  'branch_diameter',
+] as const
+
 export type HardwareCategory = (typeof HARDWARE_CATEGORIES)[number]
+export type MeasurementFamily = (typeof MEASUREMENT_FAMILIES)[number]
+export type MeasurementTarget = (typeof MEASUREMENT_TARGETS)[number]
 export type Provider = 'gemini' | 'openai' | 'grok'
 export type EvidenceLevel = 'measured' | 'observed' | 'estimated' | 'unconfirmed'
 
+export interface MeasurementPlan {
+  family: MeasurementFamily
+  targets: MeasurementTarget[]
+  reason: string
+}
+
 export interface CategoryRoutingResult {
   category: HardwareCategory
+  object_hint: string
   reason: string
+  measurement_plan: MeasurementPlan
 }
 
 export interface SpecificationItem {
@@ -65,11 +100,36 @@ export const ROUTING_JSON_SCHEMA = {
       type: 'string',
       enum: HARDWARE_CATEGORIES,
     },
+    object_hint: {
+      type: 'string',
+    },
     reason: {
       type: 'string',
     },
+    measurement_plan: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        family: {
+          type: 'string',
+          enum: MEASUREMENT_FAMILIES,
+        },
+        targets: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: MEASUREMENT_TARGETS,
+          },
+          uniqueItems: true,
+        },
+        reason: {
+          type: 'string',
+        },
+      },
+      required: ['family', 'targets', 'reason'],
+    },
   },
-  required: ['category', 'reason'],
+  required: ['category', 'object_hint', 'reason', 'measurement_plan'],
 } as const
 
 export const IDENTIFICATION_JSON_SCHEMA = {
@@ -148,9 +208,13 @@ export const IDENTIFICATION_JSON_SCHEMA = {
 
 export function buildRoutingPrompt() {
   return `
-你是 HCSI 的第一階段「零件類別路由器」。請只針對目前使用者照片中的主要物件分類，不要在這一步猜精確規格。
+你是 HCSI 第一階段的「語義路由與量測規劃器」。你要根據目前照片中的主要物件，完成兩件事：
+A. 做暫時的零件類別與物件形態判斷。
+B. 告訴 deterministic geometry engine：如果之後有可靠尺度，這種物件最值得量哪些物理尺寸。
 
-請從以下六類中選出一個最合適的 category：
+這一步絕對不要猜任何 mm、cm、inch、TPI 或其他數值規格；你只負責「理解物件」和「規劃應量什麼」。
+
+category 從以下六類選一個：
 - fasteners：螺絲、螺栓、螺帽、墊圈、鉚釘、壁虎、膨脹固定件、釘類等緊固／固定件。
 - plumbing：水管、管件、接頭、閥、軟管、水龍頭相關零件、排水與密封管路零件。
 - electrical：端子、接頭、配線固定、線路附件、電工管路與電氣安裝零件。
@@ -158,12 +222,38 @@ export function buildRoutingPrompt() {
 - general-repair：O-ring、墊片、束環、彈簧、軸套、襯套、卡扣、一般機械維修小零件，或不適合前四類的常見維修件。
 - unknown：照片無法看出主要物件，或物件明顯不屬於以上範圍。
 
+measurement_plan.family 必須從以下選一個：
+- threaded_bolt：有頭部與帶螺紋桿身的螺栓類；商品長度通常有「頭下長度」語義。
+- threaded_screw：螺絲類，可能有尖端、沉頭或其他頭型。
+- nut：螺帽／螺母類。
+- washer：墊圈或平面環狀件。
+- anchor：壁虎、膨脹螺栓、固定錨件等組合型固定件。
+- pipe_fitting：水管／管路接頭與配件。
+- valve：閥類。
+- connector：電氣、管路或機械接頭，且不適合上面更明確的 family。
+- generic_object：可辨識物件，但目前沒有專用量測 family。
+- unknown：無法可靠判斷。
+
+measurement_plan.targets 只能從以下選擇：
+- overall_length：整體外形長度。
+- under_head_length：從頭部底面到末端的有效長度。
+- major_diameter：螺紋或圓柱桿身的外徑。
+- thread_pitch：螺紋週期／牙距。
+- across_flats：六角或多邊形件的對邊尺寸。
+- outer_diameter：外圓直徑。
+- inner_diameter：孔徑／內徑。
+- body_diameter：主體直徑。
+- branch_diameter：管件分支直徑。
+
 規則：
-1. 只根據照片中真正可見的形態與上下文分類。
-2. 不要因為看到「有螺紋」就自動分類 fasteners；管件、閥、電工接頭也可能有螺紋。
-3. reason 只寫一到兩句，指出最主要的可見分類依據。
-4. 這個分類是暫時路由，不是最終辨識答案。
-5. 使用繁體中文。
+1. object_hint 用簡短繁體中文描述照片中最可能的物件形態，例如「六角頭螺栓」；不確定時明確寫不確定。
+2. measurement_plan 是量測意圖，不是量測結果。不得輸出任何數值。
+3. 只選真正有助於辨識／採購規格的 targets，不要把所有項目都勾上。
+4. 若是典型六角頭螺栓，優先考慮 threaded_bolt + under_head_length + major_diameter + thread_pitch；不要用 overall_length 取代商品規格中的頭下長度。
+5. 如果照片不足以決定專用量測方法，family 用 generic_object 或 unknown；寧可保守，不要硬套。
+6. 不要因為看到「有螺紋」就自動判成 fasteners；管件、閥、電工接頭也可能有螺紋。
+7. reason 與 measurement_plan.reason 各寫一到兩句，說明主要可見依據與為什麼這些尺寸有意義。
+8. 這仍是暫時規劃，第二階段最終辨識可以修正它。
 `
 }
 
@@ -176,9 +266,13 @@ export function buildIdentificationPrompt(
 你是 HCSI 的第二階段「通用五金水電零件辨識器」。請分析目前使用者照片中的主要物件，並輸出符合指定 JSON schema 的繁體中文結果。
 
 第一階段暫時路由：${routing.category}
+第一階段物件提示：${routing.object_hint}
 路由理由：${routing.reason}
+第一階段量測 family：${routing.measurement_plan.family}
+第一階段預計量測項目：${routing.measurement_plan.targets.join(', ') || '無'}
+量測規劃理由：${routing.measurement_plan.reason}
 
-重要：第一階段路由只是用來挑選參考資料，不是最終答案。如果照片證據顯示它分錯類，你必須自行改正 category，不可為了配合 reference 而硬套分類。
+重要：第一階段路由與 measurement plan 都只是暫時語義規劃，不是最終答案，也不是量測結果。如果照片證據顯示它分錯類，你必須自行修正辨識，不可為了配合 reference 或第一階段計畫而硬套。
 
 ===== HCSI 通用辨識原則 =====
 ${coreReference}
@@ -206,10 +300,34 @@ export function isHardwareCategory(value: unknown): value is HardwareCategory {
   return typeof value === 'string' && HARDWARE_CATEGORIES.includes(value as HardwareCategory)
 }
 
+export function isMeasurementFamily(value: unknown): value is MeasurementFamily {
+  return typeof value === 'string' && MEASUREMENT_FAMILIES.includes(value as MeasurementFamily)
+}
+
+export function isMeasurementTarget(value: unknown): value is MeasurementTarget {
+  return typeof value === 'string' && MEASUREMENT_TARGETS.includes(value as MeasurementTarget)
+}
+
+export function isMeasurementPlan(value: unknown): value is MeasurementPlan {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  return (
+    isMeasurementFamily(candidate.family) &&
+    Array.isArray(candidate.targets) &&
+    candidate.targets.every(isMeasurementTarget) &&
+    typeof candidate.reason === 'string'
+  )
+}
+
 export function isRoutingResult(value: unknown): value is CategoryRoutingResult {
   if (!value || typeof value !== 'object') return false
   const candidate = value as Record<string, unknown>
-  return isHardwareCategory(candidate.category) && typeof candidate.reason === 'string'
+  return (
+    isHardwareCategory(candidate.category) &&
+    typeof candidate.object_hint === 'string' &&
+    typeof candidate.reason === 'string' &&
+    isMeasurementPlan(candidate.measurement_plan)
+  )
 }
 
 export function isIdentificationResult(value: unknown): value is IdentificationResult {
