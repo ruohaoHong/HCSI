@@ -19,8 +19,9 @@ from app import measure_rgb  # noqa: E402
 
 
 def decode_fixture(name: str, destination: Path) -> None:
-    parts = sorted(FIXTURE_DIR.glob(f"{name}.jpg.b64.part*"))
-    if parts:
+    part_names = ["part1a", "part1b", "part2", "part3", "part4"]
+    parts = [FIXTURE_DIR / f"{name}.jpg.b64.{suffix}" for suffix in part_names]
+    if all(part.exists() for part in parts):
         encoded = "".join(part.read_text(encoding="utf-8").strip() for part in parts)
     else:
         encoded = (FIXTURE_DIR / f"{name}.jpg.b64").read_text(encoding="utf-8").strip()
