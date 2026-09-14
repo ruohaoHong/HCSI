@@ -1,0 +1,35 @@
+name: Measurement Integration Cases
+
+on:
+  push:
+    branches:
+      - feature/ruler-measurement-poc
+    paths:
+      - 'measurement-service/**'
+      - 'benchmark/measurement-poc/run_integration_cases.py'
+      - 'benchmark/measurement-poc/fixtures/generated/**'
+      - '.github/workflows/measurement-integration-cases.yml'
+  workflow_dispatch:
+
+jobs:
+  integration-cases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install measurement dependencies
+        run: python -m pip install -r measurement-service/requirements.txt
+      - name: Run integration cases
+        run: python benchmark/measurement-poc/run_integration_cases.py
+      - name: Upload diagnostic results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: measurement-integration-results
+          path: measurement-integration-results.json
+          if-no-files-found: ignore
