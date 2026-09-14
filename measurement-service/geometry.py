@@ -92,7 +92,6 @@ def _ruler_exclusion_mask(
     mark_points_px: np.ndarray,
     px_per_cm: float,
 ) -> tuple[np.ndarray, float]:
-    """Estimate the physical ruler body instead of centering a wide corridor on ticks."""
     height, width = image_rgb.shape[:2]
     mask = np.zeros((height, width), dtype=np.uint8)
     if len(mark_points_px) < 2 or px_per_cm <= 0:
@@ -246,14 +245,20 @@ def _candidate_from_mask(mask: np.ndarray, edge_mask: np.ndarray, width: int, he
         boundary_pixels = int(np.count_nonzero(boundary))
         edge_support = float(np.count_nonzero(cv2.bitwise_and(edge_mask, boundary))) / max(boundary_pixels, 1)
 
-        # Area grows only sub-linearly.  Otherwise a large soft shadow can beat a
-        # smaller piece of hardware even when the hardware has much stronger edges.
         edge_factor = (0.06 + 3.5 * min(edge_support, 0.60)) ** 2
         solidity_factor = max(0.18, min(solidity, 1.0))
         border_factor = 0.45 if border else 1.0
         score = math.sqrt(max(area, 1.0)) * solidity_factor * edge_factor * border_factor
         candidates.append(_Candidate(contour, score, area_ratio, solidity, border, edge_support))
-    return max(candidates, key=lambda item: item.score) if candidates else None
+
+    if not candidates:
+        return None
+    # A border-touching contour can never produce trusted dimensions.  If a
+    # complete internal candidate exists, prefer it even when a ruler remnant or
+    # crop boundary creates a much larger foreground region.
+    internal = [candidate for candidate in candidates if not candidate.border]
+    pool = internal if internal else candidates
+    return max(pool, key=lambda item: item.score)
 
 
 def _geometry_from_contour(contour: np.ndarray) -> tuple[np.ndarray, np.ndarray, float, float, float, float]:
@@ -321,9 +326,6 @@ def extract_object_geometry(
 
     nominal = selected[1] or selected[0] or selected[2]
 
-    # Independently reconstruct closed regions from strong edges.  This is crucial
-    # when a soft shadow and the hardware merge into one broad color-difference
-    # region: the hardware boundary is still sharp while the shadow boundary is not.
     edge_region = edge_mask.copy()
     edge_region[exclusion > 0] = 0
     edge_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
