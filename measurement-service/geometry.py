@@ -92,15 +92,7 @@ def _ruler_exclusion_mask(
     mark_points_px: np.ndarray,
     px_per_cm: float,
 ) -> tuple[np.ndarray, float]:
-    """Estimate the physical ruler body instead of centering a wide corridor on ticks.
-
-    RulerNet marks are often close to one ruler edge, not the ruler centre.  A fixed
-    symmetric corridor can therefore erase nearby hardware.  We use long image
-    edges parallel to the ruler marks to estimate the two ruler-body boundaries.
-    When the image does not contain usable long edges, the fallback is deliberately
-    narrow so that failure degrades to an unreliable object contour rather than
-    deleting a large part of the object.
-    """
+    """Estimate the physical ruler body instead of centering a wide corridor on ticks."""
     height, width = image_rgb.shape[:2]
     mask = np.zeros((height, width), dtype=np.uint8)
     if len(mark_points_px) < 2 or px_per_cm <= 0:
@@ -155,7 +147,6 @@ def _ruler_exclusion_mask(
             strength = length * (0.5 + overlap)
             offsets.append((offset, strength))
 
-    # Collapse duplicate Hough detections around the same physical edge.
     offsets.sort(key=lambda item: item[0])
     clusters: list[list[tuple[float, float]]] = []
     cluster_gap = max(3.0, px_per_cm * 0.10)
@@ -170,8 +161,6 @@ def _ruler_exclusion_mask(
         values = np.array([v[0] for v in cluster], dtype=np.float64)
         edge_offsets.append((float(np.average(values, weights=weights)), float(np.sum(weights))))
 
-    # Prefer a plausible pair of ruler-body edges that brackets the tick line or
-    # places it close to one edge.  Typical hand rulers are roughly 0.5-3.2 cm wide.
     min_width = max(8.0, px_per_cm * 0.45)
     max_width = min(max_offset * 1.9, px_per_cm * 3.2)
     best_pair: tuple[float, float] | None = None
@@ -194,8 +183,6 @@ def _ruler_exclusion_mask(
     extension = px_per_cm * 0.35
     if best_pair is not None:
         low_offset, high_offset = best_pair
-        # Small safety pad outside the detected body, much smaller than the old
-        # symmetric 1.7 cm radius.
         pad = float(np.clip(px_per_cm * 0.12, 3.0, 10.0))
         low_offset -= pad
         high_offset += pad
@@ -259,12 +246,12 @@ def _candidate_from_mask(mask: np.ndarray, edge_mask: np.ndarray, width: int, he
         boundary_pixels = int(np.count_nonzero(boundary))
         edge_support = float(np.count_nonzero(cv2.bitwise_and(edge_mask, boundary))) / max(boundary_pixels, 1)
 
-        # Smooth illumination/shadow regions can be large but tend to have weak,
-        # unstable boundaries.  Hardware usually has stronger edge agreement.
-        edge_factor = 0.25 + 1.35 * min(edge_support, 0.55)
+        # Area grows only sub-linearly.  Otherwise a large soft shadow can beat a
+        # smaller piece of hardware even when the hardware has much stronger edges.
+        edge_factor = (0.06 + 3.5 * min(edge_support, 0.60)) ** 2
         solidity_factor = max(0.18, min(solidity, 1.0))
         border_factor = 0.45 if border else 1.0
-        score = area * solidity_factor * edge_factor * border_factor
+        score = math.sqrt(max(area, 1.0)) * solidity_factor * edge_factor * border_factor
         candidates.append(_Candidate(contour, score, area_ratio, solidity, border, edge_support))
     return max(candidates, key=lambda item: item.score) if candidates else None
 
@@ -309,7 +296,7 @@ def extract_object_geometry(
     max_alignment_deg: float = 20.0,
 ) -> ObjectGeometry:
     height, width = image_rgb.shape[:2]
-    method = "adaptive_lab+edge_support+ruler_body"
+    method = "adaptive_lab+edge_contour+ruler_body"
     if height < 32 or width < 32:
         return ObjectGeometry(False, False, None, None, None, None, None, None, None, None, None, None, method, ("image_too_small",), ())
 
@@ -332,11 +319,29 @@ def extract_object_geometry(
         color_mask[:, -2:] = 0
         selected.append(_candidate_from_mask(color_mask, edge_mask, width, height))
 
-    nominal = selected[1]
-    if nominal is None:
-        # A slightly permissive fallback can recover dark/reflective hardware when
-        # the nominal color threshold is too strict, but we mark it as a risk.
-        nominal = selected[0] or selected[2]
+    nominal = selected[1] or selected[0] or selected[2]
+
+    # Independently reconstruct closed regions from strong edges.  This is crucial
+    # when a soft shadow and the hardware merge into one broad color-difference
+    # region: the hardware boundary is still sharp while the shadow boundary is not.
+    edge_region = edge_mask.copy()
+    edge_region[exclusion > 0] = 0
+    edge_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    edge_region = cv2.morphologyEx(edge_region, cv2.MORPH_CLOSE, edge_close, iterations=2)
+    edge_region[:2, :] = 0
+    edge_region[-2:, :] = 0
+    edge_region[:, :2] = 0
+    edge_region[:, -2:] = 0
+    edge_candidate = _candidate_from_mask(edge_region, edge_mask, width, height)
+
+    if edge_candidate is not None:
+        if nominal is None:
+            nominal = edge_candidate
+        elif nominal.edge_support < 0.12 and edge_candidate.edge_support >= max(0.12, nominal.edge_support * 1.6):
+            nominal = edge_candidate
+        elif edge_candidate.score > nominal.score * 1.35:
+            nominal = edge_candidate
+
     if nominal is None:
         return ObjectGeometry(False, False, None, None, None, None, None, None, None, None, None, None, method, ("object_contour_not_found",), ())
 
@@ -358,7 +363,7 @@ def extract_object_geometry(
 
     stability_observations = 0
     unstable = False
-    for candidate in (selected[0], selected[2]):
+    for candidate in selected:
         if candidate is None or candidate is nominal:
             continue
         stability_observations += 1
@@ -366,7 +371,6 @@ def extract_object_geometry(
         if center_shift > 0.12 or length_delta > 0.16 or width_delta > 0.24:
             unstable = True
     if unstable:
-        # We still report detected=True, but dimensions must not be trusted.
         reasons.append("object_contour_unstable")
     elif stability_observations == 0:
         risks.append("object_contour_stability_unknown")
