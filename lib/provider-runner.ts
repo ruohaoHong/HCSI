@@ -36,9 +36,20 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const apiKey = process.env[config.envKey]
     if (!apiKey) return NextResponse.json({ error: `${config.label} 分析服務尚未完成設定。` }, { status: 503 })
 
+    const routingRaw = await runStructuredProvider({ provider, apiKey, model: config.model, image, prompt: buildRoutingPrompt(), schemaName: 'hcsi_semantic_measurement_planner', schema: ROUTING_JSON_SCHEMA as unknown as JsonSchema, maxOutputTokens: 1400 })
+    if (!isRoutingResult(routingRaw)) throw new Error(`${config.label} 語義量測規劃輸出格式不完整`)
+
+    // Deterministic capability boundary. The LLM may propose anything useful;
+    // only steps the current registry understands become executable.
+    const resolvedMeasurementPlan = resolveMeasurementPlan(routingRaw.measurement_plan)
+
+    // The geometry plan now drives deterministic measurement. This is the
+    // vertical slice from semantic executable_steps to actual pixel/mm evidence.
     let measurement: MeasurementResult | null = null
     let measurementServiceError: MeasurementServiceFallback = null
-    try { measurement = await runMeasurementPreflight(image) } catch (error) {
+    try {
+      measurement = await runMeasurementPreflight(image, resolvedMeasurementPlan.executable_steps)
+    } catch (error) {
       if (error instanceof MeasurementServiceError) {
         measurementServiceError = { code: error.code, message: error.message }
         console.warn(`[HCSI] ${provider} continuing without deterministic measurement:`, error.code)
@@ -47,13 +58,6 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
         console.warn(`[HCSI] ${provider} continuing without deterministic measurement: unexpected error`)
       }
     }
-
-    const routingRaw = await runStructuredProvider({ provider, apiKey, model: config.model, image, prompt: buildRoutingPrompt(), schemaName: 'hcsi_semantic_measurement_planner', schema: ROUTING_JSON_SCHEMA as unknown as JsonSchema, maxOutputTokens: 1400 })
-    if (!isRoutingResult(routingRaw)) throw new Error(`${config.label} 語義量測規劃輸出格式不完整`)
-
-    // Deterministic capability boundary. The LLM may propose anything useful;
-    // only steps the current registry understands become executable.
-    const resolvedMeasurementPlan = resolveMeasurementPlan(routingRaw.measurement_plan)
 
     const reference = await loadReferencePack(routingRaw.category)
     const measurementPrompt = buildMeasurementEvidencePrompt(measurement, measurementServiceError?.code)
@@ -77,7 +81,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
 function buildResolverEvidencePrompt(plan: ReturnType<typeof resolveMeasurementPlan>) {
   const executable = plan.executable_steps.map((s) => `${s.operation}(${s.inputs.join(', ')})`).join(', ') || '無'
   const unsupported = plan.unsupported_steps.map((s) => `${s.operation} [${s.unsupported_terms.join(', ')}]`).join(', ') || '無'
-  return `===== Geometry Plan Resolver =====\n目前 Engine 可執行：${executable}\n目前 unsupported / proposed：${unsupported}\nfully_supported=${plan.fully_supported}\n注意：可執行只代表 Engine 具備該 geometry vocabulary，不代表本次照片已經成功量到數值；unsupported 更不得當成 measured evidence。`
+  return `===== Geometry Plan Resolver =====\n目前 Engine 可執行：${executable}\n目前 unsupported / proposed：${unsupported}\nfully_supported=${plan.fully_supported}\n注意：可執行只代表 Engine 具備該 geometry vocabulary；是否真的量到數值，必須以下方 deterministic measurement 的 geometry_steps status 為準。unsupported 更不得當成 measured evidence。`
 }
 
 async function runStructuredProvider(args: { provider: Provider; apiKey: string; model: string; image: string; prompt: string; schemaName: string; schema: JsonSchema; maxOutputTokens: number }) {
