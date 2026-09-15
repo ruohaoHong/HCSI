@@ -18,10 +18,21 @@ def _hardware_image():
     return image
 
 
+def _bolt_image():
+    image = np.full((600, 800, 3), 245, dtype=np.uint8)
+    cv2.rectangle(image, (210, 290), (260, 410), (25, 25, 25), -1)
+    cv2.rectangle(image, (260, 335), (560, 365), (25, 25, 25), -1)
+    return image
+
+
+def _fake_ruler(perspective_ratio: float = 1.0):
+    marks = np.array([[float(x), 95.0] for x in range(100, 701, 50)], dtype=np.float32)
+    return RulerObservation(True, marks, 50.0, perspective_ratio, (1.0, 0.0), ())
+
+
 def test_measure_rgb_combines_ruler_scale_and_opencv_geometry(monkeypatch):
     image = _hardware_image()
-    marks = np.array([[float(x), 95.0] for x in range(100, 701, 50)], dtype=np.float32)
-    fake_ruler = RulerObservation(True, marks, 50.0, 1.0, (1.0, 0.0), ())
+    fake_ruler = _fake_ruler()
     monkeypatch.setattr(service_app, "infer_ruler", lambda _image: fake_ruler)
     result = service_app.measure_rgb(image, "abc123")
     assert result["measurement_status"] == "valid"
@@ -31,26 +42,55 @@ def test_measure_rgb_combines_ruler_scale_and_opencv_geometry(monkeypatch):
     assert 37.0 <= result["length_mm"] <= 43.0
     assert 6.0 <= result["width_mm"] <= 11.0
     assert result["scale_px_per_cm"] == 50.0
+    assert result["geometry_steps"] == []
     assert result["image_sha256"] == "abc123"
+
+
+def test_measure_rgb_executes_resolved_axial_distance(monkeypatch):
+    image = _bolt_image()
+    fake_ruler = _fake_ruler()
+    monkeypatch.setattr(service_app, "infer_ruler", lambda _image: fake_ruler)
+    steps = [
+        {
+            "operation": "axial_distance",
+            "inputs": ["object_tip", "width_transition"],
+            "purpose": "量測螺栓頭下有效長度",
+        }
+    ]
+
+    result = service_app.measure_rgb(image, "abc123", steps)
+
+    assert result["measurement_status"] == "valid", result["reason_codes"]
+    assert len(result["geometry_steps"]) == 1
+    step = result["geometry_steps"][0]
+    assert step["status"] == "measured", step
+    assert 285.0 <= step["value_px"] <= 315.0
+    assert 57.0 <= step["value_mm"] <= 63.0
+    assert set(step["landmarks"]) == {"object_tip", "width_transition"}
 
 
 def test_measure_rgb_returns_no_reference_without_blocking_identification(monkeypatch):
     image = _hardware_image()
     fake_ruler = RulerObservation(False, np.empty((0, 2), dtype=np.float32), None, None, None, ("ruler_marks_insufficient",))
     monkeypatch.setattr(service_app, "infer_ruler", lambda _image: fake_ruler)
-    result = service_app.measure_rgb(image, "abc123")
+    result = service_app.measure_rgb(
+        image,
+        "abc123",
+        [{"operation": "axial_distance", "inputs": ["object_tip", "width_transition"], "purpose": "test"}],
+    )
     assert result["measurement_status"] == "no_reference"
     assert result["analysis_mode"] == "appearance_only"
     assert result["measurement_valid"] is False
     assert result["retry_recommended"] is False
     assert result["length_mm"] is None
     assert result["width_mm"] is None
+    assert result["geometry_steps"][0]["status"] == "not_measured"
+    assert result["geometry_steps"][0]["reason_codes"] == ["scale_reference_not_confirmed"]
 
 
 def test_measure_rgb_marks_strong_perspective_unreliable(monkeypatch):
     image = _hardware_image()
-    marks = np.array([[float(x), 95.0] for x in range(100, 701, 50)], dtype=np.float32)
-    fake_ruler = RulerObservation(True, marks, 50.0, 1.10, (1.0, 0.0), ())
+    fake_ruler = _fake_ruler(1.10)
     monkeypatch.setattr(service_app, "infer_ruler", lambda _image: fake_ruler)
     result = service_app.measure_rgb(image, "abc123")
     assert result["measurement_status"] == "unreliable"
