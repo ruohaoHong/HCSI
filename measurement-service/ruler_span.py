@@ -30,11 +30,17 @@ def expand_reference_points_to_ruler_body(
     """Expand a local visual tick sequence to the visible ruler-body span.
 
     Visual imperial detection may only return a short run of reliable minor
-    ticks.  Geometry exclusion must not treat the first/last detected tick as
-    the physical ruler ends.  This function uses the two long, parallel ruler
-    body edges around the tick sequence to recover the visible axial span.
+    ticks. Geometry exclusion must not treat the first/last detected tick as
+    the physical ruler ends.
 
-    If a trustworthy edge pair cannot be found, the original points are
+    A plausible pair of long parallel body edges is still required as a guard,
+    but the axial span comes from the longest edge anchored nearest the visual
+    tick line. This matters when the opposite ruler edge is fragmented by text
+    or crop artifacts: using only the overlap of the two edges would leave a
+    ruler remnant outside the exclusion mask and that remnant can merge with the
+    nearby hardware contour.
+
+    If a trustworthy ruler structure cannot be found, the original points are
     returned unchanged so callers fail conservatively rather than inventing a
     larger exclusion region.
     """
@@ -137,9 +143,24 @@ def expand_reference_points_to_ruler_body(
     if best_pair is None:
         return points.astype(np.float32)
 
-    first, second = best_pair
-    span_low = max(first[3], second[3])
-    span_high = min(first[4], second[4])
+    # The visual tick sequence is normally anchored close to one physical ruler
+    # edge. Prefer the longest line nearest that tick/reference line for the
+    # longitudinal extent. It is often more complete than the opposite edge.
+    anchor_limit = max(6.0, px_per_cm * 0.14)
+    anchored = [candidate for candidate in candidates if abs(candidate[2]) <= anchor_limit]
+    if anchored:
+        anchor = max(
+            anchored,
+            key=lambda candidate: candidate[5]
+            * (1.0 + max(0.0, 1.0 - abs(candidate[2]) / anchor_limit)),
+        )
+        span_low = anchor[3]
+        span_high = anchor[4]
+    else:
+        first, second = best_pair
+        span_low = max(first[3], second[3])
+        span_high = min(first[4], second[4])
+
     if span_high <= span_low:
         return points.astype(np.float32)
 
