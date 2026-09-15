@@ -253,6 +253,9 @@ def _candidate_from_mask(mask: np.ndarray, edge_mask: np.ndarray, width: int, he
 
     if not candidates:
         return None
+    # A border-touching contour can never produce trusted dimensions.  If a
+    # complete internal candidate exists, prefer it even when a ruler remnant or
+    # crop boundary creates a much larger foreground region.
     internal = [candidate for candidate in candidates if not candidate.border]
     pool = internal if internal else candidates
     return max(pool, key=lambda item: item.score)
