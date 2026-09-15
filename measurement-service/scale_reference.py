@@ -5,6 +5,7 @@ from typing import Literal
 
 import numpy as np
 
+from ruler_span import expand_reference_points_to_ruler_body
 from rulernet import RulerObservation
 from scale_units import ScaleSystem, infer_visual_scale
 
@@ -46,6 +47,17 @@ def _empty(reason: str) -> ScaleReference:
         direction_xy=None,
         perspective_step_pct=None,
         reason_codes=(reason,),
+    )
+
+
+def _visual_reference_points(image_rgb: np.ndarray, visual) -> np.ndarray:
+    if visual.px_per_cm is None:
+        return visual.reference_points_px.astype(np.float32)
+    return expand_reference_points_to_ruler_body(
+        image_rgb,
+        visual.reference_points_px,
+        visual.direction_xy,
+        float(visual.px_per_cm),
     )
 
 
@@ -113,7 +125,7 @@ def resolve_scale_reference(image_rgb: np.ndarray, ruler: RulerObservation) -> S
             confidence=visual.confidence,
             px_per_cm=float(visual.px_per_cm),
             px_per_inch=float(visual.px_per_inch),
-            reference_points_px=visual.reference_points_px.astype(np.float32),
+            reference_points_px=_visual_reference_points(image_rgb, visual),
             reference_interval_cm=float(visual.reference_interval_cm),
             direction_xy=visual.direction_xy,
             perspective_step_pct=visual.perspective_step_pct,
@@ -133,7 +145,7 @@ def resolve_scale_reference(image_rgb: np.ndarray, ruler: RulerObservation) -> S
             confidence=visual.confidence,
             px_per_cm=float(visual.px_per_cm),
             px_per_inch=float(visual.px_per_cm * 2.54),
-            reference_points_px=visual.reference_points_px.astype(np.float32),
+            reference_points_px=_visual_reference_points(image_rgb, visual),
             reference_interval_cm=float(visual.reference_interval_cm),
             direction_xy=visual.direction_xy,
             perspective_step_pct=visual.perspective_step_pct,
