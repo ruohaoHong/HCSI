@@ -13,6 +13,12 @@ from geometry import (
     _geometry_from_contour,
     _ruler_exclusion_mask,
 )
+from thread_geometry import (
+    ThreadedShankProfile,
+    detect_threaded_shank,
+    measure_outer_width_px,
+    measure_periodicity_px,
+)
 
 
 GeometryStep = dict[str, Any]
@@ -22,7 +28,11 @@ def _round(value: float | None, digits: int = 3) -> float | None:
     return None if value is None else round(float(value), digits)
 
 
-def _not_measured(step: GeometryStep, reason: str) -> dict[str, Any]:
+def _not_measured(
+    step: GeometryStep,
+    reason: str,
+    diagnostics: dict[str, float] | None = None,
+) -> dict[str, Any]:
     return {
         "operation": str(step.get("operation", "")),
         "inputs": [str(value) for value in step.get("inputs", [])],
@@ -30,7 +40,9 @@ def _not_measured(step: GeometryStep, reason: str) -> dict[str, Any]:
         "status": "not_measured",
         "value_px": None,
         "value_mm": None,
+        "derived_tpi": None,
         "landmarks": {},
+        "diagnostics": diagnostics or {},
         "reason_codes": [reason],
     }
 
@@ -186,6 +198,19 @@ def _axial_landmarks(contour: np.ndarray) -> tuple[dict[str, tuple[float, float]
     )
 
 
+def _threaded_shank_landmarks(profile: ThreadedShankProfile) -> dict[str, dict[str, float | None]]:
+    return {
+        "threaded_shank_start": {
+            "x_px": _round(profile.start_xy[0]),
+            "y_px": _round(profile.start_xy[1]),
+        },
+        "threaded_shank_end": {
+            "x_px": _round(profile.end_xy[0]),
+            "y_px": _round(profile.end_xy[1]),
+        },
+    }
+
+
 def execute_geometry_steps(
     image_rgb: np.ndarray,
     ruler_mark_points_px: np.ndarray,
@@ -202,38 +227,118 @@ def execute_geometry_steps(
         return unmeasured_geometry_steps(steps, "object_contour_not_found")
 
     axial = None
+    shank_profile: ThreadedShankProfile | None = None
+    outer_width_px: float | None = None
     results: list[dict[str, Any]] = []
+
     for step in steps:
         operation = str(step.get("operation", ""))
         inputs = [str(value) for value in step.get("inputs", [])]
-        if operation != "axial_distance":
+
+        if operation == "axial_distance":
+            if set(inputs) != {"object_tip", "width_transition"} or len(inputs) != 2:
+                results.append(_not_measured(step, "unsupported_landmark_combination"))
+                continue
+            if axial is None:
+                axial = _axial_landmarks(contour)
+            if axial is None:
+                results.append(_not_measured(step, "width_transition_not_found"))
+                continue
+
+            landmarks, value_px = axial
+            value_mm = value_px / px_per_cm * 10.0
+            results.append(
+                {
+                    "operation": operation,
+                    "inputs": inputs,
+                    "purpose": str(step.get("purpose", "")),
+                    "status": "measured",
+                    "value_px": _round(value_px),
+                    "value_mm": _round(value_mm, 2),
+                    "derived_tpi": None,
+                    "landmarks": {
+                        name: {"x_px": _round(point[0]), "y_px": _round(point[1])}
+                        for name, point in landmarks.items()
+                    },
+                    "diagnostics": {},
+                    "reason_codes": [],
+                }
+            )
+            continue
+
+        if operation not in {"outer_width", "periodicity"}:
             results.append(_not_measured(step, "operation_not_implemented"))
             continue
-        if set(inputs) != {"object_tip", "width_transition"} or len(inputs) != 2:
-            results.append(_not_measured(step, "unsupported_landmark_combination"))
+        if inputs != ["threaded_shank"]:
+            results.append(_not_measured(step, "unsupported_region_combination"))
             continue
 
-        if axial is None:
-            axial = _axial_landmarks(contour)
-        if axial is None:
-            results.append(_not_measured(step, "width_transition_not_found"))
+        if shank_profile is None:
+            shank_profile = detect_threaded_shank(contour)
+        if shank_profile is None:
+            results.append(_not_measured(step, "threaded_shank_not_found"))
             continue
 
-        landmarks, value_px = axial
-        value_mm = value_px / px_per_cm * 10.0
+        if outer_width_px is None:
+            outer_width_px = measure_outer_width_px(shank_profile)
+        if outer_width_px is None:
+            results.append(_not_measured(step, "outer_width_unreliable"))
+            continue
+
+        if operation == "outer_width":
+            value_mm = outer_width_px / px_per_cm * 10.0
+            results.append(
+                {
+                    "operation": operation,
+                    "inputs": inputs,
+                    "purpose": str(step.get("purpose", "")),
+                    "status": "measured",
+                    "value_px": _round(outer_width_px),
+                    "value_mm": _round(value_mm, 2),
+                    "derived_tpi": None,
+                    "landmarks": _threaded_shank_landmarks(shank_profile),
+                    "diagnostics": {},
+                    "reason_codes": [],
+                }
+            )
+            continue
+
+        periodicity = measure_periodicity_px(shank_profile, outer_width_px)
+        diagnostics = {
+            key: value
+            for key, value in {
+                "left_pitch_px": _round(periodicity.left_pitch_px),
+                "right_pitch_px": _round(periodicity.right_pitch_px),
+                "left_periodicity_score": _round(periodicity.left_score),
+                "right_periodicity_score": _round(periodicity.right_score),
+            }.items()
+            if value is not None
+        }
+        if periodicity.pitch_px is None:
+            results.append(
+                _not_measured(
+                    step,
+                    periodicity.reason_code or "periodicity_unreliable",
+                    diagnostics,
+                )
+            )
+            continue
+
+        pitch_mm = periodicity.pitch_px / px_per_cm * 10.0
+        derived_tpi = 25.4 / pitch_mm
         results.append(
             {
                 "operation": operation,
                 "inputs": inputs,
                 "purpose": str(step.get("purpose", "")),
                 "status": "measured",
-                "value_px": _round(value_px),
-                "value_mm": _round(value_mm, 2),
-                "landmarks": {
-                    name: {"x_px": _round(point[0]), "y_px": _round(point[1])}
-                    for name, point in landmarks.items()
-                },
+                "value_px": _round(periodicity.pitch_px),
+                "value_mm": _round(pitch_mm, 3),
+                "derived_tpi": _round(derived_tpi, 2),
+                "landmarks": _threaded_shank_landmarks(shank_profile),
+                "diagnostics": diagnostics,
                 "reason_codes": [],
             }
         )
+
     return results
