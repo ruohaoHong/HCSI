@@ -9,6 +9,7 @@ sys.path.insert(0, str(SERVICE))
 
 import app as service_app  # noqa: E402
 from rulernet import RulerObservation  # noqa: E402
+from scale_reference import ScaleReference  # noqa: E402
 
 
 def _hardware_image():
@@ -30,6 +31,24 @@ def _fake_ruler(perspective_ratio: float = 1.0):
     return RulerObservation(True, marks, 50.0, perspective_ratio, (1.0, 0.0), ())
 
 
+def _fake_imperial_scale(px_per_inch: float = 384.0):
+    px_per_cm = px_per_inch / 2.54
+    minor = px_per_inch / 16.0
+    points = np.array([[100.0 + minor * i, 95.0] for i in range(20)], dtype=np.float32)
+    return ScaleReference(
+        system="imperial",
+        source="imperial_ticks",
+        confidence=0.9,
+        px_per_cm=px_per_cm,
+        px_per_inch=px_per_inch,
+        reference_points_px=points,
+        reference_interval_cm=2.54 / 16.0,
+        direction_xy=(1.0, 0.0),
+        perspective_step_pct=1.0,
+        reason_codes=(),
+    )
+
+
 def test_measure_rgb_combines_ruler_scale_and_opencv_geometry(monkeypatch):
     image = _hardware_image()
     fake_ruler = _fake_ruler()
@@ -39,11 +58,32 @@ def test_measure_rgb_combines_ruler_scale_and_opencv_geometry(monkeypatch):
     assert result["analysis_mode"] == "measurement_assisted"
     assert result["measurement_valid"] is True
     assert result["retry_recommended"] is False
+    assert result["scale_system"] == "metric"
     assert 37.0 <= result["length_mm"] <= 43.0
     assert 6.0 <= result["width_mm"] <= 11.0
     assert result["scale_px_per_cm"] == 50.0
+    assert result["scale_px_per_inch"] == 127.0
     assert result["geometry_steps"] == []
     assert result["image_sha256"] == "abc123"
+
+
+def test_measure_rgb_accepts_imperial_scale_and_normalizes_output_to_mm(monkeypatch):
+    image = _hardware_image()
+    no_metric = RulerObservation(False, np.empty((0, 2), dtype=np.float32), None, None, None, ("ruler_marks_insufficient",))
+    imperial = _fake_imperial_scale()
+    monkeypatch.setattr(service_app, "infer_ruler", lambda _image: no_metric)
+    monkeypatch.setattr(service_app, "resolve_scale_reference", lambda _image, _ruler: imperial)
+
+    result = service_app.measure_rgb(image, "abc123")
+
+    assert result["measurement_status"] == "valid", result["reason_codes"]
+    assert result["scale_system"] == "imperial"
+    assert result["ruler"]["scale_source"] == "imperial_ticks"
+    assert 151.0 <= result["scale_px_per_cm"] <= 151.3
+    assert 383.9 <= result["scale_px_per_inch"] <= 384.1
+    # The object is about 200 px long. At 384 px/in that is about 13.23 mm.
+    assert 12.0 <= result["length_mm"] <= 14.5
+    assert 2.0 <= result["width_mm"] <= 3.5
 
 
 def test_measure_rgb_executes_resolved_axial_distance(monkeypatch):
