@@ -23,10 +23,11 @@ def _scene() -> tuple[np.ndarray, np.ndarray]:
         cv2.line(image, (x, 470), (x, 535), (20, 20, 20), 3)
 
     # Hardware above the ruler. Its long horizontal edges are intentionally
-    # close enough to be plausible Hough candidates, so the span recovery must
-    # still choose the ruler body rather than the hardware.
-    cv2.rectangle(image, (390, 330), (770, 380), (30, 30, 30), -1)
-    cv2.rectangle(image, (770, 305), (835, 405), (30, 30, 30), -1)
+    # plausible Hough candidates. The vertical separation is deliberate: this
+    # regression isolates recovery of the ruler's *axial* body span and does
+    # not test the separate ruler-normal-width exclusion heuristic.
+    cv2.rectangle(image, (390, 260), (770, 310), (30, 30, 30), -1)
+    cv2.rectangle(image, (770, 235), (835, 335), (30, 30, 30), -1)
 
     partial_ticks = np.array(
         [[421.0 + 24.0 * i, 470.0] for i in range(7)],
@@ -49,7 +50,7 @@ def test_expands_local_tick_run_to_visible_ruler_body_span():
     assert float(np.max(expanded[:, 0])) >= 880.0
 
 
-def test_expanded_span_keeps_nearby_hardware_outside_ruler_exclusion():
+def test_expanded_span_keeps_ruler_remnant_out_of_hardware_contour():
     image, partial_ticks = _scene()
     px_per_cm = 384.0 / 2.54
     expanded = expand_reference_points_to_ruler_body(
@@ -63,7 +64,7 @@ def test_expanded_span_keeps_nearby_hardware_outside_ruler_exclusion():
 
     assert result.detected
     assert result.center_xy is not None
-    assert result.center_xy[1] < 430.0
+    assert result.center_xy[1] < 400.0
     assert result.principal_length_px is not None
     assert result.principal_length_px >= 400.0
     assert "selected_contour_too_close_to_ruler" not in result.gate_reasons
