@@ -12,6 +12,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from geometry import extract_object_geometry
 from geometry_executor import execute_geometry_steps, unmeasured_geometry_steps
 from rulernet import infer_ruler, local_px_per_cm, perspective_step_pct
+from scale_reference import resolve_scale_reference
 
 MAX_UPLOAD_BYTES = 8_000_000
 MAX_GEOMETRY_STEPS = 12
@@ -22,7 +23,7 @@ DEFAULT_MAX_ALIGNMENT_DEG = 20.0
 MeasurementStatus = Literal["valid", "no_reference", "unreliable"]
 AnalysisMode = Literal["measurement_assisted", "appearance_only"]
 
-app = FastAPI(title="HCSI Measurement Service", version="0.3.0")
+app = FastAPI(title="HCSI Measurement Service", version="0.4.0")
 
 
 def _round(value: float | None, digits: int = 3) -> float | None:
@@ -33,6 +34,12 @@ def _empty_ruler() -> dict[str, Any]:
     return {
         "detected": False,
         "mark_count": 0,
+        "scale_system": "unknown",
+        "scale_source": "none",
+        "scale_confidence": 0.0,
+        "px_per_cm": None,
+        "px_per_inch": None,
+        "reference_interval_cm": None,
         "median_px_per_cm": None,
         "local_px_per_cm": None,
         "perspective_ratio": None,
@@ -113,7 +120,9 @@ def _result(
     obj: dict[str, Any] | None = None,
     length_mm: float | None = None,
     width_mm: float | None = None,
+    scale_system: str = "unknown",
     scale_px_per_cm: float | None = None,
+    scale_px_per_inch: float | None = None,
     geometry_steps: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     valid = status == "valid"
@@ -126,7 +135,9 @@ def _result(
         "retry_recommended": status == "unreliable",
         "length_mm": round(float(length_mm), 2) if valid and length_mm is not None else None,
         "width_mm": round(float(width_mm), 2) if valid and width_mm is not None else None,
+        "scale_system": scale_system,
         "scale_px_per_cm": _round(scale_px_per_cm) if valid else None,
+        "scale_px_per_inch": _round(scale_px_per_inch) if valid else None,
         "geometry_steps": geometry_steps or [],
         "image": {"width_px": width, "height_px": height},
         "ruler": ruler or _empty_ruler(),
@@ -150,21 +161,32 @@ def measure_rgb(
     requested_steps = _normalize_geometry_steps(geometry_steps)
     height, width = image_rgb.shape[:2]
     ruler_obs = infer_ruler(image_rgb)
-    perspective_pct = perspective_step_pct(ruler_obs.perspective_ratio)
+    scale_ref = resolve_scale_reference(image_rgb, ruler_obs)
+
+    metric_perspective_pct = perspective_step_pct(ruler_obs.perspective_ratio)
+    using_rulernet_metric = scale_ref.source in {"rulernet_cm", "rulernet_cm+imperial_ticks"}
+    perspective_pct = metric_perspective_pct if using_rulernet_metric else scale_ref.perspective_step_pct
     max_perspective = float(os.environ.get("HCSI_MAX_PERSPECTIVE_STEP_PCT", DEFAULT_MAX_PERSPECTIVE_STEP_PCT))
     perspective_ok = perspective_pct is not None and perspective_pct <= max_perspective
+
     ruler_json: dict[str, Any] = {
-        "detected": ruler_obs.detected,
-        "mark_count": int(len(ruler_obs.mark_points_px)),
+        "detected": scale_ref.system != "unknown",
+        "mark_count": int(len(scale_ref.reference_points_px)),
+        "scale_system": scale_ref.system,
+        "scale_source": scale_ref.source,
+        "scale_confidence": _round(scale_ref.confidence),
+        "px_per_cm": _round(scale_ref.px_per_cm),
+        "px_per_inch": _round(scale_ref.px_per_inch),
+        "reference_interval_cm": _round(scale_ref.reference_interval_cm, 6),
         "median_px_per_cm": _round(ruler_obs.median_px_per_cm),
         "local_px_per_cm": None,
-        "perspective_ratio": _round(ruler_obs.perspective_ratio, 6),
+        "perspective_ratio": _round(ruler_obs.perspective_ratio, 6) if using_rulernet_metric else None,
         "perspective_step_pct": _round(perspective_pct),
         "perspective_ok": perspective_ok,
     }
-    reasons = list(ruler_obs.gate_reasons)
 
-    if not ruler_obs.detected or ruler_obs.median_px_per_cm is None:
+    if scale_ref.system == "unknown" or scale_ref.px_per_cm is None:
+        reasons = list(scale_ref.reason_codes) + list(ruler_obs.gate_reasons)
         return _result(
             image_sha256=image_sha256,
             width=width,
@@ -172,23 +194,29 @@ def measure_rgb(
             status="no_reference",
             reasons=reasons or ["scale_reference_not_confirmed"],
             ruler=ruler_json,
+            scale_system="unknown",
             geometry_steps=unmeasured_geometry_steps(requested_steps, "scale_reference_not_confirmed"),
         )
 
+    reasons: list[str] = []
     if not perspective_ok:
         reasons.append("perspective_too_strong_for_2d_measurement")
 
     max_alignment = float(os.environ.get("HCSI_MAX_RULER_ALIGNMENT_DEG", DEFAULT_MAX_ALIGNMENT_DEG))
     geometry = extract_object_geometry(
         image_rgb,
-        ruler_obs.mark_points_px,
-        ruler_obs.median_px_per_cm,
-        ruler_obs.direction_xy,
+        scale_ref.reference_points_px,
+        scale_ref.px_per_cm,
+        scale_ref.direction_xy,
         max_alignment_deg=max_alignment,
     )
-    local_scale = local_px_per_cm(ruler_obs.mark_points_px, geometry.center_xy) if geometry.center_xy is not None else None
-    effective_scale = local_scale or ruler_obs.median_px_per_cm
+
+    local_scale = None
+    if using_rulernet_metric and geometry.center_xy is not None:
+        local_scale = local_px_per_cm(scale_ref.reference_points_px, geometry.center_xy)
+    effective_scale = local_scale or scale_ref.px_per_cm
     ruler_json["local_px_per_cm"] = _round(local_scale)
+
     object_json: dict[str, Any] = {
         "detected": geometry.detected,
         "contour_reliable": geometry.contour_reliable,
@@ -225,6 +253,7 @@ def measure_rgb(
             reasons=reasons or ["measurement_evidence_unreliable"],
             ruler=ruler_json,
             obj=object_json,
+            scale_system=scale_ref.system,
             geometry_steps=unmeasured_geometry_steps(requested_steps, failure_reason),
         )
 
@@ -232,7 +261,7 @@ def measure_rgb(
     width_mm = geometry.principal_width_px / effective_scale * 10.0
     executed_steps = execute_geometry_steps(
         image_rgb,
-        ruler_obs.mark_points_px,
+        scale_ref.reference_points_px,
         effective_scale,
         requested_steps,
     )
@@ -246,7 +275,9 @@ def measure_rgb(
         obj=object_json,
         length_mm=length_mm,
         width_mm=width_mm,
+        scale_system=scale_ref.system,
         scale_px_per_cm=effective_scale,
+        scale_px_per_inch=effective_scale * 2.54,
         geometry_steps=executed_steps,
     )
 
