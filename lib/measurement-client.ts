@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { ResolvedGeometryPlanStep } from '@/lib/geometry-capabilities'
 import { isMeasurementResult, type MeasurementResult } from '@/lib/measurement'
 
 const MEASUREMENT_TIMEOUT_MS = 25_000
@@ -10,7 +11,10 @@ export class MeasurementServiceError extends Error {
   }
 }
 
-export async function runMeasurementPreflight(imageBase64: string): Promise<MeasurementResult> {
+export async function runMeasurementPreflight(
+  imageBase64: string,
+  executableSteps: readonly ResolvedGeometryPlanStep[] = []
+): Promise<MeasurementResult> {
   const serviceUrl = process.env.HCSI_MEASUREMENT_SERVICE_URL?.trim()
   if (!serviceUrl) {
     throw new MeasurementServiceError('量測服務尚未設定。', 'measurement_service_not_configured')
@@ -20,6 +24,16 @@ export async function runMeasurementPreflight(imageBase64: string): Promise<Meas
   const expectedSha256 = createHash('sha256').update(bytes).digest('hex')
   const form = new FormData()
   form.append('file', new Blob([bytes], { type: 'image/jpeg' }), 'capture.jpg')
+  form.append(
+    'geometry_steps',
+    JSON.stringify(
+      executableSteps.map(({ operation, inputs, purpose }) => ({
+        operation,
+        inputs,
+        purpose,
+      }))
+    )
+  )
 
   const headers = new Headers()
   const token = process.env.HCSI_MEASUREMENT_TOKEN?.trim()
