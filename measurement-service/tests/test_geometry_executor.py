@@ -29,12 +29,35 @@ def _axial_step():
     }
 
 
+def _width_step():
+    return {
+        "operation": "outer_width",
+        "inputs": ["threaded_shank"],
+        "purpose": "量測螺紋桿身外徑",
+    }
+
+
+def _periodicity_step():
+    return {
+        "operation": "periodicity",
+        "inputs": ["threaded_shank"],
+        "purpose": "量測螺紋重複週期",
+    }
+
+
+def _draw_threaded_bolt(image: np.ndarray, period_px: float = 20.0):
+    cv2.rectangle(image, (220, 290), (270, 410), (25, 25, 25), -1)
+    xs = np.arange(270, 561)
+    radius = 14.0 + 2.0 * np.cos(2.0 * np.pi * (xs - 270) / period_px)
+    top = np.column_stack([xs, 350.0 - radius]).astype(np.int32)
+    bottom = np.column_stack([xs[::-1], (350.0 + radius)[::-1]]).astype(np.int32)
+    cv2.fillPoly(image, [np.vstack([top, bottom])], (25, 25, 25))
+
+
 def test_axial_distance_executes_object_tip_to_width_transition():
     image = np.full((520, 820, 3), 245, dtype=np.uint8)
     marks = _draw_ruler(image)
 
-    # Bolt-like silhouette: a wide head at the left and a narrow shank extending
-    # to the right. The under-head distance is about 290 px.
     cv2.rectangle(image, (220, 300), (270, 400), (25, 25, 25), -1)
     cv2.rectangle(image, (270, 335), (560, 365), (25, 25, 25), -1)
 
@@ -46,6 +69,7 @@ def test_axial_distance_executes_object_tip_to_width_transition():
     assert result["reason_codes"] == []
     assert 275.0 <= result["value_px"] <= 305.0
     assert 55.0 <= result["value_mm"] <= 61.0
+    assert result["derived_tpi"] is None
     assert set(result["landmarks"]) == {"object_tip", "width_transition"}
     assert result["landmarks"]["object_tip"]["x_px"] > result["landmarks"]["width_transition"]["x_px"]
 
@@ -60,17 +84,65 @@ def test_uniform_width_object_does_not_invent_transition():
     assert results[0]["status"] == "not_measured"
     assert results[0]["value_px"] is None
     assert results[0]["value_mm"] is None
+    assert results[0]["derived_tpi"] is None
     assert results[0]["reason_codes"] == ["width_transition_not_found"]
 
 
-def test_unimplemented_operation_is_explicitly_not_measured():
+def test_outer_width_and_periodicity_execute_independently_on_threaded_shank():
+    image = np.full((520, 820, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image)
+    _draw_threaded_bolt(image, period_px=20.0)
+
+    results = execute_geometry_steps(
+        image,
+        marks,
+        50.0,
+        [_width_step(), _periodicity_step()],
+    )
+
+    width, periodicity = results
+    assert width["status"] == "measured", width
+    assert 29.0 <= width["value_px"] <= 33.0
+    assert 5.8 <= width["value_mm"] <= 6.6
+    assert width["derived_tpi"] is None
+    assert set(width["landmarks"]) == {"threaded_shank_start", "threaded_shank_end"}
+
+    assert periodicity["status"] == "measured", periodicity
+    assert 19.0 <= periodicity["value_px"] <= 21.0
+    assert 3.8 <= periodicity["value_mm"] <= 4.2
+    assert 6.0 <= periodicity["derived_tpi"] <= 6.7
+    assert periodicity["diagnostics"]["left_pitch_px"] == 20.0
+    assert periodicity["diagnostics"]["right_pitch_px"] == 20.0
+
+
+def test_periodicity_rejects_smooth_shank_without_blocking_diameter():
+    image = np.full((520, 820, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image)
+    cv2.rectangle(image, (220, 290), (270, 410), (25, 25, 25), -1)
+    cv2.rectangle(image, (270, 334), (560, 366), (25, 25, 25), -1)
+
+    width, periodicity = execute_geometry_steps(
+        image,
+        marks,
+        50.0,
+        [_width_step(), _periodicity_step()],
+    )
+
+    assert width["status"] == "measured", width
+    assert periodicity["status"] == "not_measured"
+    assert periodicity["value_px"] is None
+    assert periodicity["derived_tpi"] is None
+    assert periodicity["reason_codes"] == ["periodicity_signal_weak"]
+
+
+def test_unknown_operation_is_explicitly_not_measured():
     image = np.full((520, 820, 3), 245, dtype=np.uint8)
     marks = _draw_ruler(image)
     cv2.rectangle(image, (220, 330), (560, 370), (25, 25, 25), -1)
     step = {
-        "operation": "periodicity",
+        "operation": "unknown_geometry_op",
         "inputs": ["threaded_shank"],
-        "purpose": "量測螺紋重複週期",
+        "purpose": "test",
     }
 
     results = execute_geometry_steps(image, marks, 50.0, [step])
