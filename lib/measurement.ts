@@ -48,7 +48,9 @@ export interface GeometryStepMeasurement {
   status: GeometryStepMeasurementStatus
   value_px: number | null
   value_mm: number | null
+  derived_tpi: number | null
   landmarks: Record<string, GeometryStepLandmark>
+  diagnostics: Record<string, number>
   reason_codes: string[]
 }
 
@@ -89,8 +91,10 @@ function isGeometryStepMeasurement(value: unknown): value is GeometryStepMeasure
   if (!Array.isArray(candidate.inputs) || !candidate.inputs.every((item) => typeof item === 'string')) return false
   if (!['measured', 'not_measured'].includes(String(candidate.status))) return false
   if (!isFiniteNumberOrNull(candidate.value_px) || !isFiniteNumberOrNull(candidate.value_mm)) return false
+  if (!isFiniteNumberOrNull(candidate.derived_tpi)) return false
   if (!Array.isArray(candidate.reason_codes) || !candidate.reason_codes.every((item) => typeof item === 'string')) return false
   if (!candidate.landmarks || typeof candidate.landmarks !== 'object' || Array.isArray(candidate.landmarks)) return false
+  if (!candidate.diagnostics || typeof candidate.diagnostics !== 'object' || Array.isArray(candidate.diagnostics)) return false
 
   for (const landmark of Object.values(candidate.landmarks as Record<string, unknown>)) {
     if (!landmark || typeof landmark !== 'object') return false
@@ -98,12 +102,16 @@ function isGeometryStepMeasurement(value: unknown): value is GeometryStepMeasure
     if (typeof point.x_px !== 'number' || !Number.isFinite(point.x_px)) return false
     if (typeof point.y_px !== 'number' || !Number.isFinite(point.y_px)) return false
   }
+  for (const diagnostic of Object.values(candidate.diagnostics as Record<string, unknown>)) {
+    if (typeof diagnostic !== 'number' || !Number.isFinite(diagnostic)) return false
+  }
 
   if (candidate.status === 'measured') {
     if (candidate.value_px === null || candidate.value_mm === null || candidate.reason_codes.length > 0) return false
-  } else if (candidate.value_px !== null || candidate.value_mm !== null) {
+  } else if (candidate.value_px !== null || candidate.value_mm !== null || candidate.derived_tpi !== null) {
     return false
   }
+  if (candidate.operation !== 'periodicity' && candidate.derived_tpi !== null) return false
   return true
 }
 
