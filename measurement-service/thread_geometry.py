@@ -432,11 +432,13 @@ def measure_periodicity_px(
     profile: ThreadedShankProfile,
     outer_width_px: float,
 ) -> PeriodicityEstimate:
-    """Estimate thread pitch independently from both visible side envelopes.
+    """Estimate the fundamental thread pitch from contour periodicity.
 
-    The two side-envelope autocorrelation estimates must agree within 5%.
-    Otherwise the measurement is rejected rather than averaged into a false
-    pitch. This gives periodicity its own failure mode independent of D and L.
+    Each visible side fuses autocorrelation, spatial frequency and neighboring
+    extrema spacing. Matching sides are accepted directly. If one side is
+    harmonic/noisy, a conservative fallback requires the total shank-width
+    signal to confirm the fundamental and the opposite-side evidence to be an
+    integer multiple. Otherwise the measurement is rejected.
     """
     low = profile.low[profile.sample_mask]
     high = profile.high[profile.sample_mask]
