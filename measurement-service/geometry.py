@@ -160,10 +160,47 @@ def _ruler_exclusion_mask(
         values = np.array([v[0] for v in cluster], dtype=np.float64)
         edge_offsets.append((float(np.average(values, weights=weights)), float(np.sum(weights))))
 
+    # Visual tick references are often anchored close to one physical ruler edge.
+    # A long, parallel hardware edge can otherwise be paired with the opposite
+    # ruler edge and create an exclusion band that cuts through the object.
+    #
+    # Estimate which side of the reference line contains ruler material by
+    # probing a thin strip immediately on both sides. Only when this evidence is
+    # strong do we constrain pair selection; ambiguous cases retain the previous
+    # generic pair scoring for metric/RulerNet compatibility.
+    body_distance, body_threshold = _background_distance(image_rgb)
+    probe_offsets = (
+        float(np.clip(px_per_cm * 0.035, 3.0, 7.0)),
+        float(np.clip(px_per_cm * 0.065, 5.0, 12.0)),
+    )
+    sample_count = max(24, min(96, int(round(mark_span / 4.0))))
+    sample_positions = np.linspace(span_min, span_max, sample_count)
+    side_occupancy: dict[int, float] = {}
+    for side in (-1, 1):
+        occupancies: list[float] = []
+        for probe in probe_offsets:
+            coords = (
+                center[None, :]
+                + sample_positions[:, None] * axis[None, :]
+                + float(side) * probe * normal[None, :]
+            )
+            xs = np.clip(np.rint(coords[:, 0]).astype(np.int32), 0, width - 1)
+            ys = np.clip(np.rint(coords[:, 1]).astype(np.int32), 0, height - 1)
+            occupancies.append(float(np.mean(body_distance[ys, xs] > body_threshold)))
+        side_occupancy[side] = float(np.mean(occupancies))
+
+    body_side: int | None = None
+    negative_occupancy = side_occupancy[-1]
+    positive_occupancy = side_occupancy[1]
+    if (
+        max(negative_occupancy, positive_occupancy) >= 0.55
+        and abs(positive_occupancy - negative_occupancy) >= 0.25
+    ):
+        body_side = 1 if positive_occupancy > negative_occupancy else -1
+
     min_width = max(8.0, px_per_cm * 0.45)
     max_width = min(max_offset * 1.9, px_per_cm * 3.2)
-    best_pair: tuple[float, float] | None = None
-    best_score = -1.0
+    pair_candidates: list[tuple[float, float, float]] = []
     for i, (off_a, strength_a) in enumerate(edge_offsets):
         for off_b, strength_b in edge_offsets[i + 1 :]:
             body_width = abs(off_b - off_a)
@@ -175,9 +212,32 @@ def _ruler_exclusion_mask(
                 continue
             width_prior = 1.0 - min(abs(body_width / px_per_cm - 1.8) / 2.0, 0.65)
             score = (strength_a + strength_b) * width_prior
-            if score > best_score:
-                best_score = score
-                best_pair = (lo, hi)
+            pair_candidates.append((score, lo, hi))
+
+    # If the near-reference strip clearly says the ruler body lies on one side,
+    # prefer an edge pair with one edge anchored near the reference line and the
+    # second edge extending into that same side. This rejects a nearby bolt edge
+    # on the opposite side without hard-coding "ruler is below object".
+    constrained_candidates: list[tuple[float, float, float]] = []
+    if body_side is not None:
+        anchor_tolerance = max(6.0, px_per_cm * 0.14)
+        for candidate in pair_candidates:
+            _, lo, hi = candidate
+            if abs(lo) <= abs(hi):
+                near_offset, far_offset = lo, hi
+            else:
+                near_offset, far_offset = hi, lo
+            if (
+                abs(near_offset) <= anchor_tolerance
+                and body_side * far_offset > anchor_tolerance * 0.35
+            ):
+                constrained_candidates.append(candidate)
+
+    pool = constrained_candidates or pair_candidates
+    best_pair: tuple[float, float] | None = None
+    if pool:
+        _, low_offset, high_offset = max(pool, key=lambda item: item[0])
+        best_pair = (low_offset, high_offset)
 
     extension = px_per_cm * 0.35
     if best_pair is not None:
