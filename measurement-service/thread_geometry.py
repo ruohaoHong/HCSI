@@ -33,6 +33,12 @@ class PeriodicityEstimate:
     left_score: float | None
     right_score: float | None
     reason_code: str | None
+    left_autocorrelation_px: float | None = None
+    right_autocorrelation_px: float | None = None
+    left_frequency_px: float | None = None
+    right_frequency_px: float | None = None
+    left_peak_spacing_px: float | None = None
+    right_peak_spacing_px: float | None = None
 
 
 def _filled_contour_points(contour: np.ndarray) -> np.ndarray:
@@ -240,6 +246,178 @@ def _autocorrelation_period(
     return float(lag), float(score)
 
 
+def _frequency_period(
+    values: np.ndarray,
+    min_period: int,
+    max_period: int,
+) -> tuple[float | None, float | None]:
+    """Estimate the fundamental period from the dominant spatial frequency."""
+    signal = _detrended_envelope(values, max_period)
+    count = len(signal)
+    if count < max_period + 8 or float(np.std(signal)) < 0.35:
+        return None, None
+
+    window = np.hanning(count)
+    spectrum = np.fft.rfft(signal * window)
+    power = np.abs(spectrum) ** 2
+    frequencies = np.fft.rfftfreq(count, d=1.0)
+
+    min_frequency = 1.0 / max(float(max_period), 1.0)
+    max_frequency = 1.0 / max(float(min_period), 1.0)
+    valid = (
+        (frequencies >= min_frequency)
+        & (frequencies <= max_frequency)
+        & (frequencies > 0)
+    )
+    indices = np.flatnonzero(valid)
+    if len(indices) < 2:
+        return None, None
+
+    local_power = power[indices]
+    peak_local = int(np.argmax(local_power))
+    peak_index = int(indices[peak_local])
+    peak_power = float(power[peak_index])
+    baseline = float(np.median(local_power))
+    if peak_power <= max(baseline * 3.0, 1e-6):
+        return None, None
+
+    # Parabolic interpolation reduces FFT-bin quantization without inventing a
+    # new frequency outside the observed peak neighborhood.
+    refined_index = float(peak_index)
+    if 1 <= peak_index < len(power) - 1:
+        y0 = math.log(max(float(power[peak_index - 1]), 1e-12))
+        y1 = math.log(max(float(power[peak_index]), 1e-12))
+        y2 = math.log(max(float(power[peak_index + 1]), 1e-12))
+        denominator = y0 - 2.0 * y1 + y2
+        if abs(denominator) > 1e-9:
+            refined_index += float(np.clip(0.5 * (y0 - y2) / denominator, -0.5, 0.5))
+
+    frequency = refined_index / float(count)
+    if frequency <= 0:
+        return None, None
+    period = 1.0 / frequency
+    if period < min_period * 0.90 or period > max_period * 1.10:
+        return None, None
+
+    score = min(1.0, peak_power / max(peak_power + baseline * 4.0, 1e-9))
+    return float(period), float(score)
+
+
+def _peak_spacing_period(
+    values: np.ndarray,
+    min_period: int,
+    max_period: int,
+) -> tuple[float | None, float | None]:
+    """Estimate pitch from consecutive envelope extrema spacing."""
+    signal = _detrended_envelope(values, max_period)
+    if len(signal) < max_period + 8:
+        return None, None
+    std = float(np.std(signal))
+    if std < 0.35:
+        return None, None
+
+    prominence_floor = max(0.30 * std, 0.18)
+
+    def spacing_for(sign: float) -> tuple[float | None, float | None]:
+        work = signal * sign
+        candidates: list[int] = []
+        for index in range(1, len(work) - 1):
+            if work[index] < work[index - 1] or work[index] < work[index + 1]:
+                continue
+            local_left = max(0, index - max_period)
+            local_right = min(len(work), index + max_period + 1)
+            shoulder = max(
+                float(np.min(work[local_left:index])) if index > local_left else float(work[index]),
+                float(np.min(work[index + 1:local_right])) if local_right > index + 1 else float(work[index]),
+            )
+            if float(work[index] - shoulder) >= prominence_floor:
+                candidates.append(index)
+
+        if len(candidates) < 4:
+            return None, None
+
+        gaps = np.diff(np.asarray(candidates, dtype=np.float64))
+        gaps = gaps[(gaps >= min_period * 0.80) & (gaps <= max_period * 1.20)]
+        if len(gaps) < 3:
+            return None, None
+        median = float(np.median(gaps))
+        mad = float(np.median(np.abs(gaps - median)))
+        if median <= 0:
+            return None, None
+        relative_mad = mad / median
+        if relative_mad > 0.20:
+            return None, None
+        score = max(0.0, min(1.0, 1.0 - relative_mad * 3.0))
+        return median, score
+
+    peak_period, peak_score = spacing_for(1.0)
+    trough_period, trough_score = spacing_for(-1.0)
+    available = [
+        (period, score)
+        for period, score in ((peak_period, peak_score), (trough_period, trough_score))
+        if period is not None and score is not None
+    ]
+    if not available:
+        return None, None
+    return max(available, key=lambda item: item[1])
+
+
+def _relative_delta(a: float, b: float) -> float:
+    return abs(a - b) / max(abs(a), abs(b), 1e-9)
+
+
+def _matches_integer_multiple(value: float, fundamental: float, tolerance: float = 0.12) -> bool:
+    ratio = value / max(fundamental, 1e-9)
+    multiple = max(1, int(round(ratio)))
+    if multiple > 4:
+        return False
+    return abs(ratio - multiple) / multiple <= tolerance
+
+
+def _resolve_fundamental_period(
+    values: np.ndarray,
+    min_period: int,
+    max_period: int,
+) -> tuple[
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+]:
+    """Fuse autocorrelation, FFT and extrema spacing into one fundamental pitch."""
+    autocorrelation, autocorrelation_score = _autocorrelation_period(values, min_period, max_period)
+    frequency, frequency_score = _frequency_period(values, min_period, max_period)
+    peak_spacing, peak_score = _peak_spacing_period(values, min_period, max_period)
+
+    anchors = [
+        (period, score)
+        for period, score in ((frequency, frequency_score), (peak_spacing, peak_score))
+        if period is not None and score is not None
+    ]
+    if not anchors:
+        return None, None, autocorrelation, frequency, peak_spacing
+
+    if len(anchors) == 2:
+        first, second = anchors
+        if _relative_delta(first[0], second[0]) > 0.15:
+            return None, None, autocorrelation, frequency, peak_spacing
+        weights = np.asarray([max(first[1], 0.05), max(second[1], 0.05)], dtype=np.float64)
+        fundamental = float(np.average([first[0], second[0]], weights=weights))
+        support_score = float(np.mean([first[1], second[1]]))
+    else:
+        fundamental, support_score = anchors[0]
+
+    if autocorrelation is not None:
+        if not _matches_integer_multiple(autocorrelation, fundamental):
+            return None, None, autocorrelation, frequency, peak_spacing
+        support_score = min(1.0, 0.75 * support_score + 0.25 * max(autocorrelation_score or 0.0, 0.0))
+
+    if fundamental < min_period * 0.90 or fundamental > max_period * 1.10:
+        return None, None, autocorrelation, frequency, peak_spacing
+    return float(fundamental), float(support_score), autocorrelation, frequency, peak_spacing
+
+
 def measure_periodicity_px(
     profile: ThreadedShankProfile,
     outer_width_px: float,
@@ -269,8 +447,21 @@ def measure_periodicity_px(
             "threaded_shank_too_short_for_periodicity",
         )
 
-    left_pitch, left_score = _autocorrelation_period(low, min_period, max_period)
-    right_pitch, right_score = _autocorrelation_period(high, min_period, max_period)
+    (
+        left_pitch,
+        left_score,
+        left_autocorrelation,
+        left_frequency,
+        left_peak_spacing,
+    ) = _resolve_fundamental_period(low, min_period, max_period)
+    (
+        right_pitch,
+        right_score,
+        right_autocorrelation,
+        right_frequency,
+        right_peak_spacing,
+    ) = _resolve_fundamental_period(high, min_period, max_period)
+
     if left_pitch is None or right_pitch is None:
         return PeriodicityEstimate(
             None,
@@ -279,6 +470,12 @@ def measure_periodicity_px(
             left_score,
             right_score,
             "periodicity_signal_weak",
+            left_autocorrelation,
+            right_autocorrelation,
+            left_frequency,
+            right_frequency,
+            left_peak_spacing,
+            right_peak_spacing,
         )
 
     relative_delta = abs(left_pitch - right_pitch) / max(left_pitch, right_pitch)
@@ -290,6 +487,12 @@ def measure_periodicity_px(
             left_score,
             right_score,
             "periodicity_methods_disagree",
+            left_autocorrelation,
+            right_autocorrelation,
+            left_frequency,
+            right_frequency,
+            left_peak_spacing,
+            right_peak_spacing,
         )
 
     pitch = (left_pitch + right_pitch) * 0.5
@@ -301,6 +504,12 @@ def measure_periodicity_px(
             left_score,
             right_score,
             "periodicity_cycles_insufficient",
+            left_autocorrelation,
+            right_autocorrelation,
+            left_frequency,
+            right_frequency,
+            left_peak_spacing,
+            right_peak_spacing,
         )
 
     return PeriodicityEstimate(
@@ -310,4 +519,10 @@ def measure_periodicity_px(
         left_score,
         right_score,
         None,
+        left_autocorrelation,
+        right_autocorrelation,
+        left_frequency,
+        right_frequency,
+        left_peak_spacing,
+        right_peak_spacing,
     )
