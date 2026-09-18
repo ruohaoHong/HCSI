@@ -402,8 +402,13 @@ def _resolve_fundamental_period(
         first, second = anchors
         if _relative_delta(first[0], second[0]) > 0.15:
             return None, None, autocorrelation, frequency, peak_spacing
-        weights = np.asarray([max(first[1], 0.05), max(second[1], 0.05)], dtype=np.float64)
-        fundamental = float(np.average([first[0], second[0]], weights=weights))
+        # Peak spacing directly measures neighboring visible teeth, so once the
+        # frequency estimate independently confirms it, keep that physical
+        # spacing instead of averaging the two estimates into a fractional drift.
+        if peak_spacing is not None and peak_score is not None:
+            fundamental = float(peak_spacing)
+        else:
+            fundamental = float(first[0])
         support_score = float(np.mean([first[1], second[1]]))
     else:
         fundamental, support_score = anchors[0]
