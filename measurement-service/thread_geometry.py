@@ -39,6 +39,11 @@ class PeriodicityEstimate:
     right_frequency_px: float | None = None
     left_peak_spacing_px: float | None = None
     right_peak_spacing_px: float | None = None
+    width_pitch_px: float | None = None
+    width_score: float | None = None
+    width_autocorrelation_px: float | None = None
+    width_frequency_px: float | None = None
+    width_peak_spacing_px: float | None = None
 
 
 def _filled_contour_points(contour: np.ndarray) -> np.ndarray:
@@ -467,40 +472,76 @@ def measure_periodicity_px(
         right_peak_spacing,
     ) = _resolve_fundamental_period(high, min_period, max_period)
 
-    if left_pitch is None or right_pitch is None:
+    width_values = (profile.high - profile.low)[profile.sample_mask]
+    (
+        width_pitch,
+        width_score,
+        width_autocorrelation,
+        width_frequency,
+        width_peak_spacing,
+    ) = _resolve_fundamental_period(width_values, min_period, max_period)
+
+    pitch: float | None = None
+    if left_pitch is not None and right_pitch is not None:
+        relative_delta = abs(left_pitch - right_pitch) / max(left_pitch, right_pitch)
+        if relative_delta <= 0.05:
+            pitch = (left_pitch + right_pitch) * 0.5
+
+    # Conservative harmonic fallback for real contours: accept one side's
+    # fundamental only when the total shank-width signal independently agrees
+    # and the opposite side's raw autocorrelation is an integer multiple of it.
+    # This resolves 2P/3P ambiguity without reducing the measurement to a
+    # single-side guess.
+    if pitch is None and width_pitch is not None:
+        side_candidates = [
+            (left_pitch, left_score, right_pitch, right_autocorrelation),
+            (right_pitch, right_score, left_pitch, left_autocorrelation),
+        ]
+        accepted: list[tuple[float, float]] = []
+        for side_pitch, side_score, opposite_pitch, opposite_autocorrelation in side_candidates:
+            if side_pitch is None or side_score is None:
+                continue
+            if _relative_delta(side_pitch, width_pitch) > 0.08:
+                continue
+            opposite_evidence = opposite_autocorrelation
+            if opposite_evidence is None:
+                opposite_evidence = opposite_pitch
+            if opposite_evidence is None or not _matches_integer_multiple(opposite_evidence, side_pitch):
+                continue
+            if opposite_pitch is not None and not (
+                _relative_delta(opposite_pitch, side_pitch) <= 0.05
+                or _matches_integer_multiple(opposite_pitch, side_pitch)
+            ):
+                continue
+            accepted.append((float(side_pitch), float(side_score)))
+        if accepted:
+            pitch = max(accepted, key=lambda item: item[1])[0]
+
+    if pitch is None:
+        reason = (
+            "periodicity_signal_weak"
+            if left_pitch is None or right_pitch is None
+            else "periodicity_methods_disagree"
+        )
         return PeriodicityEstimate(
             None,
             left_pitch,
             right_pitch,
             left_score,
             right_score,
-            "periodicity_signal_weak",
+            reason,
             left_autocorrelation,
             right_autocorrelation,
             left_frequency,
             right_frequency,
             left_peak_spacing,
             right_peak_spacing,
+            width_pitch,
+            width_score,
+            width_autocorrelation,
+            width_frequency,
+            width_peak_spacing,
         )
-
-    relative_delta = abs(left_pitch - right_pitch) / max(left_pitch, right_pitch)
-    if relative_delta > 0.05:
-        return PeriodicityEstimate(
-            None,
-            left_pitch,
-            right_pitch,
-            left_score,
-            right_score,
-            "periodicity_methods_disagree",
-            left_autocorrelation,
-            right_autocorrelation,
-            left_frequency,
-            right_frequency,
-            left_peak_spacing,
-            right_peak_spacing,
-        )
-
-    pitch = (left_pitch + right_pitch) * 0.5
     if count / pitch < 4.0:
         return PeriodicityEstimate(
             None,
@@ -515,6 +556,11 @@ def measure_periodicity_px(
             right_frequency,
             left_peak_spacing,
             right_peak_spacing,
+            width_pitch,
+            width_score,
+            width_autocorrelation,
+            width_frequency,
+            width_peak_spacing,
         )
 
     return PeriodicityEstimate(
@@ -530,4 +576,9 @@ def measure_periodicity_px(
         right_frequency,
         left_peak_spacing,
         right_peak_spacing,
+        width_pitch,
+        width_score,
+        width_autocorrelation,
+        width_frequency,
+        width_peak_spacing,
     )
