@@ -96,11 +96,13 @@ def test_width_signal_confirms_one_side_when_other_side_is_harmonic():
     assert profile is not None
 
     s = profile.s_values
-    low = -16.0 - 2.0 * np.cos(2.0 * np.pi * s / 16.0)
-    high = 16.0 + 0.7 * np.cos(2.0 * np.pi * s / 48.0)
+    low = -40.0 - 2.0 * np.cos(2.0 * np.pi * s / 16.0)
+    high = 40.0 + 0.7 * np.cos(2.0 * np.pi * s / 48.0)
     profile = replace(profile, low=low, high=high, widths=high - low)
 
-    estimate = measure_periodicity_px(profile, 32.0)
+    # A larger shank makes 3P=48 px a legal harmonic candidate, matching the
+    # real-photo scale where D is about 120 px and the noisy side reported 49 px.
+    estimate = measure_periodicity_px(profile, 80.0)
 
     assert estimate.reason_code is None, estimate
     assert estimate.pitch_px is not None
