@@ -7,7 +7,7 @@ import numpy as np
 SERVICE = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVICE))
 
-from geometry import extract_object_geometry  # noqa: E402
+from geometry import _ruler_exclusion_mask, extract_object_geometry  # noqa: E402
 
 
 def _draw_ruler(image: np.ndarray, y0: int, y1: int, marks_y: int, x0: int = 80, x1: int = 720, px_per_cm: int = 50) -> np.ndarray:
@@ -65,6 +65,45 @@ def test_tick_line_near_ruler_edge_does_not_erase_nearby_hardware():
     assert result.center_xy[1] < 205
     assert 195 <= result.principal_length_px <= 220
     assert 27 <= result.principal_width_px <= 44
+
+
+def test_ruler_exclusion_prefers_body_side_over_parallel_hardware_edge():
+    image = np.full((600, 900, 3), 245, dtype=np.uint8)
+    px_per_cm = 120
+    marks = _draw_ruler(
+        image,
+        360,
+        455,
+        362,
+        x0=80,
+        x1=820,
+        px_per_cm=px_per_cm,
+    )
+
+    # A nearby hardware silhouette contributes a very strong parallel edge on
+    # the opposite side of the tick/reference line. The old width-only scoring
+    # could pair that edge with the ruler's far edge and erase the hardware.
+    cv2.rectangle(image, (120, 226), (800, 342), (30, 30, 30), -1)
+
+    exclusion, _ = _ruler_exclusion_mask(image, marks, float(px_per_cm))
+
+    # The ruler interior must be excluded.
+    assert exclusion[410, 450] > 0
+    # The nearby hardware must remain outside the ruler exclusion mask.
+    assert exclusion[280, 450] == 0
+
+    result = extract_object_geometry(
+        image,
+        marks,
+        float(px_per_cm),
+        (1.0, 0.0),
+    )
+    assert result.detected
+    assert result.contour_reliable, result.gate_reasons
+    assert result.center_xy is not None
+    assert result.center_xy[1] < 330
+    assert result.principal_width_px is not None
+    assert result.principal_width_px > 90
 
 
 def test_soft_shadow_does_not_outscore_dark_hardware():
