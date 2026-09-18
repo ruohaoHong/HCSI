@@ -311,6 +311,12 @@ def execute_geometry_steps(
                 "right_pitch_px": _round(periodicity.right_pitch_px),
                 "left_periodicity_score": _round(periodicity.left_score),
                 "right_periodicity_score": _round(periodicity.right_score),
+                "left_autocorrelation_px": _round(periodicity.left_autocorrelation_px),
+                "right_autocorrelation_px": _round(periodicity.right_autocorrelation_px),
+                "left_frequency_px": _round(periodicity.left_frequency_px),
+                "right_frequency_px": _round(periodicity.right_frequency_px),
+                "left_peak_spacing_px": _round(periodicity.left_peak_spacing_px),
+                "right_peak_spacing_px": _round(periodicity.right_peak_spacing_px),
             }.items()
             if value is not None
         }
