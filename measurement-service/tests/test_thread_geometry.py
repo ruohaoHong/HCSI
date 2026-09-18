@@ -8,6 +8,8 @@ SERVICE = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVICE))
 
 from thread_geometry import (  # noqa: E402
+    _autocorrelation_period,
+    _resolve_fundamental_period,
     detect_threaded_shank,
     measure_outer_width_px,
     measure_periodicity_px,
@@ -59,6 +61,32 @@ def test_periodicity_requires_two_side_envelopes_to_agree():
     assert abs(estimate.left_pitch_px - estimate.right_pitch_px) / estimate.pitch_px <= 0.05
     assert estimate.left_score is not None and estimate.left_score > 0.5
     assert estimate.right_score is not None and estimate.right_score > 0.5
+
+
+def test_frequency_and_peak_spacing_resolve_autocorrelation_harmonic():
+    # Alternating tooth amplitude makes 2P correlate much more strongly than P:
+    # this recreates the real-photo failure mode where autocorrelation alone
+    # reports 32 px although the actual neighboring-tooth pitch is 16 px.
+    x = np.arange(320, dtype=np.float64)
+    period = 16.0
+    alternating = 1.0 + 2.0 * ((x // period).astype(np.int32) % 2)
+    signal = alternating * np.cos(2.0 * np.pi * x / period)
+
+    autocorrelation, _ = _autocorrelation_period(signal, 5, 60)
+    resolved, score, raw_autocorrelation, frequency, peak_spacing = _resolve_fundamental_period(
+        signal,
+        5,
+        60,
+    )
+
+    assert autocorrelation is not None
+    assert 31.0 <= autocorrelation <= 33.0
+    assert raw_autocorrelation == autocorrelation
+    assert resolved is not None
+    assert 15.0 <= resolved <= 17.0
+    assert frequency is not None and 15.0 <= frequency <= 17.0
+    assert peak_spacing is not None and 15.0 <= peak_spacing <= 17.0
+    assert score is not None and score > 0.5
 
 
 def test_smooth_shank_does_not_invent_thread_pitch():
