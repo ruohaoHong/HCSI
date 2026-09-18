@@ -1,5 +1,6 @@
 import pathlib
 import sys
+from dataclasses import replace
 
 import cv2
 import numpy as np
@@ -87,6 +88,26 @@ def test_frequency_and_peak_spacing_resolve_autocorrelation_harmonic():
     assert frequency is not None and 15.0 <= frequency <= 17.0
     assert peak_spacing is not None and 15.0 <= peak_spacing <= 17.0
     assert score is not None and score > 0.5
+
+
+def test_width_signal_confirms_one_side_when_other_side_is_harmonic():
+    contour = _threaded_bolt(period_px=16.0)
+    profile = detect_threaded_shank(contour)
+    assert profile is not None
+
+    s = profile.s_values
+    low = -16.0 - 2.0 * np.cos(2.0 * np.pi * s / 16.0)
+    high = 16.0 + 0.7 * np.cos(2.0 * np.pi * s / 48.0)
+    profile = replace(profile, low=low, high=high, widths=high - low)
+
+    estimate = measure_periodicity_px(profile, 32.0)
+
+    assert estimate.reason_code is None, estimate
+    assert estimate.pitch_px is not None
+    assert 15.0 <= estimate.pitch_px <= 17.0
+    assert estimate.left_pitch_px is not None and 15.0 <= estimate.left_pitch_px <= 17.0
+    assert estimate.right_pitch_px is not None and 47.0 <= estimate.right_pitch_px <= 49.0
+    assert estimate.width_pitch_px is not None and 15.0 <= estimate.width_pitch_px <= 17.0
 
 
 def test_smooth_shank_does_not_invent_thread_pitch():
