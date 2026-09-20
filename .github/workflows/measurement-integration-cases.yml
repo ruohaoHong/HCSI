@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/ruler-measurement-poc
+      - test/semantic-pixel-ownership-integration
     paths:
       - 'measurement-service/**'
       - 'benchmark/measurement-poc/run_integration_cases.py'
