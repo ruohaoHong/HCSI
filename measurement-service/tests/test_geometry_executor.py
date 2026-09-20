@@ -149,3 +149,55 @@ def test_unknown_operation_is_explicitly_not_measured():
 
     assert results[0]["status"] == "not_measured"
     assert results[0]["reason_codes"] == ["operation_not_implemented"]
+
+
+def test_semantic_target_region_keeps_periodicity_on_selected_hardware():
+    image = np.full((520, 820, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image)
+
+    # Intended hardware: 20 px pitch.
+    _draw_threaded_bolt(image, period_px=20.0)
+
+    # A larger, highly periodic distractor elsewhere in the image. Without a
+    # semantic ownership prior, contour scoring is free to select this object.
+    cv2.rectangle(image, (80, 175), (145, 285), (25, 25, 25), -1)
+    xs = np.arange(145, 700)
+    radius = 20.0 + 3.0 * np.cos(2.0 * np.pi * (xs - 145) / 10.0)
+    top = np.column_stack([xs, 230.0 - radius]).astype(np.int32)
+    bottom = np.column_stack([xs[::-1], (230.0 + radius)[::-1]]).astype(np.int32)
+    cv2.fillPoly(image, [np.vstack([top, bottom])], (25, 25, 25))
+
+    semantic_vision = {
+        "target_region": {
+            "present": True,
+            "confidence": 0.98,
+            "x_min": 240.0,
+            "y_min": 520.0,
+            "x_max": 710.0,
+            "y_max": 820.0,
+        },
+        "reference_region": {
+            "present": True,
+            "confidence": 0.98,
+            "x_min": 60.0,
+            "y_min": 90.0,
+            "x_max": 920.0,
+            "y_max": 250.0,
+        },
+        "head_style": "hex",
+    }
+
+    width, periodicity = execute_geometry_steps(
+        image,
+        marks,
+        50.0,
+        [_width_step(), _periodicity_step()],
+        semantic_vision=semantic_vision,
+    )
+
+    assert width["status"] == "measured", width
+    assert 29.0 <= width["value_px"] <= 33.0
+    assert periodicity["status"] == "measured", periodicity
+    assert 19.0 <= periodicity["value_px"] <= 21.0
+    assert periodicity["landmarks"]["threaded_shank_start"]["y_px"] > 300.0
+    assert periodicity["landmarks"]["threaded_shank_end"]["y_px"] > 300.0
