@@ -13,6 +13,7 @@ from geometry import (
     _geometry_from_contour,
     _ruler_exclusion_mask,
 )
+from semantic_regions import apply_semantic_constraints, build_semantic_masks
 from thread_geometry import (
     ThreadedShankProfile,
     detect_threaded_shank,
@@ -55,8 +56,10 @@ def _select_object_contour(
     image_rgb: np.ndarray,
     ruler_mark_points_px: np.ndarray,
     px_per_cm: float,
+    semantic_vision: dict | None = None,
 ) -> np.ndarray | None:
     height, width = image_rgb.shape[:2]
+    semantic_masks = build_semantic_masks(image_rgb.shape, semantic_vision)
     distance, base_threshold = _background_distance(image_rgb)
     edge_mask = _edge_mask(image_rgb)
     exclusion, _ = _ruler_exclusion_mask(image_rgb, ruler_mark_points_px, px_per_cm)
@@ -67,6 +70,7 @@ def _select_object_contour(
     for factor in (0.82, 1.0, 1.22):
         color_mask = (distance > base_threshold * factor).astype(np.uint8) * 255
         color_mask[exclusion > 0] = 0
+        color_mask = apply_semantic_constraints(color_mask, semantic_masks)
         color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, close_kernel, iterations=2)
         color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, open_kernel, iterations=1)
         color_mask[:2, :] = 0
@@ -79,6 +83,7 @@ def _select_object_contour(
 
     edge_region = edge_mask.copy()
     edge_region[exclusion > 0] = 0
+    edge_region = apply_semantic_constraints(edge_region, semantic_masks)
     edge_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     edge_region = cv2.morphologyEx(edge_region, cv2.MORPH_CLOSE, edge_close, iterations=2)
     edge_region[:2, :] = 0
@@ -216,13 +221,19 @@ def execute_geometry_steps(
     ruler_mark_points_px: np.ndarray,
     px_per_cm: float,
     steps: list[GeometryStep],
+    semantic_vision: dict | None = None,
 ) -> list[dict[str, Any]]:
     if not steps:
         return []
     if not np.isfinite(px_per_cm) or px_per_cm <= 0:
         return unmeasured_geometry_steps(steps, "scale_unavailable")
 
-    contour = _select_object_contour(image_rgb, ruler_mark_points_px, px_per_cm)
+    contour = _select_object_contour(
+        image_rgb,
+        ruler_mark_points_px,
+        px_per_cm,
+        semantic_vision=semantic_vision,
+    )
     if contour is None:
         return unmeasured_geometry_steps(steps, "object_contour_not_found")
 
