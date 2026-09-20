@@ -6,6 +6,8 @@ import math
 import cv2
 import numpy as np
 
+from semantic_regions import apply_semantic_constraints, build_semantic_masks
+
 
 @dataclass(frozen=True)
 class ObjectGeometry:
@@ -359,9 +361,15 @@ def extract_object_geometry(
     px_per_cm: float,
     ruler_direction: tuple[float, float] | None,
     max_alignment_deg: float = 20.0,
+    semantic_vision: dict | None = None,
 ) -> ObjectGeometry:
     height, width = image_rgb.shape[:2]
+    semantic_masks = build_semantic_masks(image_rgb.shape, semantic_vision)
     method = "adaptive_lab+edge_contour+ruler_body"
+    if semantic_masks.target_applied:
+        method += "+semantic_roi"
+    if semantic_masks.reference_applied:
+        method += "+semantic_reference_exclusion"
     if height < 32 or width < 32:
         return ObjectGeometry(False, False, None, None, None, None, None, None, None, None, None, None, method, ("image_too_small",), ())
 
@@ -376,6 +384,7 @@ def extract_object_geometry(
     for factor in threshold_factors:
         color_mask = (distance > base_threshold * factor).astype(np.uint8) * 255
         color_mask[exclusion > 0] = 0
+        color_mask = apply_semantic_constraints(color_mask, semantic_masks)
         color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, close_kernel, iterations=2)
         color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, open_kernel, iterations=1)
         color_mask[:2, :] = 0
@@ -388,6 +397,7 @@ def extract_object_geometry(
 
     edge_region = edge_mask.copy()
     edge_region[exclusion > 0] = 0
+    edge_region = apply_semantic_constraints(edge_region, semantic_masks)
     edge_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     edge_region = cv2.morphologyEx(edge_region, cv2.MORPH_CLOSE, edge_close, iterations=2)
     edge_region[:2, :] = 0
@@ -413,7 +423,7 @@ def extract_object_geometry(
     alignment = _axis_alignment_deg(major_axis, ruler_direction)
 
     reasons: list[str] = []
-    risks: list[str] = []
+    risks: list[str] = list(semantic_masks.risk_signals)
     if nominal.border:
         reasons.append("object_contour_touches_image_border")
     if nominal.solidity < 0.20:
