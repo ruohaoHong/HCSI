@@ -41,7 +41,10 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
 
     // Deterministic capability boundary. The LLM may propose anything useful;
     // only steps the current registry understands become executable.
-    const resolvedMeasurementPlan = resolveMeasurementPlan(routingRaw.measurement_plan)
+    const resolvedMeasurementPlan = resolveMeasurementPlan(routingRaw.measurement_plan, {
+      category: routingRaw.category,
+      head_style: routingRaw.semantic_vision.head_style,
+    })
 
     // The geometry plan now drives deterministic measurement. This is the
     // vertical slice from semantic executable_steps to actual pixel/mm evidence.
