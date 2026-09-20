@@ -261,7 +261,12 @@ def execute_geometry_steps(
             if axial is None:
                 axial = _axial_landmarks(contour)
             if axial is None:
-                results.append(_not_measured(step, "fastener_axial_landmarks_not_found"))
+                reason = (
+                    "width_transition_not_found"
+                    if "width_transition" in inputs
+                    else "fastener_axial_landmarks_not_found"
+                )
+                results.append(_not_measured(step, reason))
                 continue
 
             first = axial.get(inputs[0])
