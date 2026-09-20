@@ -13,6 +13,7 @@ from geometry import extract_object_geometry
 from geometry_executor import execute_geometry_steps, unmeasured_geometry_steps
 from rulernet import infer_ruler, local_px_per_cm, perspective_step_pct
 from scale_reference import resolve_scale_reference
+from semantic_regions import normalize_semantic_vision, parse_semantic_vision
 
 MAX_UPLOAD_BYTES = 8_000_000
 MAX_GEOMETRY_STEPS = 12
@@ -23,7 +24,7 @@ DEFAULT_MAX_ALIGNMENT_DEG = 20.0
 MeasurementStatus = Literal["valid", "no_reference", "unreliable"]
 AnalysisMode = Literal["measurement_assisted", "appearance_only"]
 
-app = FastAPI(title="HCSI Measurement Service", version="0.4.0")
+app = FastAPI(title="HCSI Measurement Service", version="0.5.0")
 
 
 def _round(value: float | None, digits: int = 3) -> float | None:
@@ -157,8 +158,10 @@ def measure_rgb(
     image_rgb: np.ndarray,
     image_sha256: str = "synthetic",
     geometry_steps: list[dict[str, Any]] | None = None,
+    semantic_vision: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     requested_steps = _normalize_geometry_steps(geometry_steps)
+    semantic_context = normalize_semantic_vision(semantic_vision)
     height, width = image_rgb.shape[:2]
     ruler_obs = infer_ruler(image_rgb)
     scale_ref = resolve_scale_reference(image_rgb, ruler_obs)
@@ -209,6 +212,7 @@ def measure_rgb(
         scale_ref.px_per_cm,
         scale_ref.direction_xy,
         max_alignment_deg=max_alignment,
+        semantic_vision=semantic_context,
     )
 
     local_scale = None
@@ -231,6 +235,9 @@ def measure_rgb(
         "ruler_alignment_deg": _round(geometry.ruler_alignment_deg),
         "segmentation_method": geometry.segmentation_method,
         "risk_signals": list(geometry.risk_signals),
+        "semantic_head_style": semantic_context["head_style"],
+        "semantic_target_region": semantic_context["target_region"],
+        "semantic_reference_region": semantic_context["reference_region"],
     }
     reasons.extend(geometry.gate_reasons)
 
@@ -264,6 +271,7 @@ def measure_rgb(
         scale_ref.reference_points_px,
         effective_scale,
         requested_steps,
+        semantic_vision=semantic_context,
     )
     return _result(
         image_sha256=image_sha256,
@@ -291,6 +299,7 @@ def health() -> dict[str, str]:
 async def measure(
     file: UploadFile = File(...),
     geometry_steps: str | None = Form(default=None),
+    semantic_vision: str | None = Form(default=None),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     expected_token = os.environ.get("HCSI_MEASUREMENT_TOKEN", "").strip()
@@ -298,6 +307,7 @@ async def measure(
         raise HTTPException(status_code=401, detail="unauthorized")
     try:
         requested_steps = _parse_geometry_steps(geometry_steps)
+        semantic_context = parse_semantic_vision(semantic_vision)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -311,6 +321,6 @@ async def measure(
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
     digest = hashlib.sha256(raw).hexdigest()
     try:
-        return measure_rgb(image_rgb, digest, requested_steps)
+        return measure_rgb(image_rgb, digest, requested_steps, semantic_context)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
