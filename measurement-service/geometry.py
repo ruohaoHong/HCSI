@@ -387,6 +387,7 @@ def extract_object_geometry(
         color_mask = apply_semantic_constraints(color_mask, semantic_masks)
         color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, close_kernel, iterations=2)
         color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, open_kernel, iterations=1)
+        color_mask = apply_semantic_constraints(color_mask, semantic_masks)
         color_mask[:2, :] = 0
         color_mask[-2:, :] = 0
         color_mask[:, :2] = 0
@@ -400,6 +401,7 @@ def extract_object_geometry(
     edge_region = apply_semantic_constraints(edge_region, semantic_masks)
     edge_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     edge_region = cv2.morphologyEx(edge_region, cv2.MORPH_CLOSE, edge_close, iterations=2)
+    edge_region = apply_semantic_constraints(edge_region, semantic_masks)
     edge_region[:2, :] = 0
     edge_region[-2:, :] = 0
     edge_region[:, :2] = 0
