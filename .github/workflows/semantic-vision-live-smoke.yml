@@ -1,0 +1,63 @@
+name: Semantic Vision Live Smoke
+
+on:
+  push:
+    branches:
+      - test/semantic-live-smoke-v2
+    paths:
+      - '.github/workflows/semantic-vision-live-smoke.yml'
+      - 'benchmark/measurement-poc/live_semantic_smoke.ts'
+      - 'benchmark/measurement-poc/run_live_semantic_measurement.py'
+      - 'lib/**'
+      - 'measurement-service/**'
+
+jobs:
+  live-semantic-measurement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Compile live semantic harness
+        run: |
+          rm -rf /tmp/hcsi-live-semantic
+          pnpm exec tsc \
+            lib/geometry-capabilities.ts \
+            lib/measurement-plan-resolver.ts \
+            lib/identification.ts \
+            benchmark/measurement-poc/live_semantic_smoke.ts \
+            --target ES2022 \
+            --module commonjs \
+            --moduleResolution node \
+            --esModuleInterop \
+            --skipLibCheck \
+            --lib ES2022,DOM \
+            --types node \
+            --rootDir . \
+            --outDir /tmp/hcsi-live-semantic
+      - name: Run live VLM semantic planner
+        run: node /tmp/hcsi-live-semantic/benchmark/measurement-poc/live_semantic_smoke.js
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install measurement dependencies
+        run: python -m pip install -r measurement-service/requirements.txt
+      - name: Run semantic-guided deterministic measurement
+        run: python benchmark/measurement-poc/run_live_semantic_measurement.py
+      - name: Upload sanitized planner output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semantic-live-output
+          path: semantic-live-output.json
+          if-no-files-found: ignore
