@@ -48,7 +48,11 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     let measurement: MeasurementResult | null = null
     let measurementServiceError: MeasurementServiceFallback = null
     try {
-      measurement = await runMeasurementPreflight(image, resolvedMeasurementPlan.executable_steps)
+      measurement = await runMeasurementPreflight(
+        image,
+        resolvedMeasurementPlan.executable_steps,
+        routingRaw.semantic_vision
+      )
     } catch (error) {
       if (error instanceof MeasurementServiceError) {
         measurementServiceError = { code: error.code, message: error.message }
