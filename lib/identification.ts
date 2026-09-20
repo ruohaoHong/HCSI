@@ -194,6 +194,7 @@ measurement_plan 規則：
 5. 每個 step 的 purpose 必須回答「這項證據能排除什麼規格歧義？」若不能回答，就不要加入該 step。
 6. 不要把物件名稱或商品規格名稱當 geometry operation。Geometry plan 描述的是可由影像幾何執行器取得的證據。
 7. 這是暫時語義規劃；後續 deterministic resolver 會自行判斷哪些 step 現在可執行，哪些只能保留為 proposed。你不需要假裝 Engine 會做所有事情。
+8. fastener 的 L 量測 convention 不由你決定。若需要長度證據，可提出 axial_distance(object_tip, width_transition) 表達「需要軸向長度」；deterministic resolver 會依 semantic head_style 強制轉成 flat/countersunk 的 head_top→tip，或突出頭型的 head_underface→tip。
 `
 }
 
