@@ -133,7 +133,7 @@ def _smooth_width_profile(widths: np.ndarray) -> np.ndarray:
     return np.array([np.median(padded[index : index + kernel]) for index in range(count)], dtype=np.float64)
 
 
-def _axial_landmarks(contour: np.ndarray) -> tuple[dict[str, tuple[float, float]], float] | None:
+def _axial_landmarks(contour: np.ndarray) -> dict[str, tuple[float, float]] | None:
     center, axis, _, _, _, _ = _geometry_from_contour(contour)
     axis = np.asarray(axis, dtype=np.float64)
     axis_norm = float(np.linalg.norm(axis))
@@ -190,19 +190,20 @@ def _axial_landmarks(contour: np.ndarray) -> tuple[dict[str, tuple[float, float]
     distance_to_min = abs(transition_s - axial_min)
     distance_to_max = abs(axial_max - transition_s)
     tip_s = axial_min if distance_to_min >= distance_to_max else axial_max
+    head_top_s = axial_max if tip_s == axial_min else axial_min
     transition_xy = center + axis * transition_s
     tip_xy = center + axis * tip_s
-    distance_px = abs(tip_s - transition_s)
-    if distance_px < 2.0:
+    head_top_xy = center + axis * head_top_s
+    if abs(tip_s - transition_s) < 2.0 or abs(tip_s - head_top_s) < 2.0:
         return None
 
-    return (
-        {
-            "object_tip": (float(tip_xy[0]), float(tip_xy[1])),
-            "width_transition": (float(transition_xy[0]), float(transition_xy[1])),
-        },
-        float(distance_px),
-    )
+    transition_point = (float(transition_xy[0]), float(transition_xy[1]))
+    return {
+        "object_tip": (float(tip_xy[0]), float(tip_xy[1])),
+        "width_transition": transition_point,
+        "head_underface": transition_point,
+        "head_top": (float(head_top_xy[0]), float(head_top_xy[1])),
+    }
 
 
 def _threaded_shank_landmarks(profile: ThreadedShankProfile) -> dict[str, dict[str, float | None]]:
@@ -249,17 +250,31 @@ def execute_geometry_steps(
         inputs = [str(value) for value in step.get("inputs", [])]
 
         if operation == "axial_distance":
-            if set(inputs) != {"object_tip", "width_transition"} or len(inputs) != 2:
+            supported_pairs = {
+                frozenset(("object_tip", "width_transition")),
+                frozenset(("object_tip", "head_underface")),
+                frozenset(("object_tip", "head_top")),
+            }
+            if len(inputs) != 2 or frozenset(inputs) not in supported_pairs:
                 results.append(_not_measured(step, "unsupported_landmark_combination"))
                 continue
             if axial is None:
                 axial = _axial_landmarks(contour)
             if axial is None:
-                results.append(_not_measured(step, "width_transition_not_found"))
+                results.append(_not_measured(step, "fastener_axial_landmarks_not_found"))
                 continue
 
-            landmarks, value_px = axial
+            first = axial.get(inputs[0])
+            second = axial.get(inputs[1])
+            if first is None or second is None:
+                results.append(_not_measured(step, "requested_landmark_not_found"))
+                continue
+            value_px = float(np.linalg.norm(np.asarray(first) - np.asarray(second)))
+            if value_px < 2.0:
+                results.append(_not_measured(step, "axial_distance_too_small"))
+                continue
             value_mm = value_px / px_per_cm * 10.0
+            selected_landmarks = {name: axial[name] for name in inputs}
             results.append(
                 {
                     "operation": operation,
@@ -271,7 +286,7 @@ def execute_geometry_steps(
                     "derived_tpi": None,
                     "landmarks": {
                         name: {"x_px": _round(point[0]), "y_px": _round(point[1])}
-                        for name, point in landmarks.items()
+                        for name, point in selected_landmarks.items()
                     },
                     "diagnostics": {},
                     "reason_codes": [],
