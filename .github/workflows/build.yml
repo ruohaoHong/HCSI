@@ -17,4 +17,18 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Smoke test deterministic length convention resolver
+        run: |
+          rm -rf /tmp/hcsi-resolver-test
+          pnpm exec tsc \
+            lib/geometry-capabilities.ts \
+            lib/measurement-plan-resolver.ts \
+            benchmark/measurement-poc/test_measurement_plan_resolver.ts \
+            --target ES2022 \
+            --module commonjs \
+            --moduleResolution node \
+            --esModuleInterop \
+            --skipLibCheck \
+            --outDir /tmp/hcsi-resolver-test
+          node /tmp/hcsi-resolver-test/benchmark/measurement-poc/test_measurement_plan_resolver.js
       - run: pnpm build
