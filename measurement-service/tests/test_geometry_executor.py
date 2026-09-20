@@ -201,3 +201,34 @@ def test_semantic_target_region_keeps_periodicity_on_selected_hardware():
     assert 19.0 <= periodicity["value_px"] <= 21.0
     assert periodicity["landmarks"]["threaded_shank_start"]["y_px"] > 300.0
     assert periodicity["landmarks"]["threaded_shank_end"]["y_px"] > 300.0
+
+
+def test_fastener_length_supports_under_head_and_overall_conventions():
+    image = np.full((520, 820, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image)
+
+    cv2.rectangle(image, (220, 300), (270, 400), (25, 25, 25), -1)
+    cv2.rectangle(image, (270, 335), (560, 365), (25, 25, 25), -1)
+
+    steps = [
+        {
+            "operation": "axial_distance",
+            "inputs": ["object_tip", "head_underface"],
+            "purpose": "突出頭型：頭下到尾端",
+        },
+        {
+            "operation": "axial_distance",
+            "inputs": ["object_tip", "head_top"],
+            "purpose": "沉頭型：頭頂到尾端 overall length",
+        },
+    ]
+
+    under_head, overall = execute_geometry_steps(image, marks, 50.0, steps)
+
+    assert under_head["status"] == "measured", under_head
+    assert overall["status"] == "measured", overall
+    assert 275.0 <= under_head["value_px"] <= 305.0
+    assert 325.0 <= overall["value_px"] <= 355.0
+    assert overall["value_px"] > under_head["value_px"] + 35.0
+    assert set(under_head["landmarks"]) == {"object_tip", "head_underface"}
+    assert set(overall["landmarks"]) == {"object_tip", "head_top"}
