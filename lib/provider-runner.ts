@@ -36,7 +36,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const apiKey = process.env[config.envKey]
     if (!apiKey) return NextResponse.json({ error: `${config.label} 分析服務尚未完成設定。` }, { status: 503 })
 
-    const routingRaw = await runStructuredProvider({ provider, apiKey, model: config.model, image, prompt: buildRoutingPrompt(), schemaName: 'hcsi_semantic_measurement_planner', schema: ROUTING_JSON_SCHEMA as unknown as JsonSchema, maxOutputTokens: 1400 })
+    const routingRaw = await runStructuredProvider({ provider, apiKey, model: config.model, image, prompt: buildRoutingPrompt(), schemaName: 'hcsi_semantic_measurement_planner', schema: ROUTING_JSON_SCHEMA as unknown as JsonSchema, maxOutputTokens: 3200 })
     if (!isRoutingResult(routingRaw)) throw new Error(`${config.label} 語義量測規劃輸出格式不完整`)
 
     // Deterministic capability boundary. The LLM may propose anything useful;
