@@ -1,0 +1,27 @@
+name: Export Acceptance Evidence
+on:
+  push:
+    branches: ['test/real-acceptance-ab-20260922']
+    paths: ['.github/workflows/export-acceptance-evidence.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: real-acceptance-ab
+          path: evidence
+          run-id: 35753143674
+          github-token: ${{ github.token }}
+      - name: Export exact input bytes and diagnostic records
+        run: |
+          python - <<'PY'
+          import pathlib, base64, json
+          for p in sorted(pathlib.Path("evidence").iterdir()):
+              if p.suffix in {".json", ".jpg", ".txt"}:
+                  print("HCSI_EVIDENCE " + json.dumps({"name":p.name,"base64":base64.b64encode(p.read_bytes()).decode()}), flush=True)
+          PY
