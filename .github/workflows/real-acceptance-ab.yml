@@ -1,0 +1,63 @@
+name: Real Acceptance A B Baseline
+on:
+  push:
+    branches: ['test/real-acceptance-ab-20260922']
+    paths: ['benchmark/real-acceptance/**', '.github/workflows/real-acceptance-ab.yml']
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+      HCSI_MEASUREMENT_SERVICE_URL: http://127.0.0.1:8000
+      ACCEPTANCE_RUN_API: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify unchanged production source
+        run: git fetch --depth=1 origin 03aa72071e63c77df15f21556561219c14e47098 && git diff --exit-code 03aa72071e63c77df15f21556561219c14e47098 -- app lib measurement-service data package.json pnpm-lock.yaml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pip install -r measurement-service/requirements.txt pytest
+      - run: pnpm install --frozen-lockfile
+      - name: Existing tests and model warmup
+        run: |
+          mkdir -p acceptance-results
+          pytest -q measurement-service/tests | tee acceptance-results/tests.txt
+          PYTHONPATH=measurement-service python -c "from rulernet import _load_session; _load_session(); print('RulerNet ready')"
+      - name: Start unchanged services and test both real photos
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          uvicorn app:app --app-dir measurement-service --host 127.0.0.1 --port 8000 > acceptance-results/service.log 2>&1 &
+          pnpm dev > acceptance-results/next.log 2>&1 &
+          python - <<'PY'
+          import time, urllib.request
+          for i in range(90):
+              try:
+                  urllib.request.urlopen("http://127.0.0.1:8000/health",timeout=2)
+                  urllib.request.urlopen("http://127.0.0.1:3000",timeout=5)
+                  break
+              except Exception:
+                  time.sleep(2)
+          else:
+              raise RuntimeError("Services did not become ready")
+          PY
+          python benchmark/real-acceptance/run.py | tee acceptance-results/run.log
+          pip freeze > acceptance-results/python-packages.txt
+          git rev-parse HEAD > acceptance-results/test-commit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-acceptance-ab
+          path: acceptance-results/
+          retention-days: 30
