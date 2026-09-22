@@ -14,6 +14,7 @@ from geometry import (
     _ruler_exclusion_mask,
 )
 from semantic_regions import apply_semantic_constraints, build_semantic_masks
+from pixel_ownership import constrain_foreground_mask
 from thread_geometry import (
     ThreadedShankProfile,
     detect_threaded_shank,
@@ -63,6 +64,8 @@ def _select_object_contour(
     distance, base_threshold = _background_distance(image_rgb)
     edge_mask = _edge_mask(image_rgb)
     exclusion, _ = _ruler_exclusion_mask(image_rgb, ruler_mark_points_px, px_per_cm)
+    if semantic_reference_mask is not None:
+        exclusion = cv2.bitwise_or(exclusion, semantic_reference_mask)
 
     close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
     open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
@@ -70,6 +73,7 @@ def _select_object_contour(
     for factor in (0.82, 1.0, 1.22):
         color_mask = (distance > base_threshold * factor).astype(np.uint8) * 255
         color_mask[exclusion > 0] = 0
+        color_mask = constrain_foreground_mask(color_mask, semantic_object_mask, semantic_reference_mask)
         color_mask = apply_semantic_constraints(color_mask, semantic_masks)
         color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, close_kernel, iterations=2)
         color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, open_kernel, iterations=1)
@@ -84,6 +88,7 @@ def _select_object_contour(
 
     edge_region = edge_mask.copy()
     edge_region[exclusion > 0] = 0
+    edge_region = constrain_foreground_mask(edge_region, semantic_object_mask, semantic_reference_mask)
     edge_region = apply_semantic_constraints(edge_region, semantic_masks)
     edge_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     edge_region = cv2.morphologyEx(edge_region, cv2.MORPH_CLOSE, edge_close, iterations=2)
