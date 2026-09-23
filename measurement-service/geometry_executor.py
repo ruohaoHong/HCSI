@@ -62,7 +62,7 @@ def _select_object_contour(
     semantic_masks = build_semantic_masks(image_rgb.shape, semantic_vision)
     distance, base_threshold = _background_distance(image_rgb)
     edge_mask = _edge_mask(image_rgb)
-    exclusion, _ = _ruler_exclusion_mask(image_rgb, ruler_mark_points_px, px_per_cm)
+    exclusion, _ = _ruler_exclusion_mask(image_rgb, ruler_mark_points_px, px_per_cm, semantic_masks)
     close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
     open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     selected = []
