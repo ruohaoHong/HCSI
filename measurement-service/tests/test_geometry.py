@@ -7,7 +7,13 @@ import numpy as np
 SERVICE = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVICE))
 
-from geometry import _ruler_exclusion_mask, extract_object_geometry  # noqa: E402
+from geometry import (  # noqa: E402
+    _Candidate,
+    _contour_distance_to_mask,
+    _contour_stability_summary,
+    _ruler_exclusion_mask,
+    extract_object_geometry,
+)
 from semantic_regions import build_semantic_masks  # noqa: E402
 
 
@@ -195,3 +201,77 @@ def test_semantic_reference_roi_filters_parallel_hardware_from_ruler_edges():
 
     assert exclusion[405, 450] > 0
     assert exclusion[275, 450] == 0
+
+
+
+def test_weak_threshold_candidate_cannot_invalidate_strong_nominal_contour():
+    nominal_contour = cv2.boxPoints(((300.0, 250.0), (220.0, 42.0), 0.0)).astype(np.int32).reshape(-1, 1, 2)
+    stable_contour = cv2.boxPoints(((301.0, 250.0), (214.0, 40.0), 0.0)).astype(np.int32).reshape(-1, 1, 2)
+    weak_blob = cv2.boxPoints(((300.0, 250.0), (300.0, 90.0), 0.0)).astype(np.int32).reshape(-1, 1, 2)
+
+    nominal = _Candidate(nominal_contour, 500.0, 0.02, 0.8, False, 0.47)
+    stable = _Candidate(stable_contour, 220.0, 0.02, 0.8, False, 0.27)
+    weak = _Candidate(weak_blob, 5.0, 0.04, 0.7, False, 0.016)
+
+    unstable, observations = _contour_stability_summary(nominal, [weak, nominal, stable])
+
+    assert observations == 1
+    assert not unstable
+
+
+def test_ruler_proximity_gate_uses_actual_exclusion_mask_gap():
+    image = np.full((700, 900, 3), 245, dtype=np.uint8)
+    px_per_cm = 100
+    marks = _draw_ruler(
+        image,
+        400,
+        570,
+        405,
+        x0=70,
+        x1=830,
+        px_per_cm=px_per_cm,
+    )
+    cv2.rectangle(image, (120, 285), (780, 345), (26, 26, 26), -1)
+
+    semantic = {
+        "target_region": {
+            "present": True,
+            "confidence": 0.95,
+            "x_min": 100,
+            "y_min": 380,
+            "x_max": 900,
+            "y_max": 520,
+        },
+        "reference_region": {
+            "present": True,
+            "confidence": 0.95,
+            "x_min": 50,
+            "y_min": 560,
+            "x_max": 950,
+            "y_max": 840,
+        },
+        "head_style": "hex",
+    }
+
+    masks = build_semantic_masks(image.shape, semantic)
+    exclusion, _ = _ruler_exclusion_mask(image, marks, float(px_per_cm), masks)
+
+    result = extract_object_geometry(
+        image,
+        marks,
+        float(px_per_cm),
+        (1.0, 0.0),
+        semantic_vision=semantic,
+    )
+
+    assert result.detected
+    assert result.contour_reliable, result.gate_reasons
+    assert "selected_contour_too_close_to_ruler" not in result.gate_reasons
+
+    target_rect = np.array(
+        [[[120, 285]], [[780, 285]], [[780, 345]], [[120, 345]]],
+        dtype=np.int32,
+    )
+    gap = _contour_distance_to_mask(target_rect, exclusion)
+    assert gap is not None
+    assert gap > 20.0
