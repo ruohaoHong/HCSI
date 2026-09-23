@@ -24,7 +24,9 @@ jobs:
       - name: Warm RulerNet
         run: PYTHONPATH=measurement-service python -c "from rulernet import _load_session; _load_session(); print('RulerNet ready')"
       - name: Run Case C controlled acceptance
-        run: python benchmark/real-case-c/run.py | tee acceptance-results/run.log
+        run: |
+          mkdir -p acceptance-results
+          python benchmark/real-case-c/run.py | tee acceptance-results/run.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
