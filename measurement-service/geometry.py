@@ -9,6 +9,10 @@ import numpy as np
 from semantic_regions import SemanticMasks, apply_semantic_constraints, build_semantic_masks
 
 
+MIN_CONTOUR_EDGE_SUPPORT = 0.055
+RULER_MASK_CONTACT_TOLERANCE_PX = 2.0
+
+
 @dataclass(frozen=True)
 class ObjectGeometry:
     detected: bool
@@ -384,6 +388,46 @@ def _contour_similarity(base: _Candidate, other: _Candidate) -> tuple[float, flo
     return center_shift, length_delta, width_delta
 
 
+def _contour_stability_summary(
+    nominal: _Candidate,
+    candidates: list[_Candidate | None],
+) -> tuple[bool, int]:
+    observations = 0
+    unstable = False
+    for candidate in candidates:
+        if candidate is None or candidate is nominal:
+            continue
+        # A contour too weak to be trusted as the selected object must not be
+        # allowed to invalidate a strong nominal contour.
+        if candidate.edge_support < MIN_CONTOUR_EDGE_SUPPORT:
+            continue
+        observations += 1
+        center_shift, length_delta, width_delta = _contour_similarity(nominal, candidate)
+        if center_shift > 0.12 or length_delta > 0.16 or width_delta > 0.24:
+            unstable = True
+    return unstable, observations
+
+
+def _contour_distance_to_mask(contour: np.ndarray, mask: np.ndarray) -> float | None:
+    if mask.size == 0 or not np.any(mask):
+        return None
+
+    height, width = mask.shape[:2]
+    points = contour[:, 0, :].astype(np.int32)
+    xs = np.clip(points[:, 0], 0, width - 1)
+    ys = np.clip(points[:, 1], 0, height - 1)
+
+    if np.any(mask[ys, xs] > 0):
+        return 0.0
+
+    # distanceTransform measures non-zero pixels to the nearest zero pixel.
+    # Treat the ruler exclusion as zero so this is the actual contour-to-mask
+    # gap rather than a symmetric approximation around the ruler tick line.
+    free_space = (mask == 0).astype(np.uint8)
+    distance = cv2.distanceTransform(free_space, cv2.DIST_L2, 5)
+    return float(np.min(distance[ys, xs]))
+
+
 def extract_object_geometry(
     image_rgb: np.ndarray,
     ruler_mark_points_px: np.ndarray,
@@ -461,18 +505,10 @@ def extract_object_geometry(
         reasons.append("object_contour_low_solidity")
     if principal_length < 12 or principal_width < 2:
         reasons.append("object_geometry_too_small")
-    if nominal.edge_support < 0.055:
+    if nominal.edge_support < MIN_CONTOUR_EDGE_SUPPORT:
         reasons.append("object_contour_weak_edge_support")
 
-    stability_observations = 0
-    unstable = False
-    for candidate in selected:
-        if candidate is None or candidate is nominal:
-            continue
-        stability_observations += 1
-        center_shift, length_delta, width_delta = _contour_similarity(nominal, candidate)
-        if center_shift > 0.12 or length_delta > 0.16 or width_delta > 0.24:
-            unstable = True
+    unstable, stability_observations = _contour_stability_summary(nominal, selected)
     if unstable:
         reasons.append("object_contour_unstable")
     elif stability_observations == 0:
@@ -483,16 +519,16 @@ def extract_object_geometry(
     elif alignment > max_alignment_deg:
         risks.append("object_ruler_alignment_large")
 
-    if len(ruler_mark_points_px) >= 2 and exclusion_radius > 0:
-        p0 = ruler_mark_points_px[0].astype(np.float64)
-        p1 = ruler_mark_points_px[-1].astype(np.float64)
-        line = p1 - p0
-        line_norm = float(np.linalg.norm(line))
-        if line_norm > 1e-6:
-            offset = center - p0
-            distance_to_tick_line = abs(float(line[0] * offset[1] - line[1] * offset[0])) / line_norm
-            if distance_to_tick_line < exclusion_radius * 0.72:
-                reasons.append("selected_contour_too_close_to_ruler")
+    if exclusion_radius > 0:
+        contour_ruler_gap = _contour_distance_to_mask(contour, exclusion)
+        # _ruler_exclusion_mask already pads the detected ruler body by
+        # 3..10 px. If the surviving contour still touches that padded mask,
+        # it is likely truncated by the ruler/reference and should be rejected.
+        if (
+            contour_ruler_gap is not None
+            and contour_ruler_gap <= RULER_MASK_CONTACT_TOLERANCE_PX
+        ):
+            reasons.append("selected_contour_too_close_to_ruler")
 
     return ObjectGeometry(
         True,
