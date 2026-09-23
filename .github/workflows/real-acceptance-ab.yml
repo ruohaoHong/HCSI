@@ -1,7 +1,7 @@
-name: Real Acceptance A B Baseline
+name: Real Acceptance A B Reference ROI Experiment
 on:
   push:
-    branches: ['test/real-acceptance-ab-20260922']
+    branches: ['experiment/reference-roi-ruler-constraint']
     paths: ['benchmark/real-acceptance/**', '.github/workflows/real-acceptance-ab.yml']
 permissions:
   contents: read
@@ -12,11 +12,13 @@ jobs:
     env:
       RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
       HCSI_MEASUREMENT_SERVICE_URL: http://127.0.0.1:8000
-      ACCEPTANCE_RUN_API: '1'
+      ACCEPTANCE_RUN_API: '0'
     steps:
       - uses: actions/checkout@v4
-      - name: Verify unchanged production source
-        run: git fetch --depth=1 origin 03aa72071e63c77df15f21556561219c14e47098 && git diff --exit-code 03aa72071e63c77df15f21556561219c14e47098 -- app lib measurement-service data package.json pnpm-lock.yaml
+      - name: Show production diff under test
+        run: |
+          git fetch --depth=1 origin 03aa72071e63c77df15f21556561219c14e47098
+          git diff --stat 03aa72071e63c77df15f21556561219c14e47098 -- measurement-service
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -34,7 +36,7 @@ jobs:
           mkdir -p acceptance-results
           pytest -q measurement-service/tests | tee acceptance-results/tests.txt
           PYTHONPATH=measurement-service python -c "from rulernet import _load_session; _load_session(); print('RulerNet ready')"
-      - name: Start unchanged services and test both real photos
+      - name: Run controlled real-photo cases on changed ruler ownership logic
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
