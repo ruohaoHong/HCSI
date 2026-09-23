@@ -2,7 +2,7 @@ name: Real Acceptance A B Reference ROI Experiment
 on:
   push:
     branches: ['experiment/reference-roi-ruler-constraint']
-    paths: ['benchmark/real-acceptance/**', '.github/workflows/real-acceptance-ab.yml']
+    paths: ['benchmark/real-acceptance/**', 'measurement-service/**', '.github/workflows/real-acceptance-ab.yml']
 permissions:
   contents: read
 jobs:
