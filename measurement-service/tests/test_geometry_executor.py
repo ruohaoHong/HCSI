@@ -232,3 +232,51 @@ def test_fastener_length_supports_under_head_and_overall_conventions():
     assert overall["value_px"] > under_head["value_px"] + 35.0
     assert set(under_head["landmarks"]) == {"object_tip", "head_underface"}
     assert set(overall["landmarks"]) == {"object_tip", "head_top"}
+
+
+
+def test_head_underface_uses_shank_envelope_not_strongest_internal_head_transition():
+    image = np.full((520, 900, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image, x0=60, x1=840, px_per_cm=50)
+
+    # Threaded shank ends at x=600. The head begins with a modest 54 px-wide
+    # bearing section, then expands much more strongly at x=625. A
+    # strongest-transition detector is tempted by the internal head expansion;
+    # the physical underface is still the first persistent departure from the
+    # ~30 px shank envelope at x=600.
+    xs = np.arange(180, 601)
+    radius = 14.0 + 2.0 * np.cos(2.0 * np.pi * (xs - 180) / 20.0)
+    top = np.column_stack([xs, 350.0 - radius]).astype(np.int32)
+    bottom = np.column_stack([xs[::-1], (350.0 + radius)[::-1]]).astype(np.int32)
+    cv2.fillPoly(image, [np.vstack([top, bottom])], (25, 25, 25))
+    cv2.rectangle(image, (600, 323), (625, 377), (25, 25, 25), -1)
+    cv2.rectangle(image, (625, 285), (700, 415), (25, 25, 25), -1)
+
+    step = {
+        "operation": "axial_distance",
+        "inputs": ["object_tip", "head_underface"],
+        "purpose": "physical under-head length",
+    }
+    result = execute_geometry_steps(image, marks, 50.0, [step])[0]
+
+    assert result["status"] == "measured", result
+    underface_x = result["landmarks"]["head_underface"]["x_px"]
+    assert 594.0 <= underface_x <= 610.0, result
+    assert 410.0 <= result["value_px"] <= 430.0, result
+    assert result["diagnostics"]["head_expansion_threshold_px"] > result["diagnostics"]["shank_outer_px"]
+
+
+def test_underface_refuses_uniform_object_instead_of_guessing():
+    image = np.full((520, 820, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image)
+    cv2.rectangle(image, (220, 335), (560, 365), (25, 25, 25), -1)
+
+    step = {
+        "operation": "axial_distance",
+        "inputs": ["object_tip", "head_underface"],
+        "purpose": "physical under-head length",
+    }
+    result = execute_geometry_steps(image, marks, 50.0, [step])[0]
+
+    assert result["status"] == "not_measured"
+    assert result["reason_codes"] == ["head_underface_not_found"]
