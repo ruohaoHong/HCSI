@@ -15,8 +15,10 @@ from geometry import (
 )
 from semantic_regions import apply_semantic_constraints, build_semantic_masks
 from thread_geometry import (
+    HeadUnderfaceEstimate,
     ThreadedShankProfile,
     detect_threaded_shank,
+    estimate_head_underface,
     measure_outer_width_px,
     measure_periodicity_px,
 )
@@ -205,6 +207,23 @@ def _axial_landmarks(contour: np.ndarray) -> dict[str, tuple[float, float]] | No
     }
 
 
+def _profile_underface_landmarks(
+    profile: ThreadedShankProfile,
+    estimate: HeadUnderfaceEstimate,
+) -> dict[str, tuple[float, float]]:
+    tip_xy = profile.center + profile.axis * profile.tip_s
+    underface_xy = profile.center + profile.axis * estimate.s
+
+    toward_head = 1 if profile.transition_s > profile.tip_s else -1
+    head_top_s = float(profile.s_values[-1] if toward_head > 0 else profile.s_values[0])
+    head_top_xy = profile.center + profile.axis * head_top_s
+    return {
+        "object_tip": (float(tip_xy[0]), float(tip_xy[1])),
+        "head_underface": (float(underface_xy[0]), float(underface_xy[1])),
+        "head_top": (float(head_top_xy[0]), float(head_top_xy[1])),
+    }
+
+
 def _threaded_shank_landmarks(profile: ThreadedShankProfile) -> dict[str, dict[str, float | None]]:
     return {
         "threaded_shank_start": {
@@ -240,6 +259,8 @@ def execute_geometry_steps(
         return unmeasured_geometry_steps(steps, "object_contour_not_found")
 
     axial = None
+    underface_axial: dict[str, tuple[float, float]] | None = None
+    underface_estimate: HeadUnderfaceEstimate | None = None
     shank_profile: ThreadedShankProfile | None = None
     outer_width_px: float | None = None
     results: list[dict[str, Any]] = []
@@ -257,19 +278,45 @@ def execute_geometry_steps(
             if len(inputs) != 2 or frozenset(inputs) not in supported_pairs:
                 results.append(_not_measured(step, "unsupported_landmark_combination"))
                 continue
-            if axial is None:
-                axial = _axial_landmarks(contour)
-            if axial is None:
-                reason = (
-                    "width_transition_not_found"
-                    if "width_transition" in inputs
-                    else "fastener_axial_landmarks_not_found"
-                )
-                results.append(_not_measured(step, reason))
-                continue
+            diagnostics: dict[str, float] = {}
+            if "head_underface" in inputs:
+                if shank_profile is None:
+                    shank_profile = detect_threaded_shank(contour)
+                if shank_profile is None:
+                    results.append(_not_measured(step, "head_underface_not_found"))
+                    continue
+                if underface_estimate is None:
+                    underface_estimate = estimate_head_underface(shank_profile)
+                if underface_estimate is None:
+                    results.append(_not_measured(step, "head_underface_not_found"))
+                    continue
+                if underface_axial is None:
+                    underface_axial = _profile_underface_landmarks(
+                        shank_profile,
+                        underface_estimate,
+                    )
+                step_landmarks = underface_axial
+                diagnostics = {
+                    "shank_outer_px": _round(underface_estimate.shank_outer_px),
+                    "head_stable_limit_px": _round(underface_estimate.stable_limit_px),
+                    "head_expansion_threshold_px": _round(underface_estimate.expansion_threshold_px),
+                    "head_expansion_persistence_px": float(underface_estimate.persistence_px),
+                }
+            else:
+                if axial is None:
+                    axial = _axial_landmarks(contour)
+                if axial is None:
+                    reason = (
+                        "width_transition_not_found"
+                        if "width_transition" in inputs
+                        else "fastener_axial_landmarks_not_found"
+                    )
+                    results.append(_not_measured(step, reason))
+                    continue
+                step_landmarks = axial
 
-            first = axial.get(inputs[0])
-            second = axial.get(inputs[1])
+            first = step_landmarks.get(inputs[0])
+            second = step_landmarks.get(inputs[1])
             if first is None or second is None:
                 results.append(_not_measured(step, "requested_landmark_not_found"))
                 continue
@@ -278,7 +325,7 @@ def execute_geometry_steps(
                 results.append(_not_measured(step, "axial_distance_too_small"))
                 continue
             value_mm = value_px / px_per_cm * 10.0
-            selected_landmarks = {name: axial[name] for name in inputs}
+            selected_landmarks = {name: step_landmarks[name] for name in inputs}
             results.append(
                 {
                     "operation": operation,
@@ -292,7 +339,7 @@ def execute_geometry_steps(
                         name: {"x_px": _round(point[0]), "y_px": _round(point[1])}
                         for name, point in selected_landmarks.items()
                     },
-                    "diagnostics": {},
+                    "diagnostics": diagnostics,
                     "reason_codes": [],
                 }
             )
