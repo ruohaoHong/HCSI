@@ -26,6 +26,15 @@ class ThreadedShankProfile:
 
 
 @dataclass(frozen=True)
+class HeadUnderfaceEstimate:
+    s: float
+    shank_outer_px: float
+    stable_limit_px: float
+    expansion_threshold_px: float
+    persistence_px: int
+
+
+@dataclass(frozen=True)
 class PeriodicityEstimate:
     pitch_px: float | None
     left_pitch_px: float | None
@@ -178,6 +187,91 @@ def detect_threaded_shank(contour: np.ndarray) -> ThreadedShankProfile | None:
         tip_s=tip_s,
         start_xy=(float(start_xy[0]), float(start_xy[1])),
         end_xy=(float(end_xy[0]), float(end_xy[1])),
+    )
+
+
+def estimate_head_underface(profile: ThreadedShankProfile) -> HeadUnderfaceEstimate | None:
+    """Locate the physical bearing-plane onset for a protruding fastener head.
+
+    The threaded shank establishes the local diameter baseline.  Moving from
+    that stable shank toward the head, the underface is the first boundary
+    before a *persistent* expansion beyond the shank envelope.  This is a
+    physical definition shared by hex, pan, button, socket-cap and round heads;
+    it deliberately does not use the strongest width transition, which may be
+    a chamfer or another feature inside the head.
+    """
+    outer = measure_outer_width_px(profile)
+    if outer is None or outer <= 1.0:
+        return None
+
+    sample_indices = np.flatnonzero(profile.sample_mask)
+    if len(sample_indices) < 12:
+        return None
+
+    toward_head = 1 if profile.transition_s > profile.tip_s else -1
+    shank_edge_index = int(sample_indices[-1] if toward_head > 0 else sample_indices[0])
+    head_edge_index = len(profile.widths) - 1 if toward_head > 0 else 0
+    ordered = np.arange(
+        shank_edge_index,
+        head_edge_index + toward_head,
+        toward_head,
+        dtype=np.int32,
+    )
+    if len(ordered) < 8:
+        return None
+
+    # Smooth only enough to suppress individual thread teeth.  The thresholds
+    # are relative to the measured shank itself, so this scales across M3/M14,
+    # metric/imperial and image resolution without a head-style lookup table.
+    smooth = _median_smooth(profile.widths, fraction=0.02)
+    stable_limit = max(outer * 1.06, outer + 2.0)
+    expansion_threshold = max(outer * 1.15, outer + 4.0)
+    persistence = int(np.clip(round(outer * 0.08), 5, 24))
+    if len(ordered) < persistence + 2:
+        return None
+
+    expansion_pos: int | None = None
+    for pos in range(1, len(ordered) - persistence + 1):
+        window = smooth[ordered[pos : pos + persistence]]
+        finite = window[np.isfinite(window)]
+        if len(finite) < max(3, int(math.ceil(persistence * 0.75))):
+            continue
+        if (
+            float(np.median(finite)) >= expansion_threshold
+            and float(np.mean(finite >= expansion_threshold)) >= 0.70
+        ):
+            expansion_pos = pos
+            break
+
+    if expansion_pos is None:
+        return None
+
+    # Once persistent head expansion is confirmed, walk back toward the shank
+    # through any fillet/chamfer and choose the first pixel after the last
+    # cross-section still consistent with the shank envelope.
+    boundary_pos = expansion_pos
+    while boundary_pos > 0:
+        previous = int(ordered[boundary_pos - 1])
+        if not np.isfinite(smooth[previous]) or smooth[previous] <= stable_limit:
+            break
+        boundary_pos -= 1
+
+    boundary_index = int(ordered[boundary_pos])
+    underface_s = float(profile.s_values[boundary_index])
+
+    # Reject geometrically degenerate answers rather than inventing a length.
+    head_top_s = float(profile.s_values[-1] if toward_head > 0 else profile.s_values[0])
+    if abs(head_top_s - underface_s) < max(3.0, persistence * 0.5):
+        return None
+    if abs(underface_s - profile.tip_s) < 12.0:
+        return None
+
+    return HeadUnderfaceEstimate(
+        s=underface_s,
+        shank_outer_px=float(outer),
+        stable_limit_px=float(stable_limit),
+        expansion_threshold_px=float(expansion_threshold),
+        persistence_px=persistence,
     )
 
 
