@@ -6,7 +6,7 @@ import math
 import cv2
 import numpy as np
 
-from semantic_regions import apply_semantic_constraints, build_semantic_masks
+from semantic_regions import SemanticMasks, apply_semantic_constraints, build_semantic_masks
 
 
 @dataclass(frozen=True)
@@ -89,10 +89,26 @@ def _segment_overlap_along_axis(
     return overlap / expected
 
 
+def _segment_reference_support(
+    a: np.ndarray,
+    b: np.ndarray,
+    reference_mask: np.ndarray | None,
+) -> float:
+    if reference_mask is None:
+        return 1.0
+    height, width = reference_mask.shape[:2]
+    samples = np.linspace(0.0, 1.0, 11)
+    points = a[None, :] + (b - a)[None, :] * samples[:, None]
+    xs = np.clip(np.rint(points[:, 0]).astype(np.int32), 0, width - 1)
+    ys = np.clip(np.rint(points[:, 1]).astype(np.int32), 0, height - 1)
+    return float(np.mean(reference_mask[ys, xs] > 0))
+
+
 def _ruler_exclusion_mask(
     image_rgb: np.ndarray,
     mark_points_px: np.ndarray,
     px_per_cm: float,
+    semantic_masks: SemanticMasks | None = None,
 ) -> tuple[np.ndarray, float]:
     height, width = image_rgb.shape[:2]
     mask = np.zeros((height, width), dtype=np.uint8)
@@ -140,6 +156,19 @@ def _ruler_exclusion_mask(
             overlap = _segment_overlap_along_axis(a, b, center, axis, span_min, span_max)
             if overlap < 0.24:
                 continue
+
+            # The VLM reference box is a coarse ownership prior, not a ruler
+            # edge detector. When it is trustworthy, reject long parallel lines
+            # that live mostly outside the coarse ruler region. This prevents a
+            # strong hardware edge from being paired with a true ruler edge.
+            reference_mask = (
+                semantic_masks.reference_exclusion_mask
+                if semantic_masks is not None and semantic_masks.reference_applied
+                else None
+            )
+            if reference_mask is not None and _segment_reference_support(a, b, reference_mask) < 0.35:
+                continue
+
             midpoint = (a + b) * 0.5
             offset = float(np.dot(midpoint - center, normal))
             if abs(offset) > max_offset:
@@ -375,7 +404,7 @@ def extract_object_geometry(
 
     distance, base_threshold = _background_distance(image_rgb)
     edge_mask = _edge_mask(image_rgb)
-    exclusion, exclusion_radius = _ruler_exclusion_mask(image_rgb, ruler_mark_points_px, px_per_cm)
+    exclusion, exclusion_radius = _ruler_exclusion_mask(image_rgb, ruler_mark_points_px, px_per_cm, semantic_masks)
 
     close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
     open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
