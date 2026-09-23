@@ -8,6 +8,7 @@ SERVICE = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVICE))
 
 from geometry import _ruler_exclusion_mask, extract_object_geometry  # noqa: E402
+from semantic_regions import build_semantic_masks  # noqa: E402
 
 
 def _draw_ruler(image: np.ndarray, y0: int, y1: int, marks_y: int, x0: int = 80, x1: int = 720, px_per_cm: int = 50) -> np.ndarray:
@@ -147,3 +148,50 @@ def test_hardware_may_be_on_either_side_of_ruler():
     assert result.center_xy[1] > 380
     assert result.principal_length_px is not None
     assert 155 <= result.principal_length_px <= 185
+
+
+def test_semantic_reference_roi_filters_parallel_hardware_from_ruler_edges():
+    image = np.full((600, 900, 3), 245, dtype=np.uint8)
+    px_per_cm = 120
+    marks = _draw_ruler(
+        image,
+        360,
+        455,
+        362,
+        x0=80,
+        x1=820,
+        px_per_cm=px_per_cm,
+    )
+
+    # Strong hardware edges sit above the ruler and are parallel to its axis.
+    # The semantic reference ROI says the ruler is only in the lower band.
+    cv2.rectangle(image, (90, 210), (825, 340), (25, 25, 25), -1)
+    semantic = {
+        "target_region": {
+            "present": True,
+            "confidence": 0.95,
+            "x_min": 80,
+            "y_min": 300,
+            "x_max": 930,
+            "y_max": 580,
+        },
+        "reference_region": {
+            "present": True,
+            "confidence": 0.95,
+            "x_min": 50,
+            "y_min": 590,
+            "x_max": 980,
+            "y_max": 800,
+        },
+        "head_style": "hex",
+    }
+    masks = build_semantic_masks(image.shape, semantic)
+    exclusion, _ = _ruler_exclusion_mask(
+        image,
+        marks,
+        float(px_per_cm),
+        masks,
+    )
+
+    assert exclusion[405, 450] > 0
+    assert exclusion[275, 450] == 0
