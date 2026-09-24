@@ -1,0 +1,59 @@
+name: Width Regime Sidecar Acceptance
+on:
+  push:
+    branches: ['experiment/width-regime-sidecar-20260925']
+    paths:
+      - 'benchmark/width-regime-sidecar/**'
+      - '.github/workflows/width-regime-sidecar.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  sidecar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r measurement-service/requirements.txt pytest
+      - run: pytest -q measurement-service/tests benchmark/width-regime-sidecar/test_sidecar.py
+      - run: PYTHONPATH=measurement-service python -c "from rulernet import _load_session; _load_session(); print('RulerNet ready')"
+      - name: Restore SHA-pinned B C originals
+        uses: actions/download-artifact@v4
+        with:
+          name: thread-major-diameter-validation
+          run-id: 35992509709
+          github-token: ${{ github.token }}
+          path: acceptance-images
+      - name: Restore SHA-pinned D original
+        uses: actions/download-artifact@v4
+        with:
+          name: real-case-d
+          run-id: 36014502107
+          github-token: ${{ github.token }}
+          path: acceptance-images/D-reference
+      - name: Restore F archived original
+        uses: actions/download-artifact@v4
+        with:
+          name: ms35207-279-head-body-validation
+          run-id: 36029316937
+          github-token: ${{ github.token }}
+          path: acceptance-images/F-reference
+      - name: Run B C D and E F read-only comparison
+        run: |
+          set -euo pipefail
+          cp acceptance-images/D-reference/D-original.jpg acceptance-images/D-original.jpg
+          cp acceptance-images/F-reference/MS35207-279-original.jpg acceptance-images/MS35207-279-original.jpg
+          mkdir -p acceptance-results
+          python benchmark/width-regime-sidecar/run.py | tee acceptance-results/run.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: width-regime-sidecar-results
+          path: acceptance-results/
+          retention-days: 30
