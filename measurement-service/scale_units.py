@@ -348,6 +348,106 @@ def _patterns_for_pair(
     return patterns, overlap
 
 
+
+def _borderless_pattern_candidates(
+    short_lines: list[_Line],
+    image_shape: tuple[int, int],
+) -> list[tuple[float, _TickPattern, np.ndarray]]:
+    """Find ruler scales made only of aligned tick marks, without a ruler body.
+
+    Printed/photo calibration scales often have no pair of long parallel rails.
+    The invariant structure is instead a family of near-parallel tick strokes
+    whose *one endpoint* lies on a common baseline and whose positions form a
+    regular lattice.  Detect that structure first, then reuse the same
+    metric/imperial hierarchy interpreter as physical rulers.
+    """
+    height, width = image_shape
+    image_scale = float(min(height, width))
+    max_tick_length = max(30.0, image_scale * 0.18)
+    baseline_tolerance = max(3.5, image_scale * 0.006)
+    merge_px = max(3.0, image_scale * 0.004)
+    min_span = max(90.0, image_scale * 0.12)
+    angle_bin = math.radians(8.0)
+
+    families: dict[int, list[_Line]] = {}
+    for line in short_lines:
+        if line.length > max_tick_length:
+            continue
+        angle = math.atan2(float(line.direction[1]), float(line.direction[0]))
+        if angle < 0:
+            angle += math.pi
+        key = int(round(angle / angle_bin))
+        families.setdefault(key, []).append(line)
+
+    candidates: list[tuple[float, _TickPattern, np.ndarray]] = []
+    for family in families.values():
+        if len(family) < 7:
+            continue
+
+        directions = np.stack([line.direction for line in family]).astype(np.float64)
+        reference = directions[0]
+        aligned = directions.copy()
+        for index in range(len(aligned)):
+            if float(np.dot(aligned[index], reference)) < 0:
+                aligned[index] = -aligned[index]
+        tick_direction = _unit(np.mean(aligned, axis=0))
+        if tick_direction is None:
+            continue
+        axis = _unit(np.array([tick_direction[1], -tick_direction[0]], dtype=np.float64))
+        if axis is None:
+            continue
+
+        endpoint_records: list[tuple[float, int, int]] = []
+        for line_index, line in enumerate(family):
+            endpoint_records.append((float(np.dot(line.a, tick_direction)), line_index, 0))
+            endpoint_records.append((float(np.dot(line.b, tick_direction)), line_index, 1))
+        endpoint_records.sort(key=lambda item: item[0])
+
+        groups: list[list[tuple[float, int, int]]] = []
+        for record in endpoint_records:
+            if not groups or record[0] - groups[-1][-1][0] > baseline_tolerance:
+                groups.append([record])
+            else:
+                groups[-1].append(record)
+
+        for group in groups:
+            unique_lines = {record[1] for record in group}
+            if len(unique_lines) < 7:
+                continue
+            baseline = float(np.median([record[0] for record in group]))
+
+            items: list[tuple[float, float, np.ndarray]] = []
+            for line_index in unique_lines:
+                line = family[line_index]
+                endpoint_values = np.array([
+                    np.dot(line.a, tick_direction),
+                    np.dot(line.b, tick_direction),
+                ])
+                endpoint_index = int(np.argmin(np.abs(endpoint_values - baseline)))
+                if abs(float(endpoint_values[endpoint_index]) - baseline) > baseline_tolerance:
+                    continue
+                anchor = line.a if endpoint_index == 0 else line.b
+                position = float(np.dot(anchor, axis))
+                items.append((position, line.length, anchor))
+
+            positions, lengths, points = _cluster_ticks(items, merge_px)
+            if len(positions) < 7 or float(np.ptp(positions)) < min_span:
+                continue
+
+            pattern = _infer_tick_pattern(positions, lengths, points)
+            if pattern is None:
+                continue
+
+            support = len(pattern.points_xy)
+            score = pattern.confidence * (
+                1.0 + min(support / 24.0, 1.0)
+            ) * (
+                1.0 + min(float(np.ptp(positions)) / max(image_scale * 0.5, 1.0), 1.0) * 0.25
+            )
+            candidates.append((score, pattern, axis))
+    return candidates
+
+
 def infer_visual_scale(image_rgb: np.ndarray) -> VisualScaleObservation:
     if image_rgb.ndim != 3 or image_rgb.shape[2] != 3:
         return VisualScaleObservation("unknown", 0.0, None, None, None, None, np.empty((0, 2), dtype=np.float32), None, None, ("invalid_image_shape",))
@@ -361,7 +461,7 @@ def infer_visual_scale(image_rgb: np.ndarray) -> VisualScaleObservation:
 
     height, width = gray.shape
     max_body_width = min(height, width) * 0.28
-    candidates: list[tuple[float, list[_TickPattern], _Line, _Line]] = []
+    candidates: list[tuple[float, list[_TickPattern], np.ndarray]] = []
     for index, first in enumerate(long_lines):
         for second in long_lines[index + 1 :]:
             parallel = abs(float(np.dot(first.direction, second.direction)))
@@ -381,12 +481,15 @@ def infer_visual_scale(image_rgb: np.ndarray) -> VisualScaleObservation:
             confidence = max(pattern.confidence for pattern in patterns)
             support = max(len(pattern.points_xy) for pattern in patterns)
             score = confidence * (1.0 + min(overlap / 300.0, 1.0)) * (1.0 + min(support / 20.0, 1.0))
-            candidates.append((score, patterns, first, second))
+            candidates.append((score, patterns, axis))
+
+    for score, pattern, axis in _borderless_pattern_candidates(short_lines, gray.shape):
+        candidates.append((score, [pattern], axis))
 
     if not candidates:
         return VisualScaleObservation("unknown", 0.0, None, None, None, None, np.empty((0, 2), dtype=np.float32), None, None, ("ruler_tick_pattern_not_found",))
 
-    _, patterns, first, second = max(candidates, key=lambda item: item[0])
+    _, patterns, chosen_axis = max(candidates, key=lambda item: item[0])
     systems = {pattern.system for pattern in patterns}
     if {"metric", "imperial"}.issubset(systems):
         system: ScaleSystem = "dual"
@@ -406,8 +509,8 @@ def infer_visual_scale(image_rgb: np.ndarray) -> VisualScaleObservation:
         px_per_inch = chosen.px_per_inch
         confidence = chosen.confidence
 
-    axis = first.direction.copy()
-    if axis[0] < 0:
+    axis = chosen_axis.copy()
+    if axis[0] < 0 or (abs(axis[0]) < 1e-6 and axis[1] < 0):
         axis = -axis
     return VisualScaleObservation(
         system=system,
