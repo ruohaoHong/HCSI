@@ -280,3 +280,46 @@ def test_underface_refuses_uniform_object_instead_of_guessing():
 
     assert result["status"] == "not_measured"
     assert result["reason_codes"] == ["head_underface_not_found"]
+
+
+
+def test_major_diameter_combines_phase_shifted_crest_envelopes():
+    image = np.full((520, 900, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image, x0=60, x1=840, px_per_cm=50)
+
+    cv2.rectangle(image, (180, 285), (230, 415), (25, 25, 25), -1)
+    xs = np.arange(230, 681)
+    period = 24.0
+    # Deliberately phase-shift upper and lower crests. No single x reaches the
+    # true major diameter of 40 px, but each side independently reaches 20 px.
+    upper_radius = 16.0 + 4.0 * np.cos(2.0 * np.pi * (xs - 230) / period)
+    lower_radius = 16.0 + 4.0 * np.cos(2.0 * np.pi * (xs - 230) / period + np.pi)
+    top = np.column_stack([xs, 350.0 - upper_radius]).astype(np.int32)
+    bottom = np.column_stack([xs[::-1], (350.0 + lower_radius)[::-1]]).astype(np.int32)
+    cv2.fillPoly(image, [np.vstack([top, bottom])], (25, 25, 25))
+
+    width = execute_geometry_steps(image, marks, 50.0, [_width_step()])[0]
+
+    assert width["status"] == "measured", width
+    assert 38.0 <= width["value_px"] <= 41.5, width
+    assert 7.6 <= width["value_mm"] <= 8.3, width
+
+
+def test_major_diameter_ignores_single_outward_contour_spike():
+    image = np.full((520, 900, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image, x0=60, x1=840, px_per_cm=50)
+
+    cv2.rectangle(image, (180, 285), (230, 415), (25, 25, 25), -1)
+    xs = np.arange(230, 681)
+    radius = 16.0 + 3.0 * np.cos(2.0 * np.pi * (xs - 230) / 24.0)
+    top = np.column_stack([xs, 350.0 - radius]).astype(np.int32)
+    bottom = np.column_stack([xs[::-1], (350.0 + radius)[::-1]]).astype(np.int32)
+    polygon = np.vstack([top, bottom])
+    cv2.fillPoly(image, [polygon], (25, 25, 25))
+    # One isolated defect should not become the major diameter.
+    cv2.line(image, (450, 331), (450, 315), (25, 25, 25), 1)
+
+    width = execute_geometry_steps(image, marks, 50.0, [_width_step()])[0]
+
+    assert width["status"] == "measured", width
+    assert 36.0 <= width["value_px"] <= 40.5, width
