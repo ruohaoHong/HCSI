@@ -93,6 +93,40 @@ for rec,cand in zip(records,selected):
             "fails_width":wd>0.24,
         }
 
+edge_region=edge_mask.copy()
+edge_region[exclusion>0]=0
+edge_region=apply_semantic_constraints(edge_region,semantic_masks)
+edge_close=cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(5,5))
+edge_region=cv2.morphologyEx(edge_region,cv2.MORPH_CLOSE,edge_close,iterations=2)
+edge_region=apply_semantic_constraints(edge_region,semantic_masks)
+edge_region[:2,:]=0; edge_region[-2:,:]=0; edge_region[:,:2]=0; edge_region[:,-2:]=0
+edge_candidate=_candidate_from_mask(edge_region,edge_mask,width,height)
+edge_record=None
+if edge_candidate is not None:
+    ec,ea,eL,eW,eminL,eminW=_geometry_from_contour(edge_candidate.contour)
+    edge_record={
+        "score":edge_candidate.score,
+        "area_ratio":edge_candidate.area_ratio,
+        "solidity":edge_candidate.solidity,
+        "border":edge_candidate.border,
+        "edge_support":edge_candidate.edge_support,
+        "bbox_xywh":list(cv2.boundingRect(edge_candidate.contour)),
+        "center_xy":ec.tolist(),
+        "principal_length":eL,
+        "principal_width":eW,
+        "min_area_length":eminL,
+        "min_area_width":eminW,
+        "score_ratio_vs_threshold_nominal":edge_candidate.score/max(nominal.score,1e-9),
+        "edge_support_ratio_vs_threshold_nominal":edge_candidate.edge_support/max(nominal.edge_support,1e-9),
+    }
+    for rec,cand in zip(records,selected):
+        if cand is None:
+            continue
+        shift,ld,wd=_contour_similarity(edge_candidate,cand)
+        rec["similarity_vs_edge_candidate"]={
+            "center_shift":shift,"length_delta":ld,"width_delta":wd,
+        }
+
 unstable,observations=_contour_stability_summary(nominal,selected)
 result=extract_object_geometry(
     rgb,scale.reference_points_px,scale.px_per_cm,scale.direction_xy,semantic_vision=semantic
@@ -109,6 +143,7 @@ out={
   "scale":dataclasses.asdict(scale),
   "base_threshold":base_threshold,
   "threshold_candidates":records,
+  "edge_candidate":edge_record,
   "stability":{"unstable":unstable,"observations":observations,"min_edge_support":MIN_CONTOUR_EDGE_SUPPORT},
   "geometry":dataclasses.asdict(result),
 }
