@@ -21,10 +21,14 @@ def _imperial_ruler_image() -> np.ndarray:
     x = 394
     index = 0
     while x <= 880:
-        if index % 4 == 3:
-            length = 90
-        elif index % 2 == 1:
-            length = 66
+        if index % 16 == 0:
+            length = 104
+        elif index % 8 == 0:
+            length = 92
+        elif index % 4 == 0:
+            length = 78
+        elif index % 2 == 0:
+            length = 64
         else:
             length = 53
         cv2.line(image, (x, 470), (x, 470 + length), (20, 20, 20), 3)
@@ -78,19 +82,6 @@ def _borderless_imperial_scale_image() -> np.ndarray:
 def test_detects_borderless_imperial_tick_hierarchy():
     image = _borderless_imperial_scale_image()
     result = infer_visual_scale(image)
-    if result.system == "unknown":
-        import scale_units
-        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        edges = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 45, 135)
-        short = scale_units._short_lines(edges)
-        print("DEBUG short_lines", len(short))
-        print("DEBUG borderless", [
-            (round(score, 3), pattern.system, round(pattern.confidence, 3),
-             round(pattern.minor_tick_px, 2), pattern.repeat_period,
-             len(pattern.points_xy))
-            for score, pattern, _axis in scale_units._borderless_pattern_candidates(short, gray.shape)
-        ])
-
     assert result.system == "imperial", result
     assert result.confidence >= 0.62
     assert result.px_per_inch is not None
@@ -110,3 +101,33 @@ def test_repeated_hardware_edges_without_common_tick_baseline_are_not_a_scale():
     result = infer_visual_scale(image)
 
     assert result.system == "unknown", result
+
+
+
+def _borderless_metric_scale_image() -> np.ndarray:
+    image = np.full((700, 1000, 3), 255, dtype=np.uint8)
+    baseline = 430
+    start = 120
+    pitch = 18
+    for index in range(41):
+        x = start + index * pitch
+        if index % 10 == 0:
+            length = 82
+            thickness = 4
+        elif index % 5 == 0:
+            length = 64
+            thickness = 3
+        else:
+            length = 42
+            thickness = 2
+        cv2.line(image, (x, baseline), (x, baseline + length), (20, 20, 20), thickness)
+    return image
+
+
+def test_borderless_metric_hierarchy_is_not_misread_as_imperial():
+    result = infer_visual_scale(_borderless_metric_scale_image())
+
+    assert result.system == "metric", result
+    assert result.px_per_cm is not None
+    assert 176.0 <= result.px_per_cm <= 184.0
+    assert result.reference_interval_cm == 0.1
