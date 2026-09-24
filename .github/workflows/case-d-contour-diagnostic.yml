@@ -1,0 +1,31 @@
+name: Case D Contour Stability Diagnostic
+on:
+  push:
+    branches: ['experiment/case-d-contour-stability']
+    paths:
+      - 'benchmark/case-d-contour-diagnostic/**'
+      - '.github/workflows/case-d-contour-diagnostic.yml'
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r measurement-service/requirements.txt pytest
+      - run: PYTHONPATH=measurement-service python -c "from rulernet import _load_session; _load_session(); print('RulerNet ready')"
+      - run: |
+          mkdir -p acceptance-results
+          python benchmark/case-d-contour-diagnostic/run.py | tee acceptance-results/run.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: case-d-contour-diagnostic
+          path: acceptance-results/
+          retention-days: 30
