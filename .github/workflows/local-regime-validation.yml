@@ -1,0 +1,39 @@
+name: Local Width Regime Acceptance
+on:
+  push:
+    branches: ['experiment/local-width-regime-head-body']
+    paths:
+      - 'measurement-service/**'
+      - 'benchmark/ms35207-279/**'
+      - 'benchmark/head-body-validation/**'
+      - '.github/workflows/local-regime-validation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  local-regime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r measurement-service/requirements.txt pytest
+      - run: pytest -q measurement-service/tests
+      - run: PYTHONPATH=measurement-service python -c "from rulernet import _load_session; _load_session(); print('RulerNet ready')"
+      - name: Pinned B C D regressions
+        run: |
+          mkdir -p acceptance-results acceptance-images
+          python benchmark/head-body-validation/run.py --images acceptance-images --output acceptance-results/BCD.json | tee acceptance-results/BCD.log
+      - name: MS35207-279 short-wide pan test
+        if: success()
+        run: python benchmark/ms35207-279/run.py | tee acceptance-results/MS35207.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-regime-validation
+          path: acceptance-results/
+          retention-days: 30
