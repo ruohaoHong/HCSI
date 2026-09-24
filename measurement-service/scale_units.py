@@ -469,17 +469,30 @@ def _borderless_pattern_candidates(
             endpoint_records.append((float(np.dot(line.b, tick_direction)), line_index, 1))
         endpoint_records.sort(key=lambda item: item[0])
 
+        # Use tight local modes, not single-linkage clustering. With real
+        # hierarchical ticks, the far endpoints occur at many depths; adjacent
+        # depths can form a bridge that incorrectly merges them all into one
+        # giant "baseline" cluster.
         groups: list[list[tuple[float, int, int]]] = []
-        for record in endpoint_records:
-            if not groups or record[0] - groups[-1][-1][0] > baseline_tolerance:
-                groups.append([record])
-            else:
-                groups[-1].append(record)
+        seen_signatures: set[tuple[int, ...]] = set()
+        for center, _, _ in endpoint_records:
+            group = [
+                record
+                for record in endpoint_records
+                if abs(record[0] - center) <= baseline_tolerance
+            ]
+            signature = tuple(sorted({record[1] for record in group}))
+            if len(signature) < 7 or signature in seen_signatures:
+                continue
+            seen_signatures.add(signature)
+            groups.append(group)
 
+        groups.sort(
+            key=lambda group: len({record[1] for record in group}),
+            reverse=True,
+        )
         for group in groups:
             unique_lines = {record[1] for record in group}
-            if len(unique_lines) < 7:
-                continue
             baseline = float(np.median([record[0] for record in group]))
 
             items: list[tuple[float, float, np.ndarray]] = []
