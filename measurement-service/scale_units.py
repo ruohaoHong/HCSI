@@ -534,8 +534,8 @@ def infer_visual_scale(image_rgb: np.ndarray) -> VisualScaleObservation:
             score = confidence * (1.0 + min(overlap / 300.0, 1.0)) * (1.0 + min(support / 20.0, 1.0))
             candidates.append((score, patterns, first, second))
 
+    standalone = _standalone_tick_pattern(gray, short_lines)
     if not candidates:
-        standalone = _standalone_tick_pattern(gray, short_lines)
         if standalone is None:
             return VisualScaleObservation("unknown", 0.0, None, None, None, None, np.empty((0, 2), dtype=np.float32), None, None, ("ruler_tick_pattern_not_found",))
         return VisualScaleObservation(
@@ -551,7 +551,23 @@ def infer_visual_scale(image_rgb: np.ndarray) -> VisualScaleObservation:
             reason_codes=(),
         )
 
-    _, patterns, first, second = max(candidates, key=lambda item: item[0])
+    best_body = max(candidates, key=lambda item: item[0])
+    body_confidence = max(pattern.confidence for pattern in best_body[1])
+    if standalone is not None and standalone.confidence >= body_confidence + 0.08:
+        return VisualScaleObservation(
+            system=standalone.system,
+            confidence=float(standalone.confidence),
+            px_per_cm=float(standalone.px_per_cm),
+            px_per_inch=None if standalone.px_per_inch is None else float(standalone.px_per_inch),
+            minor_tick_px=float(standalone.minor_tick_px),
+            reference_interval_cm=float(standalone.reference_interval_cm),
+            reference_points_px=standalone.points_xy.astype(np.float32),
+            direction_xy=(1.0, 0.0) if np.ptp(standalone.points_xy[:, 0]) >= np.ptp(standalone.points_xy[:, 1]) else (0.0, 1.0),
+            perspective_step_pct=float(standalone.perspective_step_pct),
+            reason_codes=(),
+        )
+
+    _, patterns, first, second = best_body
     systems = {pattern.system for pattern in patterns}
     if {"metric", "imperial"}.issubset(systems):
         system: ScaleSystem = "dual"
