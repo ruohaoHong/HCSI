@@ -45,3 +45,50 @@ def test_detects_common_imperial_tick_hierarchy_and_converts_to_cm_scale():
     assert result.reference_interval_cm is not None
     assert abs(result.reference_interval_cm - 2.54 / 16.0) < 0.002
     assert len(result.reference_points_px) >= 8
+
+
+
+def _standalone_tick_ladder(
+    *,
+    spacing_px: int,
+    major_period: int,
+    count: int,
+) -> np.ndarray:
+    image = np.full((760, 1200, 3), 255, dtype=np.uint8)
+    baseline = 590
+    x0 = 100
+    for index in range(count):
+        x = x0 + index * spacing_px
+        if index % major_period == 0:
+            length = 105
+        elif major_period % 2 == 0 and index % (major_period // 2) == 0:
+            length = 82
+        elif major_period % 4 == 0 and index % (major_period // 4) == 0:
+            length = 67
+        else:
+            length = 51
+        cv2.line(image, (x, baseline), (x, baseline - length), (20, 20, 20), 3)
+    return image
+
+
+def test_detects_standalone_imperial_tick_hierarchy_without_ruler_body():
+    result = infer_visual_scale(
+        _standalone_tick_ladder(spacing_px=24, major_period=16, count=40)
+    )
+
+    assert result.system == "imperial", result
+    assert result.px_per_inch is not None
+    assert 380.0 <= result.px_per_inch <= 388.0
+    assert result.reference_interval_cm is not None
+    assert abs(result.reference_interval_cm - 2.54 / 16.0) < 0.002
+
+
+def test_detects_standalone_metric_tick_hierarchy_without_ruler_body():
+    result = infer_visual_scale(
+        _standalone_tick_ladder(spacing_px=20, major_period=10, count=45)
+    )
+
+    assert result.system == "metric", result
+    assert result.px_per_cm is not None
+    assert 196.0 <= result.px_per_cm <= 204.0
+    assert result.reference_interval_cm == 0.1
