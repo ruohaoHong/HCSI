@@ -40,32 +40,54 @@ def fetch(url):
     return urllib.request.urlopen(req, timeout=60).read()
 
 page = fetch(SOURCE).decode("utf-8", errors="replace")
-patterns = [
-    r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
-    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
-    r'data-zoom-image=["\']([^"\']+)["\']',
+normalized_page = html.unescape(page.replace("\\/","/"))
+all_urls = re.findall(
+    r'(?:https?:)?//[^"\' <>]+\.(?:jpg|jpeg|png)(?:\?[^"\' <>]*)?',
+    normalized_page,
+    flags=re.I,
+)
+all_urls = [
+    ("https:" + u if u.startswith("//") else u)
+    for u in all_urls
+    if "cdn" in u.lower()
 ]
-image_url = None
-for pattern in patterns:
-    match = re.search(pattern, page, flags=re.I)
-    if match:
-        image_url = html.unescape(match.group(1))
-        break
-if not image_url:
-    candidates = re.findall(r'https?:[^"\']+\.(?:jpg|jpeg|png)(?:\?[^"\']*)?', page, flags=re.I)
-    candidates = [html.unescape(x) for x in candidates if "cdn" in x.lower()]
-    if candidates:
-        image_url = candidates[0]
-if not image_url:
-    raise RuntimeError("product image URL not found")
-if image_url.startswith("//"):
-    image_url = "https:" + image_url
-image_url = urllib.parse.urljoin(SOURCE, image_url)
+og_match = re.search(r'/products/(\d+)/images/', "\n".join(all_urls))
+product_id = og_match.group(1) if og_match else None
+candidates = []
+for u in all_urls:
+    if product_id and f"/products/{product_id}/images/" not in u:
+        continue
+    u = urllib.parse.urljoin(SOURCE, u)
+    if u not in candidates:
+        candidates.append(u)
+print("PRODUCT_IMAGE_CANDIDATES", json.dumps(candidates))
 
-raw = fetch(image_url)
-decoded = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
-if decoded is None:
-    raise RuntimeError(f"image decode failed: {image_url}")
+# The OG image is a generic MS27039 dimension drawing. Case D is the separate
+# NAS220-6 ruler photograph, so exclude the drawing asset without changing any
+# production measurement behavior.
+usable = [u for u in candidates if "ms27039" not in u.lower()]
+if not usable:
+    usable = candidates
+if not usable:
+    raise RuntimeError("product image URL not found")
+
+# Prefer the largest decodable non-drawing product image.
+best = None
+for u in usable:
+    try:
+        candidate_raw = fetch(u)
+        candidate_img = cv2.imdecode(np.frombuffer(candidate_raw, np.uint8), cv2.IMREAD_COLOR)
+    except Exception:
+        continue
+    if candidate_img is None:
+        continue
+    area = int(candidate_img.shape[0] * candidate_img.shape[1])
+    if best is None or area > best[0]:
+        best = (area, u, candidate_raw, candidate_img)
+if best is None:
+    raise RuntimeError("ruler photograph not decodable")
+
+_, image_url, raw, decoded = best
 rgb = cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
 (OUT / "D-original.jpg").write_bytes(raw)
 
