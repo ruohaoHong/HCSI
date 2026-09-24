@@ -475,6 +475,29 @@ def _select_physical_object_candidate(
     edge_region[:, -2:] = 0
     edge_candidate = _candidate_from_mask(edge_region, edge_mask, width, height)
 
+    if appearance_candidate is not None:
+        appearance_precision, appearance_recall = _contour_support_against_mask(
+            appearance_candidate.contour,
+            ownership_consensus,
+        )
+        # A closed appearance silhouette that is already directly supported by
+        # image gradients is the preferred physical contour: it preserves the
+        # complete object boundary without importing edge-map fragmentation.
+        if appearance_candidate.edge_support >= STRONG_PHYSICAL_BOUNDARY_SUPPORT:
+            return _PhysicalContourSelection(
+                appearance_candidate,
+                "appearance_boundary+edge_supported+ownership_consensus",
+                exclusion,
+                exclusion_radius,
+                semantic_masks,
+                appearance_candidate.edge_support,
+                appearance_precision,
+                appearance_recall,
+            )
+    else:
+        appearance_precision = None
+        appearance_recall = None
+
     if edge_candidate is not None:
         precision, recall = _contour_support_against_mask(
             edge_candidate.contour,
@@ -496,10 +519,6 @@ def _select_physical_object_candidate(
             )
 
     if appearance_candidate is not None:
-        precision, recall = _contour_support_against_mask(
-            appearance_candidate.contour,
-            ownership_consensus,
-        )
         return _PhysicalContourSelection(
             appearance_candidate,
             "appearance_boundary+ownership_consensus",
@@ -507,8 +526,8 @@ def _select_physical_object_candidate(
             exclusion_radius,
             semantic_masks,
             appearance_candidate.edge_support,
-            precision,
-            recall,
+            appearance_precision,
+            appearance_recall,
         )
 
     if edge_candidate is not None and edge_candidate.edge_support >= STRONG_PHYSICAL_BOUNDARY_SUPPORT:
