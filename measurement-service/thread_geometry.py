@@ -296,6 +296,24 @@ def _local_regime_hypotheses(
             persistence = w[k + 3:min(n - 2, k + max(12, int(0.3 * (n-k))))]
             if len(persistence) < 6 or np.median(persistence) < d * 1.15:
                 continue
+            # The segmentation datum is the FIRST sustained departure from
+            # this shaft's own width envelope, not whichever later split
+            # happens to maximize the head/shaft ratio.
+            persistence_n=max(6,min(18,int(round(0.08*d))))
+            onset=None
+            for p in range(max(12,int(0.2*k)),min(n-persistence_n,k+max(16,int(0.18*n)))):
+                trial=w[p:p+persistence_n]
+                if (np.median(trial)>=d*1.15
+                        and np.mean(trial>=d*1.10)>=0.75):
+                    onset=p
+                    while onset>0 and w[onset-1]>d*1.06:
+                        onset-=1
+                    break
+            if onset is None:
+                continue
+            # A candidate that crosses the first onset too late is not a new
+            # physical head/body event; it belongs to the same transition.
+            k=int(onset)
             shaft_center = float(np.median(centers[start:stop]))
             head_center = float(np.median(centers[k + 3:head_end]))
             if abs(head_center - shaft_center) > d * 0.43:
