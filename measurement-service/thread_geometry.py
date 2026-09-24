@@ -198,10 +198,12 @@ def estimate_head_underface(profile: ThreadedShankProfile) -> HeadUnderfaceEstim
     a thread runout, neck or fillet before that plane. Those gradual transitions
     must not shorten L.
 
-    Starting from the stable threaded shank and walking toward the head, accept
-    the first *abrupt bilateral shoulder* that establishes a persistently wider
-    head footprint. Choosing the first qualified shoulder avoids a stronger
-    chamfer or dome transition farther inside the head.
+    Starting from the stable threaded shank and walking toward the head, first
+    detect the earliest bilateral shoulder that establishes head ownership.
+    Then continue only through that projected shoulder until its outward growth
+    settles. The settled point is the image-space proxy for the bearing plane.
+    This keeps runout/fillet pixels out of L without letting a later internal
+    chamfer or dome transition steal the landmark.
     """
     outer = measure_outer_width_px(profile)
     if outer is None or outer <= 1.0:
@@ -296,26 +298,44 @@ def estimate_head_underface(profile: ThreadedShankProfile) -> HeadUnderfaceEstim
 
     candidate_pos, pre_width, post_width = candidate
 
-    # Refine from the window-level shoulder to the local bilateral edge. The
-    # search is deliberately local so a later, stronger head feature cannot
-    # replace the first qualified bearing plane.
-    refine_start = max(1, candidate_pos - probe)
-    refine_end = min(len(ordered) - 1, candidate_pos + probe)
-    best_edge: tuple[float, int] | None = None
-    for pos in range(refine_start, refine_end + 1):
-        previous = int(ordered[pos - 1])
-        current = int(ordered[pos])
-        width_jump = float(smooth_width[current] - smooth_width[previous])
-        low_outward = float(smooth_low[previous] - smooth_low[current])
-        high_outward = float(smooth_high[current] - smooth_high[previous])
-        if width_jump <= 0.0 or low_outward <= 0.0 or high_outward <= 0.0:
-            continue
-        score = width_jump + min(low_outward, high_outward)
-        if best_edge is None or score > best_edge[0]:
-            best_edge = (score, pos)
+    # A real bearing face can project as a finite-width shoulder when the
+    # camera is not perfectly side-on. Anchoring L to the first outward pixel
+    # therefore biases length short (Case D). Walk only far enough to find the
+    # first head-sized region whose silhouette expansion has settled.
+    settle_window = int(np.clip(round(outer * 0.06), 4, 12))
+    max_settle_span = int(np.clip(round(outer * 0.60), 24, 60))
+    settle_slope_limit = max(1.0, outer * 0.025)
 
-    boundary_pos = candidate_pos if best_edge is None else best_edge[1]
-    boundary_index = int(ordered[boundary_pos])
+    settled_pos: int | None = None
+    last_settle_pos = min(
+        len(ordered) - settle_window - 1,
+        candidate_pos + max_settle_span,
+    )
+    for pos in range(candidate_pos, last_settle_pos + 1):
+        settle_indices = ordered[pos : pos + settle_window + 1]
+        settle_width = smooth_width[settle_indices]
+        if not np.all(np.isfinite(settle_width)):
+            continue
+        if float(np.mean(settle_width >= expansion_threshold)) < 0.80:
+            continue
+
+        # Only outward growth matters here. A small local contraction after the
+        # shoulder is compatible with a rounded head, but another outward jump
+        # means the bearing shoulder has not finished yet.
+        outward_slopes = np.maximum(np.diff(settle_width), 0.0)
+        if len(outward_slopes) == 0:
+            continue
+        if float(np.max(outward_slopes)) <= settle_slope_limit:
+            settled_pos = pos
+            break
+
+    # If the first owned head region never settles before another head feature,
+    # the image does not expose a defensible bearing plane. Fail closed rather
+    # than reverting to the known-short first-widening heuristic.
+    if settled_pos is None:
+        return None
+
+    boundary_index = int(ordered[settled_pos])
     underface_s = float(profile.s_values[boundary_index])
 
     head_top_s = float(profile.s_values[-1] if toward_head > 0 else profile.s_values[0])
