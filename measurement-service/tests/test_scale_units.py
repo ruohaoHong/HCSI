@@ -76,7 +76,20 @@ def _borderless_imperial_scale_image() -> np.ndarray:
 
 
 def test_detects_borderless_imperial_tick_hierarchy():
-    result = infer_visual_scale(_borderless_imperial_scale_image())
+    image = _borderless_imperial_scale_image()
+    result = infer_visual_scale(image)
+    if result.system == "unknown":
+        import scale_units
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        edges = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 45, 135)
+        short = scale_units._short_lines(edges)
+        print("DEBUG short_lines", len(short))
+        print("DEBUG borderless", [
+            (round(score, 3), pattern.system, round(pattern.confidence, 3),
+             round(pattern.minor_tick_px, 2), pattern.repeat_period,
+             len(pattern.points_xy))
+            for score, pattern, _axis in scale_units._borderless_pattern_candidates(short, gray.shape)
+        ])
 
     assert result.system == "imperial", result
     assert result.confidence >= 0.62
