@@ -599,9 +599,24 @@ def measure_periodicity_px(
     high = profile.high[profile.sample_mask]
     count = len(low)
 
-    min_period = max(3, int(round(outer_width_px * 0.06)))
+    # Pitch is an independent observable.  Use the robust local shank width
+    # only as a broad image-scale prior; do not let the final major-diameter
+    # estimator change the periodicity search window.
+    width_scale_values = profile.widths[profile.sample_mask]
+    width_scale_values = width_scale_values[np.isfinite(width_scale_values)]
+    if len(width_scale_values) < 12:
+        return PeriodicityEstimate(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "threaded_shank_too_short_for_periodicity",
+        )
+    shank_scale_px = float(np.percentile(width_scale_values, 50))
+    min_period = max(3, int(round(shank_scale_px * 0.06)))
     max_period = min(
-        max(min_period + 3, int(round(outer_width_px * 0.75))),
+        max(min_period + 3, int(round(shank_scale_px * 0.75))),
         max(min_period + 3, count // 3),
     )
     if count < max(36, min_period * 5):
