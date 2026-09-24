@@ -1,0 +1,36 @@
+name: Physical Contour B C Regression
+on:
+  push:
+    branches: ['experiment/physical-contour-evidence']
+    paths:
+      - 'benchmark/real-diameter-validation/**'
+      - 'measurement-service/**'
+      - '.github/workflows/real-diameter-validation.yml'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r measurement-service/requirements.txt pytest
+      - name: Existing measurement tests
+        run: pytest -q measurement-service/tests
+      - name: Warm RulerNet
+        run: PYTHONPATH=measurement-service python -c "from rulernet import _load_session; _load_session(); print('RulerNet ready')"
+      - name: Run controlled B/C real-photo validation
+        run: |
+          mkdir -p acceptance-results
+          python benchmark/real-diameter-validation/run.py | tee acceptance-results/run.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: thread-major-diameter-validation
+          path: acceptance-results/
+          retention-days: 30
