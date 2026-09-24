@@ -348,6 +348,160 @@ def _patterns_for_pair(
     return patterns, overlap
 
 
+def _scan_tick_extent(
+    gray: np.ndarray,
+    position: float,
+    baseline: float,
+    vertical: bool,
+    inward_sign: int,
+) -> float:
+    """Measure a tick from its shared baseline, tolerating antialiasing/gaps."""
+    h, w = gray.shape
+    max_len = int(round(min(h, w) * 0.16))
+    samples: list[float] = []
+    for offset in range(-2, 3):
+        values: list[float] = []
+        for step in range(0, max_len + 1):
+            if vertical:
+                x = int(round(position + offset))
+                y = int(round(baseline + inward_sign * step))
+            else:
+                x = int(round(baseline + inward_sign * step))
+                y = int(round(position + offset))
+            if not (0 <= x < w and 0 <= y < h):
+                break
+            values.append(float(gray[y, x]))
+        if not values:
+            continue
+        dark = np.flatnonzero(np.asarray(values) < 185.0)
+        if len(dark) == 0 or int(dark[0]) > 12:
+            continue
+        end = int(dark[0])
+        for value in dark[1:]:
+            if int(value) - end > 5:
+                break
+            end = int(value)
+        samples.append(float(end))
+    return max(samples) if samples else 0.0
+
+
+def _standalone_tick_pattern(
+    gray: np.ndarray,
+    short_lines: list[_Line],
+) -> _TickPattern | None:
+    """Infer scale from a free-standing tick ladder without a ruler body.
+
+    This models the physical information directly: a regular minor-tick lattice
+    plus a repeated major-tick hierarchy.  10 minor intervals per major interval
+    identifies metric centimetres; 4/8/16/32 identifies common inch rulers.
+    """
+    h, w = gray.shape
+    candidates: list[_TickPattern] = []
+    for vertical in (True, False):
+        family = []
+        for line in short_lines:
+            dx, dy = abs(float(line.direction[0])), abs(float(line.direction[1]))
+            aligned = dy >= 0.96 if vertical else dx >= 0.96
+            if not aligned or line.length > min(h, w) * 0.18:
+                continue
+            family.append(line)
+        if len(family) < 8:
+            continue
+
+        for baseline_side in (1, -1):
+            anchors = []
+            for line in family:
+                pts = (line.a, line.b)
+                coord = (lambda p: p[1]) if vertical else (lambda p: p[0])
+                anchor = max(pts, key=coord) if baseline_side == 1 else min(pts, key=coord)
+                baseline = float(coord(anchor))
+                position = float(line.midpoint[0] if vertical else line.midpoint[1])
+                anchors.append((baseline, position, line.length, anchor))
+
+            ordered = sorted(anchors, key=lambda x: x[0])
+            groups: list[list[tuple[float, float, float, np.ndarray]]] = []
+            tolerance = max(7.0, min(h, w) * 0.009)
+            for item in ordered:
+                if not groups or item[0] - groups[-1][-1][0] > tolerance:
+                    groups.append([item])
+                else:
+                    groups[-1].append(item)
+
+            for group in groups:
+                if len(group) < 8:
+                    continue
+                baseline = float(np.median([x[0] for x in group]))
+                raw_items = [
+                    (x[1], x[2], np.asarray(x[3], dtype=np.float64))
+                    for x in group
+                    if abs(x[0] - baseline) <= tolerance
+                ]
+                positions, _, points = _cluster_ticks(raw_items, max(5.0, min(h, w) * 0.008))
+                pitch = _estimate_minor_pitch(positions)
+                if pitch is None or len(positions) < 8:
+                    continue
+
+                inward_sign = -baseline_side
+                lengths = np.asarray([
+                    _scan_tick_extent(gray, p, baseline, vertical, inward_sign)
+                    for p in positions
+                ], dtype=np.float64)
+                usable = lengths[lengths > 0]
+                if len(usable) < 8:
+                    continue
+                median_len = float(np.median(usable))
+                max_len = float(np.max(usable))
+                if max_len < median_len * 1.22:
+                    continue
+                # Use only the longest hierarchy tier as the unit boundary.
+                # Lower tiers (1/2, 1/4 inch or 5 mm) are intentionally not
+                # promoted to the full-unit interval.
+                major = positions[lengths >= median_len + 0.80 * (max_len - median_len)]
+                if len(major) < 2:
+                    continue
+                ratios = np.diff(np.sort(major)) / pitch
+                ratio = float(np.median(ratios))
+                regularity = min(1.0, len(positions) / 16.0)
+
+                system = None
+                subdivisions = None
+                for target in (4, 8, 16, 32):
+                    if abs(ratio - target) <= max(0.7, target * 0.08):
+                        system = "imperial"
+                        subdivisions = target
+                        break
+                if system is None and abs(ratio - 10.0) <= 0.8:
+                    system = "metric"
+
+                if system == "imperial" and subdivisions is not None:
+                    px_per_inch = float(pitch * subdivisions)
+                    candidates.append(_TickPattern(
+                        system="imperial",
+                        confidence=min(0.96, 0.72 + 0.20 * regularity),
+                        px_per_cm=px_per_inch / 2.54,
+                        px_per_inch=px_per_inch,
+                        minor_tick_px=float(pitch),
+                        reference_interval_cm=float(2.54 / subdivisions),
+                        points_xy=points.astype(np.float32),
+                        perspective_step_pct=0.0,
+                        repeat_period=int(subdivisions),
+                    ))
+                elif system == "metric":
+                    px_per_cm = float(pitch * 10.0)
+                    candidates.append(_TickPattern(
+                        system="metric",
+                        confidence=min(0.96, 0.72 + 0.20 * regularity),
+                        px_per_cm=px_per_cm,
+                        px_per_inch=px_per_cm * 2.54,
+                        minor_tick_px=float(pitch),
+                        reference_interval_cm=0.1,
+                        points_xy=points.astype(np.float32),
+                        perspective_step_pct=0.0,
+                        repeat_period=10,
+                    ))
+    return max(candidates, key=lambda p: p.confidence) if candidates else None
+
+
 def infer_visual_scale(image_rgb: np.ndarray) -> VisualScaleObservation:
     if image_rgb.ndim != 3 or image_rgb.shape[2] != 3:
         return VisualScaleObservation("unknown", 0.0, None, None, None, None, np.empty((0, 2), dtype=np.float32), None, None, ("invalid_image_shape",))
@@ -356,7 +510,7 @@ def infer_visual_scale(image_rgb: np.ndarray) -> VisualScaleObservation:
     edges = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 45, 135)
     long_lines = _long_lines(edges)
     short_lines = _short_lines(edges)
-    if len(long_lines) < 2 or not short_lines:
+    if not short_lines:
         return VisualScaleObservation("unknown", 0.0, None, None, None, None, np.empty((0, 2), dtype=np.float32), None, None, ("ruler_tick_pattern_not_found",))
 
     height, width = gray.shape
@@ -383,10 +537,40 @@ def infer_visual_scale(image_rgb: np.ndarray) -> VisualScaleObservation:
             score = confidence * (1.0 + min(overlap / 300.0, 1.0)) * (1.0 + min(support / 20.0, 1.0))
             candidates.append((score, patterns, first, second))
 
+    standalone = _standalone_tick_pattern(gray, short_lines)
     if not candidates:
-        return VisualScaleObservation("unknown", 0.0, None, None, None, None, np.empty((0, 2), dtype=np.float32), None, None, ("ruler_tick_pattern_not_found",))
+        if standalone is None:
+            return VisualScaleObservation("unknown", 0.0, None, None, None, None, np.empty((0, 2), dtype=np.float32), None, None, ("ruler_tick_pattern_not_found",))
+        return VisualScaleObservation(
+            system=standalone.system,
+            confidence=float(standalone.confidence),
+            px_per_cm=float(standalone.px_per_cm),
+            px_per_inch=None if standalone.px_per_inch is None else float(standalone.px_per_inch),
+            minor_tick_px=float(standalone.minor_tick_px),
+            reference_interval_cm=float(standalone.reference_interval_cm),
+            reference_points_px=standalone.points_xy.astype(np.float32),
+            direction_xy=(1.0, 0.0) if np.ptp(standalone.points_xy[:, 0]) >= np.ptp(standalone.points_xy[:, 1]) else (0.0, 1.0),
+            perspective_step_pct=float(standalone.perspective_step_pct),
+            reason_codes=(),
+        )
 
-    _, patterns, first, second = max(candidates, key=lambda item: item[0])
+    best_body = max(candidates, key=lambda item: item[0])
+    body_confidence = max(pattern.confidence for pattern in best_body[1])
+    if standalone is not None and standalone.confidence >= body_confidence + 0.08:
+        return VisualScaleObservation(
+            system=standalone.system,
+            confidence=float(standalone.confidence),
+            px_per_cm=float(standalone.px_per_cm),
+            px_per_inch=None if standalone.px_per_inch is None else float(standalone.px_per_inch),
+            minor_tick_px=float(standalone.minor_tick_px),
+            reference_interval_cm=float(standalone.reference_interval_cm),
+            reference_points_px=standalone.points_xy.astype(np.float32),
+            direction_xy=(1.0, 0.0) if np.ptp(standalone.points_xy[:, 0]) >= np.ptp(standalone.points_xy[:, 1]) else (0.0, 1.0),
+            perspective_step_pct=float(standalone.perspective_step_pct),
+            reason_codes=(),
+        )
+
+    _, patterns, first, second = best_body
     systems = {pattern.system for pattern in patterns}
     if {"metric", "imperial"}.issubset(systems):
         system: ScaleSystem = "dual"
