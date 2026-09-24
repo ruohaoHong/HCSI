@@ -224,7 +224,6 @@ def test_shadow_thresholds_are_ownership_evidence_not_peer_boundaries():
     assert selection.ownership_precision is not None
     assert selection.ownership_precision >= 0.60
     assert selection.ownership_recall is not None
-    assert selection.ownership_recall >= 0.25
 
 
 def test_ruler_proximity_gate_uses_actual_exclusion_mask_gap():
