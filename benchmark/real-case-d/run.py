@@ -61,6 +61,29 @@ steps = [
     {"operation":"axial_distance","inputs":["object_tip","head_underface"],"purpose":"L"},
 ]
 
+import scale_units
+gray_debug = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+edges_debug = cv2.Canny(cv2.GaussianBlur(gray_debug, (5, 5), 0), 45, 135)
+short_debug = scale_units._short_lines(edges_debug)
+long_debug = scale_units._long_lines(edges_debug)
+borderless_debug = scale_units._borderless_pattern_candidates(short_debug, gray_debug.shape)
+print("SCALE_DEBUG", json.dumps({
+    "short_lines": len(short_debug),
+    "long_lines": len(long_debug),
+    "borderless": [
+        {
+            "score": round(score, 3),
+            "system": pattern.system,
+            "confidence": round(pattern.confidence, 3),
+            "minor_tick_px": round(pattern.minor_tick_px, 3),
+            "px_per_inch": None if pattern.px_per_inch is None else round(pattern.px_per_inch, 3),
+            "repeat_period": pattern.repeat_period,
+            "points": len(pattern.points_xy),
+        }
+        for score, pattern, _axis in borderless_debug
+    ],
+}, ensure_ascii=False))
+
 obs = infer_ruler(rgb)
 scale = resolve_scale_reference(rgb, obs)
 sha = hashlib.sha256(raw).hexdigest()
