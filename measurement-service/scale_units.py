@@ -168,6 +168,42 @@ def _lattice_sequence(
     return filled, lattice_points, regularity
 
 
+def _dyadic_hierarchy_score(sequence: np.ndarray, subdivisions: int) -> float:
+    """Score whether tick lengths encode a binary inch subdivision hierarchy.
+
+    Imperial rulers are not identified by one magic spacing.  Their invariant
+    is nested dyadic prominence: 1/2 marks are stronger than 1/4, which are
+    stronger than 1/8, etc.  Search the unknown phase and ask which complete
+    8/16/32-subdivision hierarchy best explains the observed tick lengths.
+    """
+    if subdivisions not in (8, 16, 32) or len(sequence) < subdivisions + 1:
+        return -1.0
+    max_level = int(round(math.log2(subdivisions)))
+    observed = np.asarray(sequence, dtype=np.float64)
+    if float(np.std(observed)) < 1e-6:
+        return -1.0
+
+    best = -1.0
+    for phase in range(subdivisions):
+        levels = np.zeros(len(observed), dtype=np.float64)
+        for index in range(len(observed)):
+            remainder = (index - phase) % subdivisions
+            if remainder == 0:
+                levels[index] = float(max_level)
+                continue
+            level = 0
+            while remainder % 2 == 0:
+                remainder //= 2
+                level += 1
+            levels[index] = float(min(level, max_level))
+        if float(np.std(levels)) < 1e-6:
+            continue
+        correlation = float(np.corrcoef(observed, levels)[0, 1])
+        if np.isfinite(correlation):
+            best = max(best, correlation)
+    return best
+
+
 def _infer_tick_pattern(
     positions: np.ndarray,
     lengths: np.ndarray,
@@ -182,7 +218,14 @@ def _infer_tick_pattern(
     sequence, lattice_points, regularity = lattice
 
     correlations = {period: _corr(sequence, period) for period in (2, 4, 5, 8, 10, 16)}
-    imperial_score = max(correlations[2], correlations[4], correlations[8], correlations[16])
+    hierarchy_scores = {
+        subdivisions: _dyadic_hierarchy_score(sequence, subdivisions)
+        for subdivisions in (8, 16, 32)
+    }
+    subdivisions_per_inch, imperial_score = max(
+        hierarchy_scores.items(),
+        key=lambda item: item[1],
+    )
     metric_score = max(correlations[5], correlations[10])
 
     valid_points = lattice_points[np.isfinite(lattice_points[:, 0])]
@@ -206,15 +249,13 @@ def _infer_tick_pattern(
     else:
         perspective_pct = 0.0
 
-    if imperial_score >= 0.55 and imperial_score >= metric_score + 0.18:
-        base_scores = [(correlations[period], period) for period in (2, 4, 8)]
-        base_score, quarter_period = max(base_scores)
-        if base_score < 0.35:
-            return None
-        subdivisions_per_inch = 4 * quarter_period
+    if imperial_score >= 0.60 and imperial_score >= metric_score + 0.12:
         px_per_inch = pitch * subdivisions_per_inch
         px_per_cm = px_per_inch / 2.54
-        confidence = min(0.99, max(0.0, 0.55 * imperial_score + 0.25 * regularity + 0.20 * min(base_score, 1.0)))
+        confidence = min(
+            0.99,
+            max(0.0, 0.72 * imperial_score + 0.28 * regularity),
+        )
         return _TickPattern(
             system="imperial",
             confidence=confidence,
@@ -224,7 +265,7 @@ def _infer_tick_pattern(
             reference_interval_cm=float(2.54 / subdivisions_per_inch),
             points_xy=valid_points.astype(np.float32),
             perspective_step_pct=perspective_pct,
-            repeat_period=quarter_period,
+            repeat_period=max(1, subdivisions_per_inch // 4),
         )
 
     if metric_score >= 0.55 and metric_score >= imperial_score + 0.18:
@@ -456,7 +497,7 @@ def infer_visual_scale(image_rgb: np.ndarray) -> VisualScaleObservation:
     edges = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 45, 135)
     long_lines = _long_lines(edges)
     short_lines = _short_lines(edges)
-    if len(long_lines) < 2 or not short_lines:
+    if not short_lines:
         return VisualScaleObservation("unknown", 0.0, None, None, None, None, np.empty((0, 2), dtype=np.float32), None, None, ("ruler_tick_pattern_not_found",))
 
     height, width = gray.shape
