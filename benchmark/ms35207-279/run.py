@@ -1,6 +1,6 @@
 """Real-photo protruding-head discriminator: MS35207-279.
 
-No VLM/API call and no nominal-length fitting. The catalog nominal is reported
+No VLM/API call and no nominal-length fitting; catalog data is reporting-only. The catalog nominal is reported
 only after image geometry is measured.
 """
 from __future__ import annotations
