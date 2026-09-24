@@ -286,6 +286,26 @@ def _infer_tick_pattern(
     return None
 
 
+def _segment_edge_support(edges: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
+    """Fraction of a proposed Hough segment backed by actual nearby edge pixels."""
+    length = float(np.linalg.norm(b - a))
+    if length < 2.0:
+        return 0.0
+    count = max(16, int(round(length)))
+    t = np.linspace(0.0, 1.0, count)
+    points = a[None, :] * (1.0 - t[:, None]) + b[None, :] * t[:, None]
+    height, width = edges.shape
+    supported = 0
+    for x, y in points:
+        xi = int(round(float(x)))
+        yi = int(round(float(y)))
+        x0, x1 = max(0, xi - 1), min(width, xi + 2)
+        y0, y1 = max(0, yi - 1), min(height, yi + 2)
+        if x0 < x1 and y0 < y1 and np.any(edges[y0:y1, x0:x1] > 0):
+            supported += 1
+    return supported / max(count, 1)
+
+
 def _long_lines(edges: np.ndarray) -> list[_Line]:
     height, width = edges.shape
     minimum = max(90, int(min(height, width) * 0.11))
@@ -307,6 +327,11 @@ def _long_lines(edges: np.ndarray) -> list[_Line]:
         if direction is None:
             continue
         length = float(np.linalg.norm(b - a))
+        # Hough may bridge a row of separated tick endpoints into a fake ruler
+        # rail when maxLineGap spans the gaps. A physical ruler edge must be
+        # continuously supported by image edges along most of its segment.
+        if _segment_edge_support(edges, a, b) < 0.58:
+            continue
         lines.append(_Line(a, b, direction, (a + b) * 0.5, length))
     return lines
 
