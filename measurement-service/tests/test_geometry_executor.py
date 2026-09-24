@@ -303,6 +303,52 @@ def test_head_underface_skips_runout_fillet_and_uses_bearing_plane():
     assert 586.0 <= underface_x <= 594.0, result
     assert 400.0 <= result["value_px"] <= 420.0, result
 
+
+def test_head_underface_waits_for_projected_shoulder_to_settle():
+    image = np.full((520, 900, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image, x0=60, x1=840, px_per_cm=50)
+
+    # A slightly oblique view projects one physical bearing plane into a
+    # finite-width silhouette shoulder. The first expansion is x~600, but the
+    # shoulder does not settle into the head footprint until x~620. L must use
+    # the settled bearing-plane proxy instead of the first widening pixel.
+    xs = np.arange(180, 601)
+    radius = 14.0 + 2.0 * np.cos(2.0 * np.pi * (xs - 180) / 20.0)
+    top = np.column_stack([xs, 350.0 - radius]).astype(np.int32)
+    bottom = np.column_stack([xs[::-1], (350.0 + radius)[::-1]]).astype(np.int32)
+    cv2.fillPoly(image, [np.vstack([top, bottom])], (25, 25, 25))
+
+    shoulder_x = np.arange(600, 626)
+    phase = (shoulder_x - 600) / 25.0
+    shoulder_radius = 16.0 + 30.0 * np.sin(phase * np.pi / 2.0)
+    shoulder_top = np.column_stack(
+        [shoulder_x, 350.0 - shoulder_radius]
+    ).astype(np.int32)
+    shoulder_bottom = np.column_stack(
+        [shoulder_x[::-1], (350.0 + shoulder_radius)[::-1]]
+    ).astype(np.int32)
+    cv2.fillPoly(
+        image,
+        [np.vstack([shoulder_top, shoulder_bottom])],
+        (25, 25, 25),
+    )
+
+    # First stable head footprint, followed by a stronger internal transition.
+    cv2.rectangle(image, (625, 304), (640, 396), (25, 25, 25), -1)
+    cv2.rectangle(image, (640, 285), (700, 415), (25, 25, 25), -1)
+
+    step = {
+        "operation": "axial_distance",
+        "inputs": ["object_tip", "head_underface"],
+        "purpose": "physical under-head length",
+    }
+    result = execute_geometry_steps(image, marks, 50.0, [step])[0]
+
+    assert result["status"] == "measured", result
+    underface_x = result["landmarks"]["head_underface"]["x_px"]
+    assert 616.0 <= underface_x <= 624.0, result
+    assert 435.0 <= result["value_px"] <= 445.0, result
+
 def test_underface_refuses_uniform_object_instead_of_guessing():
     image = np.full((520, 820, 3), 245, dtype=np.uint8)
     marks = _draw_ruler(image)
