@@ -453,7 +453,10 @@ def _standalone_tick_pattern(
                 max_len = float(np.max(usable))
                 if max_len < median_len * 1.22:
                     continue
-                major = positions[lengths >= median_len + 0.55 * (max_len - median_len)]
+                # Use only the longest hierarchy tier as the unit boundary.
+                # Lower tiers (1/2, 1/4 inch or 5 mm) are intentionally not
+                # promoted to the full-unit interval.
+                major = positions[lengths >= median_len + 0.80 * (max_len - median_len)]
                 if len(major) < 2:
                     continue
                 ratios = np.diff(np.sort(major)) / pitch
