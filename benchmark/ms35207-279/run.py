@@ -71,34 +71,76 @@ record={
     "measurement":result,
 }
 
-if scale.px_per_cm:
-    geo=extract_object_geometry(
-        rgb,scale.reference_points_px,scale.px_per_cm,scale.direction_xy,
-        semantic_vision=semantic,
-    )
-    effective=scale.px_per_cm
-    if scale.source in {"rulernet_cm","rulernet_cm+imperial_ticks"} and geo.center_xy:
-        effective=local_px_per_cm(scale.reference_points_px,geo.center_xy) or effective
-    contour=_select_object_contour(rgb,scale.reference_points_px,effective,semantic)
-    record["geometry"]=geo
-    record["effective_px_per_cm"]=effective
-    if contour is not None:
-        profile=detect_threaded_shank(contour)
-        if profile is not None:
-            structure=decompose_head_body(profile)
-            record["head_body_structure"]=structure
-            if structure.transition_start_s is not None:
-                old_px=abs(profile.tip_s-structure.transition_start_s)
-                record["first_expansion_length"]={
-                    "value_px":old_px,
-                    "value_mm":old_px/effective*10.0,
-                }
-            if structure.bearing_plane is not None:
-                new_px=abs(profile.tip_s-structure.bearing_plane.s)
-                record["bearing_plane_length"]={
-                    "value_px":new_px,
-                    "value_mm":new_px/effective*10.0,
-                }
+# This photo contains a complete bottom inch ruler even though the production
+# scale resolver does not currently accept it. For this head/body-only
+# experiment, derive scale strictly from that ruler: detect the 17 consecutive
+# ticks spanning 0..1 inch (16 minor intervals). Screw dimensions never enter.
+gray=cv2.cvtColor(rgb,cv2.COLOR_RGB2GRAY)
+h,w=gray.shape
+y0,y1=int(round(h*0.69)),int(round(h*0.80))
+counts=np.count_nonzero(gray[y0:y1,:] < 100,axis=0)
+xs=np.flatnonzero(counts > 8)
+groups=[]
+if len(xs):
+    a=b=int(xs[0])
+    for x in xs[1:]:
+        x=int(x)
+        if x>b+1:
+            groups.append((a,b))
+            a=x
+        b=x
+    groups.append((a,b))
+centers=np.asarray([(a+b)/2 for a,b in groups if a>=w*0.25],dtype=np.float64)
+best_ticks=None
+for start in range(max(0,len(centers)-16)):
+    trial=centers[start:start+17]
+    if len(trial)!=17:
+        continue
+    gaps=np.diff(trial)
+    if np.median(gaps) < 15 or np.median(gaps) > 40:
+        continue
+    if np.max(np.abs(gaps-np.median(gaps))) > 7:
+        continue
+    best_ticks=trial
+    break
+if best_ticks is None:
+    raise RuntimeError(f"controlled bottom-ruler ticks unresolved: {centers.tolist()}")
+px_per_inch=float(best_ticks[-1]-best_ticks[0])
+controlled_px_per_cm=px_per_inch/2.54
+controlled_points=np.column_stack((best_ticks,np.full_like(best_ticks,float((y0+y1)/2))))
+record["controlled_ruler_scale"]={
+    "method":"17 consecutive bottom ticks = 16 x 1/16 inch intervals",
+    "tick_centers_x":best_ticks,
+    "px_per_inch":px_per_inch,
+    "px_per_cm":controlled_px_per_cm,
+}
+
+ref_points=scale.reference_points_px if scale.px_per_cm else controlled_points
+effective=scale.px_per_cm if scale.px_per_cm else controlled_px_per_cm
+direction=scale.direction_xy if scale.px_per_cm else (1.0,0.0)
+geo=extract_object_geometry(
+    rgb,ref_points,effective,direction,semantic_vision=semantic,
+)
+contour=_select_object_contour(rgb,ref_points,effective,semantic)
+record["controlled_geometry"]=geo
+record["controlled_effective_px_per_cm"]=effective
+if contour is not None:
+    profile=detect_threaded_shank(contour)
+    if profile is not None:
+        structure=decompose_head_body(profile)
+        record["head_body_structure"]=structure
+        if structure.transition_start_s is not None:
+            old_px=abs(profile.tip_s-structure.transition_start_s)
+            record["first_expansion_length"]={
+                "value_px":old_px,
+                "value_mm":old_px/effective*10.0,
+            }
+        if structure.bearing_plane is not None:
+            new_px=abs(profile.tip_s-structure.bearing_plane.s)
+            record["bearing_plane_length"]={
+                "value_px":new_px,
+                "value_mm":new_px/effective*10.0,
+            }
 
 def conv(x):
     if dataclasses.is_dataclass(x): return dataclasses.asdict(x)
@@ -110,7 +152,8 @@ def conv(x):
 print(json.dumps({
     "catalog":CATALOG,
     "scale_reference":record["scale_reference"],
-    "geometry":record.get("geometry"),
+    "controlled_ruler_scale":record.get("controlled_ruler_scale"),
+    "controlled_geometry":record.get("controlled_geometry"),
     "measurement_steps":result.get("geometry_steps"),
     "head_body_structure":record.get("head_body_structure"),
     "first_expansion_length":record.get("first_expansion_length"),
