@@ -12,6 +12,7 @@ from semantic_regions import SemanticMasks, apply_semantic_constraints, build_se
 MIN_CONTOUR_EDGE_SUPPORT = 0.055
 STRONG_PHYSICAL_BOUNDARY_SUPPORT = 0.12
 MIN_OWNERSHIP_PRECISION = 0.60
+MIN_CROSS_EVIDENCE_OVERLAP = 0.60
 RULER_MASK_CONTACT_TOLERANCE_PX = 2.0
 
 
@@ -377,18 +378,21 @@ def _candidate_from_mask(mask: np.ndarray, edge_mask: np.ndarray, width: int, he
 
 
 
+def _filled_contour_mask(
+    contour: np.ndarray,
+    shape: tuple[int, int],
+) -> np.ndarray:
+    filled = np.zeros(shape, dtype=np.uint8)
+    cv2.drawContours(filled, [contour], -1, 255, thickness=-1)
+    return filled
+
+
 def _contour_support_against_mask(
     contour: np.ndarray,
     support_mask: np.ndarray,
 ) -> tuple[float, float]:
-    """Return ownership precision and recall for one closed contour.
-
-    Color/background segmentation is treated only as interior ownership
-    evidence. It does not define the physical boundary by itself.
-    """
-    height, width = support_mask.shape[:2]
-    filled = np.zeros((height, width), dtype=np.uint8)
-    cv2.drawContours(filled, [contour], -1, 255, thickness=-1)
+    """Return support precision and recall for one closed contour."""
+    filled = _filled_contour_mask(contour, support_mask.shape[:2])
     candidate_pixels = int(np.count_nonzero(filled))
     support_pixels = int(np.count_nonzero(support_mask))
     if candidate_pixels == 0 or support_pixels == 0:
@@ -480,43 +484,69 @@ def _select_physical_object_candidate(
             appearance_candidate.contour,
             ownership_consensus,
         )
-        # A closed appearance silhouette that is already directly supported by
-        # image gradients is the preferred physical contour: it preserves the
-        # complete object boundary without importing edge-map fragmentation.
-        if appearance_candidate.edge_support >= STRONG_PHYSICAL_BOUNDARY_SUPPORT:
-            return _PhysicalContourSelection(
-                appearance_candidate,
-                "appearance_boundary+edge_supported+ownership_consensus",
-                exclusion,
-                exclusion_radius,
-                semantic_masks,
-                appearance_candidate.edge_support,
-                appearance_precision,
-                appearance_recall,
-            )
     else:
         appearance_precision = None
         appearance_recall = None
 
+    edge_precision = None
+    edge_recall = None
+    edge_inside_appearance = None
     if edge_candidate is not None:
-        precision, recall = _contour_support_against_mask(
+        edge_precision, edge_recall = _contour_support_against_mask(
             edge_candidate.contour,
             ownership_consensus,
         )
-        if (
-            edge_candidate.edge_support >= STRONG_PHYSICAL_BOUNDARY_SUPPORT
-            and precision >= MIN_OWNERSHIP_PRECISION
-        ):
-            return _PhysicalContourSelection(
-                edge_candidate,
-                "edge_boundary+ownership_consensus",
-                exclusion,
-                exclusion_radius,
-                semantic_masks,
-                edge_candidate.edge_support,
-                precision,
-                recall,
+        if appearance_candidate is not None:
+            appearance_fill = _filled_contour_mask(
+                appearance_candidate.contour,
+                (height, width),
             )
+            edge_inside_appearance, _ = _contour_support_against_mask(
+                edge_candidate.contour,
+                appearance_fill,
+            )
+
+    # Appearance and edge observations may validate each other only when they
+    # demonstrably refer to the same connected object. This prevents a strong
+    # ruler remnant or unrelated edge from legitimizing the wrong appearance
+    # component.
+    same_object = (
+        edge_inside_appearance is not None
+        and edge_inside_appearance >= MIN_CROSS_EVIDENCE_OVERLAP
+    )
+
+    if (
+        appearance_candidate is not None
+        and same_object
+        and appearance_candidate.edge_support >= STRONG_PHYSICAL_BOUNDARY_SUPPORT
+    ):
+        return _PhysicalContourSelection(
+            appearance_candidate,
+            "appearance_boundary+edge_supported+ownership_consensus",
+            exclusion,
+            exclusion_radius,
+            semantic_masks,
+            appearance_candidate.edge_support,
+            appearance_precision,
+            appearance_recall,
+        )
+
+    if (
+        edge_candidate is not None
+        and edge_candidate.edge_support >= STRONG_PHYSICAL_BOUNDARY_SUPPORT
+        and edge_precision is not None
+        and edge_precision >= MIN_OWNERSHIP_PRECISION
+    ):
+        return _PhysicalContourSelection(
+            edge_candidate,
+            "edge_boundary+ownership_consensus",
+            exclusion,
+            exclusion_radius,
+            semantic_masks,
+            edge_candidate.edge_support,
+            edge_precision,
+            edge_recall,
+        )
 
     if appearance_candidate is not None:
         return _PhysicalContourSelection(
