@@ -135,11 +135,11 @@ def test_soft_shadow_does_not_outscore_dark_hardware():
     assert abs(result.center_xy[1] - 350) < 30
     assert result.principal_length_px is not None
     assert 175 <= result.principal_length_px <= 210
-    # If threshold perturbation makes the shadow merge with the object, the
-    # algorithm is allowed to detect it but must refuse to call the dimensions
-    # reliable.
-    if not result.contour_reliable:
-        assert "object_contour_unstable" in result.gate_reasons or "object_contour_weak_edge_support" in result.gate_reasons
+    # Appearance-threshold perturbations are proposal evidence, not peer
+    # physical measurements. A selected contour with direct boundary support
+    # remains reliable even when a soft shadow changes alternate thresholds.
+    assert result.contour_reliable, result.gate_reasons
+    assert "object_contour_unstable" not in result.gate_reasons
 
 
 def test_hardware_may_be_on_either_side_of_ruler():
