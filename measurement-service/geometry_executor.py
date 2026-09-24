@@ -7,13 +7,9 @@ import cv2
 import numpy as np
 
 from geometry import (
-    _background_distance,
-    _candidate_from_mask,
-    _edge_mask,
     _geometry_from_contour,
-    _ruler_exclusion_mask,
+    _select_physical_object_candidate,
 )
-from semantic_regions import apply_semantic_constraints, build_semantic_masks
 from thread_geometry import (
     HeadUnderfaceEstimate,
     ThreadedShankProfile,
@@ -60,51 +56,13 @@ def _select_object_contour(
     px_per_cm: float,
     semantic_vision: dict | None = None,
 ) -> np.ndarray | None:
-    height, width = image_rgb.shape[:2]
-    semantic_masks = build_semantic_masks(image_rgb.shape, semantic_vision)
-    distance, base_threshold = _background_distance(image_rgb)
-    edge_mask = _edge_mask(image_rgb)
-    exclusion, _ = _ruler_exclusion_mask(image_rgb, ruler_mark_points_px, px_per_cm, semantic_masks)
-    close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-    open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    selected = []
-    for factor in (0.82, 1.0, 1.22):
-        color_mask = (distance > base_threshold * factor).astype(np.uint8) * 255
-        color_mask[exclusion > 0] = 0
-        color_mask = apply_semantic_constraints(color_mask, semantic_masks)
-        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, close_kernel, iterations=2)
-        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, open_kernel, iterations=1)
-        color_mask = apply_semantic_constraints(color_mask, semantic_masks)
-        color_mask[:2, :] = 0
-        color_mask[-2:, :] = 0
-        color_mask[:, :2] = 0
-        color_mask[:, -2:] = 0
-        selected.append(_candidate_from_mask(color_mask, edge_mask, width, height))
-
-    nominal = selected[1] or selected[0] or selected[2]
-
-    edge_region = edge_mask.copy()
-    edge_region[exclusion > 0] = 0
-    edge_region = apply_semantic_constraints(edge_region, semantic_masks)
-    edge_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    edge_region = cv2.morphologyEx(edge_region, cv2.MORPH_CLOSE, edge_close, iterations=2)
-    edge_region = apply_semantic_constraints(edge_region, semantic_masks)
-    edge_region[:2, :] = 0
-    edge_region[-2:, :] = 0
-    edge_region[:, :2] = 0
-    edge_region[:, -2:] = 0
-    edge_candidate = _candidate_from_mask(edge_region, edge_mask, width, height)
-
-    if edge_candidate is not None:
-        if nominal is None:
-            nominal = edge_candidate
-        elif nominal.edge_support < 0.12 and edge_candidate.edge_support >= max(0.12, nominal.edge_support * 1.6):
-            nominal = edge_candidate
-        elif edge_candidate.score > nominal.score * 1.35:
-            nominal = edge_candidate
-
-    return None if nominal is None else nominal.contour
-
+    selection = _select_physical_object_candidate(
+        image_rgb,
+        ruler_mark_points_px,
+        px_per_cm,
+        semantic_vision=semantic_vision,
+    )
+    return None if selection.candidate is None else selection.candidate.contour
 
 def _filled_contour_points(contour: np.ndarray) -> np.ndarray:
     x, y, width, height = cv2.boundingRect(contour)
