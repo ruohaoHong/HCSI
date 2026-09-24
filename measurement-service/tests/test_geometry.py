@@ -8,10 +8,9 @@ SERVICE = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVICE))
 
 from geometry import (  # noqa: E402
-    _Candidate,
     _contour_distance_to_mask,
-    _contour_stability_summary,
     _ruler_exclusion_mask,
+    _select_physical_object_candidate,
     extract_object_geometry,
 )
 from semantic_regions import build_semantic_masks  # noqa: E402
@@ -135,11 +134,11 @@ def test_soft_shadow_does_not_outscore_dark_hardware():
     assert abs(result.center_xy[1] - 350) < 30
     assert result.principal_length_px is not None
     assert 175 <= result.principal_length_px <= 210
-    # If threshold perturbation makes the shadow merge with the object, the
-    # algorithm is allowed to detect it but must refuse to call the dimensions
-    # reliable.
-    if not result.contour_reliable:
-        assert "object_contour_unstable" in result.gate_reasons or "object_contour_weak_edge_support" in result.gate_reasons
+    assert result.contour_reliable, result.gate_reasons
+    assert "object_contour_unstable" not in result.gate_reasons
+    assert result.segmentation_method.startswith(
+        "physical_contour_evidence:edge_boundary+ownership_consensus"
+    )
 
 
 def test_hardware_may_be_on_either_side_of_ruler():
@@ -203,20 +202,29 @@ def test_semantic_reference_roi_filters_parallel_hardware_from_ruler_edges():
     assert exclusion[275, 450] == 0
 
 
+def test_shadow_thresholds_are_ownership_evidence_not_peer_boundaries():
+    image = np.full((600, 820, 3), 238, dtype=np.uint8)
+    marks = _draw_ruler(image, 65, 115, 72, x0=70, x1=750)
 
-def test_weak_threshold_candidate_cannot_invalidate_strong_nominal_contour():
-    nominal_contour = cv2.boxPoints(((300.0, 250.0), (220.0, 42.0), 0.0)).astype(np.int32).reshape(-1, 1, 2)
-    stable_contour = cv2.boxPoints(((301.0, 250.0), (214.0, 40.0), 0.0)).astype(np.int32).reshape(-1, 1, 2)
-    weak_blob = cv2.boxPoints(((300.0, 250.0), (300.0, 90.0), 0.0)).astype(np.int32).reshape(-1, 1, 2)
+    shadow = np.zeros((600, 820), dtype=np.uint8)
+    cv2.ellipse(shadow, (425, 360), (235, 98), 4, 0, 360, 125, -1)
+    shadow = cv2.GaussianBlur(shadow, (0, 0), 30)
+    attenuation = (shadow.astype(np.float32) / 255.0 * 36.0)[..., None]
+    image = np.clip(image.astype(np.float32) - attenuation, 0, 255).astype(np.uint8)
 
-    nominal = _Candidate(nominal_contour, 500.0, 0.02, 0.8, False, 0.47)
-    stable = _Candidate(stable_contour, 220.0, 0.02, 0.8, False, 0.27)
-    weak = _Candidate(weak_blob, 5.0, 0.04, 0.7, False, 0.016)
+    box = cv2.boxPoints(((420.0, 350.0), (190.0, 38.0), -12.0)).astype(np.int32)
+    cv2.fillConvexPoly(image, box, (25, 25, 25))
 
-    unstable, observations = _contour_stability_summary(nominal, [weak, nominal, stable])
+    selection = _select_physical_object_candidate(image, marks, 50.0)
 
-    assert observations == 1
-    assert not unstable
+    assert selection.candidate is not None
+    assert selection.source == "edge_boundary+ownership_consensus"
+    assert selection.boundary_edge_support is not None
+    assert selection.boundary_edge_support >= 0.12
+    assert selection.ownership_precision is not None
+    assert selection.ownership_precision >= 0.60
+    assert selection.ownership_recall is not None
+    assert selection.ownership_recall >= 0.25
 
 
 def test_ruler_proximity_gate_uses_actual_exclusion_mask_gap():
