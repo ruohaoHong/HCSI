@@ -49,7 +49,7 @@ def test_local_regime_recovers_short_wide_shank_without_global_pca(angle,reverse
     assert abs(profile.tip_s-profile.transition_s)==pytest.approx(126,abs=9)
     width=measure_outer_width_px(profile)
     assert width is not None
-    assert 83<=width<=90
+    assert 83<=width<=92  # rasterized rotation can add ~1 px on both sides
     structure=decompose_head_body(profile)
     assert structure.transition_start_s is not None
     assert abs(structure.transition_start_s-structure.tip_s)==pytest.approx(126,abs=9)
