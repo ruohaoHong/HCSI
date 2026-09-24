@@ -12,7 +12,6 @@ from semantic_regions import SemanticMasks, apply_semantic_constraints, build_se
 MIN_CONTOUR_EDGE_SUPPORT = 0.055
 STRONG_PHYSICAL_BOUNDARY_SUPPORT = 0.12
 MIN_OWNERSHIP_PRECISION = 0.60
-MIN_OWNERSHIP_RECALL = 0.25
 RULER_MASK_CONTACT_TOLERANCE_PX = 2.0
 
 
@@ -437,12 +436,23 @@ def _select_physical_object_candidate(
     for mask in ownership_masks:
         votes += (mask > 0).astype(np.uint8)
     ownership_consensus = (votes >= 2).astype(np.uint8) * 255
-    consensus_candidate = _candidate_from_mask(
-        ownership_consensus,
+
+    # The central appearance mask is only a fallback boundary hypothesis.
+    # The perturbed masks contribute ownership evidence, not three peer
+    # geometries that can veto one another.
+    appearance_candidate = _candidate_from_mask(
+        ownership_masks[1],
         edge_mask,
         width,
         height,
     )
+    if appearance_candidate is None:
+        appearance_candidate = _candidate_from_mask(
+            ownership_consensus,
+            edge_mask,
+            width,
+            height,
+        )
 
     edge_region = edge_mask.copy()
     edge_region[exclusion > 0] = 0
@@ -464,7 +474,6 @@ def _select_physical_object_candidate(
         if (
             edge_candidate.edge_support >= STRONG_PHYSICAL_BOUNDARY_SUPPORT
             and precision >= MIN_OWNERSHIP_PRECISION
-            and recall >= MIN_OWNERSHIP_RECALL
         ):
             return _PhysicalContourSelection(
                 edge_candidate,
@@ -477,18 +486,18 @@ def _select_physical_object_candidate(
                 recall,
             )
 
-    if consensus_candidate is not None:
+    if appearance_candidate is not None:
         precision, recall = _contour_support_against_mask(
-            consensus_candidate.contour,
+            appearance_candidate.contour,
             ownership_consensus,
         )
         return _PhysicalContourSelection(
-            consensus_candidate,
-            "ownership_consensus",
+            appearance_candidate,
+            "appearance_boundary+ownership_consensus",
             exclusion,
             exclusion_radius,
             semantic_masks,
-            consensus_candidate.edge_support,
+            appearance_candidate.edge_support,
             precision,
             recall,
         )
