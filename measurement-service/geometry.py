@@ -76,10 +76,16 @@ def _background_distance(image_rgb: np.ndarray) -> tuple[np.ndarray, float]:
     return distance, threshold
 
 
-def _edge_mask(image_rgb: np.ndarray) -> np.ndarray:
+def _raw_edge_mask(image_rgb: np.ndarray) -> np.ndarray:
+    """Return the localized image-gradient boundary without tolerance dilation."""
     gray = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(blurred, 35, 110)
+    return cv2.Canny(blurred, 35, 110)
+
+
+def _edge_mask(image_rgb: np.ndarray) -> np.ndarray:
+    """Return a tolerant boundary-support mask, not a geometry boundary."""
+    edges = _raw_edge_mask(image_rgb)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     return cv2.dilate(edges, kernel, iterations=1)
 
@@ -408,6 +414,7 @@ def _select_physical_object_candidate(
     height, width = image_rgb.shape[:2]
     semantic_masks = build_semantic_masks(image_rgb.shape, semantic_vision)
     distance, base_threshold = _background_distance(image_rgb)
+    raw_edges = _raw_edge_mask(image_rgb)
     edge_mask = _edge_mask(image_rgb)
     exclusion, exclusion_radius = _ruler_exclusion_mask(
         image_rgb,
@@ -454,7 +461,9 @@ def _select_physical_object_candidate(
             height,
         )
 
-    edge_region = edge_mask.copy()
+    # Boundary localization uses raw Canny edges. The dilated edge_mask above
+    # is only for tolerant support scoring and must not inflate geometry.
+    edge_region = raw_edges.copy()
     edge_region[exclusion > 0] = 0
     edge_region = apply_semantic_constraints(edge_region, semantic_masks)
     edge_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
