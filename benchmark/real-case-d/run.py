@@ -110,6 +110,61 @@ if scale.px_per_cm:
                 cv2.putText(overlay,name,xy,cv2.FONT_HERSHEY_SIMPLEX,0.35,(255,0,0),1)
     cv2.imwrite(str(OUT / "D-overlay.png"), overlay)
 
+
+# Diagnostic only: if production scale inference rejects this imperial ruler,
+# derive scale from the visible 1/16-inch bottom ticks. This uses ruler geometry
+# only; no screw dimension Ground Truth enters the calculation.
+if not scale.px_per_cm:
+    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    h, w = gray.shape
+    y0, y1 = int(round(h * 0.62)), int(round(h * 0.76))
+    dark_counts = np.count_nonzero(gray[y0:y1, :] < 100, axis=0)
+    xs = np.flatnonzero(dark_counts > max(8, int(round((y1 - y0) * 0.08))))
+    groups = []
+    if len(xs):
+        a = b = int(xs[0])
+        for x in xs[1:]:
+            x = int(x)
+            if x > b + 1:
+                groups.append((a,b))
+                a = x
+            b = x
+        groups.append((a,b))
+    centers = np.array(
+        [(a+b)/2.0 for a,b in groups if 1 <= (b-a+1) <= max(15, int(w*0.02))],
+        dtype=np.float64,
+    )
+    centers = centers[centers >= w * 0.25]
+    gaps = np.diff(centers)
+    gaps = gaps[(gaps >= w*0.02) & (gaps <= w*0.05)]
+    if len(gaps) >= 8:
+        minor_tick_px = float(np.median(gaps))
+        px_per_inch = minor_tick_px * 16.0
+        controlled_px_per_cm = px_per_inch / 2.54
+        ref_y = float((y0+y1)/2.0)
+        controlled_points = np.column_stack((centers, np.full_like(centers, ref_y)))
+        controlled_geo = extract_object_geometry(
+            rgb, controlled_points, controlled_px_per_cm, np.array([1.0,0.0]),
+            semantic_vision=semantic,
+        )
+        controlled_result = execute_geometry_steps(
+            rgb, controlled_points, controlled_px_per_cm, steps, semantic_vision=semantic
+        )
+        record["controlled_imperial_scale"] = {
+            "minor_tick_px": minor_tick_px,
+            "px_per_inch": px_per_inch,
+            "px_per_cm": controlled_px_per_cm,
+            "reference_points_px": controlled_points,
+        }
+        record["controlled_geometry"] = controlled_geo
+        record["controlled_executor"] = controlled_result
+        print("CONTROLLED_IMPERIAL_SCALE", json.dumps({
+            "minor_tick_px": minor_tick_px,
+            "px_per_inch": px_per_inch,
+            "px_per_cm": controlled_px_per_cm,
+            "executor": controlled_result,
+        }, ensure_ascii=False, default=convert))
+
 (OUT / "D.json").write_text(json.dumps(record, ensure_ascii=False, indent=2, default=convert))
 print("IMAGE_URL", image_url)
 print(json.dumps({
