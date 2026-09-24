@@ -67,6 +67,78 @@ edges_debug = cv2.Canny(cv2.GaussianBlur(gray_debug, (5, 5), 0), 45, 135)
 short_debug = scale_units._short_lines(edges_debug)
 long_debug = scale_units._long_lines(edges_debug)
 borderless_debug = scale_units._borderless_pattern_candidates(short_debug, gray_debug.shape)
+# Deeper diagnostic: locate where real tick rows stop satisfying the
+# borderless baseline/lattice invariants.
+family_debug = []
+angle_bin = np.deg2rad(8.0)
+families = {}
+for line in short_debug:
+    if line.length > 180.0:
+        continue
+    angle = np.arctan2(float(line.direction[1]), float(line.direction[0]))
+    if angle < 0:
+        angle += np.pi
+    key = int(round(angle / angle_bin))
+    families.setdefault(key, []).append(line)
+for key, family in families.items():
+    if len(family) < 7:
+        continue
+    directions = np.stack([line.direction for line in family]).astype(np.float64)
+    reference = directions[0]
+    aligned = directions.copy()
+    for ii in range(len(aligned)):
+        if float(np.dot(aligned[ii], reference)) < 0:
+            aligned[ii] = -aligned[ii]
+    tick_direction = scale_units._unit(np.mean(aligned, axis=0))
+    if tick_direction is None:
+        continue
+    axis_debug = scale_units._unit(np.array([tick_direction[1], -tick_direction[0]], dtype=np.float64))
+    endpoint_records = []
+    for li, line in enumerate(family):
+        endpoint_records.append((float(np.dot(line.a, tick_direction)), li, 0))
+        endpoint_records.append((float(np.dot(line.b, tick_direction)), li, 1))
+    endpoint_records.sort(key=lambda item: item[0])
+    groups = []
+    for record in endpoint_records:
+        if not groups or record[0] - groups[-1][-1][0] > 6.0:
+            groups.append([record])
+        else:
+            groups[-1].append(record)
+    for group in groups:
+        unique = {r[1] for r in group}
+        if len(unique) < 7:
+            continue
+        baseline = float(np.median([r[0] for r in group]))
+        items = []
+        for li in unique:
+            line = family[li]
+            vals = np.array([np.dot(line.a, tick_direction), np.dot(line.b, tick_direction)])
+            endpoint_index = int(np.argmin(np.abs(vals - baseline)))
+            if abs(float(vals[endpoint_index]) - baseline) > 6.0:
+                continue
+            anchor = line.a if endpoint_index == 0 else line.b
+            items.append((float(np.dot(anchor, axis_debug)), line.length, anchor))
+        pos, lens, pts = scale_units._cluster_ticks(items, 4.0)
+        if len(pos) < 7:
+            continue
+        pitch_dbg = scale_units._estimate_minor_pitch(pos)
+        pattern_dbg = scale_units._infer_tick_pattern(pos, lens, pts)
+        family_debug.append({
+            "angle_bin": key,
+            "family": len(family),
+            "baseline_group": len(unique),
+            "ticks": len(pos),
+            "span": round(float(np.ptp(pos)), 2),
+            "pitch": None if pitch_dbg is None else round(float(pitch_dbg), 3),
+            "pattern": None if pattern_dbg is None else {
+                "system": pattern_dbg.system,
+                "confidence": round(pattern_dbg.confidence, 3),
+                "minor": round(pattern_dbg.minor_tick_px, 3),
+                "ppi": None if pattern_dbg.px_per_inch is None else round(pattern_dbg.px_per_inch, 2),
+            },
+        })
+print("BASELINE_DEBUG", json.dumps(family_debug[:30], ensure_ascii=False))
+
 print("SCALE_DEBUG", json.dumps({
     "short_lines": len(short_debug),
     "long_lines": len(long_debug),
