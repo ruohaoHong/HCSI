@@ -4,6 +4,7 @@ on:
     branches: ['experiment/scale-tick-hierarchy']
     paths:
       - 'benchmark/real-case-d/**'
+      - 'measurement-service/**'
       - '.github/workflows/real-case-d.yml'
 permissions:
   contents: read
