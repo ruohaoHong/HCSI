@@ -1,0 +1,184 @@
+[
+  {
+    "case": "B",
+    "source": "https://www.dougdeals.com/box-of-1-000-m6-1-0-x-40mm-din-965-phillips-flat-head-machine-screws-zinc/",
+    "image_url": "https://cdn11.bigcommerce.com/s-1ygf19te2/images/stencil/1280x1280/products/20420/89736/r20b002-5__33578.1667485725.jpg?c=2?imbypass=on",
+    "sha256": "6f18c4db1acb3879cf52f5965a53795f75dc069c428cd39af54e276bdaa02be6",
+    "ground_truth": {
+      "D_mm": 6.0,
+      "P_mm": 1.0,
+      "L_mm": 40.0,
+      "head_style": "flat_countersunk"
+    },
+    "semantic_input": {
+      "target_region": {
+        "present": true,
+        "confidence": 0.95,
+        "x_min": 50,
+        "y_min": 245,
+        "x_max": 970,
+        "y_max": 515
+      },
+      "reference_region": {
+        "present": true,
+        "confidence": 0.95,
+        "x_min": 50,
+        "y_min": 535,
+        "x_max": 1000,
+        "y_max": 850
+      },
+      "head_style": "flat_countersunk"
+    },
+    "steps": [
+      {
+        "operation": "outer_width",
+        "inputs": [
+          "threaded_shank"
+        ],
+        "purpose": "D"
+      },
+      {
+        "operation": "periodicity",
+        "inputs": [
+          "threaded_shank"
+        ],
+        "purpose": "P"
+      },
+      {
+        "operation": "axial_distance",
+        "inputs": [
+          "object_tip",
+          "head_top"
+        ],
+        "purpose": "L"
+      }
+    ],
+    "baseline": {
+      "D": 5.96,
+      "P": 1.015,
+      "L": 40.39
+    }
+  },
+  {
+    "case": "C",
+    "source": "https://www.dougdeals.com/box-of-250-nucor-m14-2-0-x-45-grade-10-9-metric-hex-head-bolts-zinc-usa-made/",
+    "image_url": "https://cdn11.bigcommerce.com/s-1ygf19te2/images/stencil/1280x1280/products/20567/90373/r16b008-6__94664.1667485912.jpg?c=2%3Fimbypass%3Don",
+    "sha256": "3c52044724df828c971fee66c6b8f8dd4a684407d4b3c6b2ed2a75114a2fafa4",
+    "ground_truth": {
+      "D_mm": 14.0,
+      "P_mm": 2.0,
+      "L_mm": 45.0,
+      "head_style": "hex"
+    },
+    "semantic_input": {
+      "target_region": {
+        "present": true,
+        "confidence": 0.95,
+        "x_min": 0,
+        "y_min": 60,
+        "x_max": 1000,
+        "y_max": 600
+      },
+      "reference_region": {
+        "present": true,
+        "confidence": 0.95,
+        "x_min": 0,
+        "y_min": 600,
+        "x_max": 1000,
+        "y_max": 900
+      },
+      "head_style": "hex"
+    },
+    "steps": [
+      {
+        "operation": "outer_width",
+        "inputs": [
+          "threaded_shank"
+        ],
+        "purpose": "D"
+      },
+      {
+        "operation": "periodicity",
+        "inputs": [
+          "threaded_shank"
+        ],
+        "purpose": "P"
+      },
+      {
+        "operation": "axial_distance",
+        "inputs": [
+          "object_tip",
+          "head_underface"
+        ],
+        "purpose": "L"
+      }
+    ],
+    "baseline": {
+      "D": 14.23,
+      "P": 2.015,
+      "L": 46.52
+    }
+  },
+  {
+    "case": "D",
+    "source": "https://www.univair.com/hardware/nas220-6-pan-head-machine-screw/",
+    "image_url": "https://cdn11.bigcommerce.com/s-dtwuls/images/stencil/1280x1280/products/25069/10465/nas220-6__83774.1494512951.jpg?c=2",
+    "sha256": "c0c0929f03eb6b3b053b92e0b6fcee12f20e921360d4cfe31bfef44cdc721d10",
+    "ground_truth": {
+      "spec": "#8-32 x 13/32 inch",
+      "D_mm": 4.1656,
+      "P_mm": 0.79375,
+      "L_mm": 10.31875,
+      "head_style": "pan",
+      "length_convention": "head_underface_to_tip"
+    },
+    "semantic_input": {
+      "target_region": {
+        "present": true,
+        "confidence": 0.95,
+        "x_min": 285,
+        "y_min": 390,
+        "x_max": 735,
+        "y_max": 650
+      },
+      "reference_region": {
+        "present": true,
+        "confidence": 0.95,
+        "x_min": 210,
+        "y_min": 615,
+        "x_max": 1000,
+        "y_max": 815
+      },
+      "head_style": "pan"
+    },
+    "steps": [
+      {
+        "operation": "outer_width",
+        "inputs": [
+          "threaded_shank"
+        ],
+        "purpose": "D"
+      },
+      {
+        "operation": "periodicity",
+        "inputs": [
+          "threaded_shank"
+        ],
+        "purpose": "P"
+      },
+      {
+        "operation": "axial_distance",
+        "inputs": [
+          "object_tip",
+          "head_underface"
+        ],
+        "purpose": "L"
+      }
+    ],
+    "baseline": {
+      "D": 4.18,
+      "P": 0.774,
+      "L": 9.76
+    }
+  }
+]

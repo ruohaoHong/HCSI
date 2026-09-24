@@ -1,0 +1,592 @@
+[
+  {
+    "case": "B",
+    "source": "https://www.dougdeals.com/box-of-1-000-m6-1-0-x-40mm-din-965-phillips-flat-head-machine-screws-zinc/",
+    "image_url": "https://cdn11.bigcommerce.com/s-1ygf19te2/images/stencil/1280x1280/products/20420/89736/r20b002-5__33578.1667485725.jpg?c=2?imbypass=on",
+    "sha256": "6f18c4db1acb3879cf52f5965a53795f75dc069c428cd39af54e276bdaa02be6",
+    "ground_truth": {
+      "D_mm": 6.0,
+      "P_mm": 1.0,
+      "L_mm": 40.0,
+      "head_style": "flat_countersunk"
+    },
+    "baseline": {
+      "D": 5.96,
+      "P": 1.015,
+      "L": 40.39
+    },
+    "values_mm": {
+      "D": 5.96,
+      "P": 1.015,
+      "L": 40.39
+    },
+    "errors_pct": {
+      "D": -0.667,
+      "P": 1.5,
+      "L": 0.975
+    },
+    "structure": {
+      "tip_s": -373.99139324252917,
+      "head_top_s": 342.00860675747083,
+      "transition_start_s": 280.00860675747083,
+      "bearing_plane": null,
+      "reason_code": "bearing_plane_unresolved"
+    },
+    "controlled_semantics": true,
+    "api_calls": 0,
+    "result": {
+      "schema_version": "hcsi.measurement.v1",
+      "image_sha256": "6f18c4db1acb3879cf52f5965a53795f75dc069c428cd39af54e276bdaa02be6",
+      "measurement_status": "valid",
+      "analysis_mode": "measurement_assisted",
+      "measurement_valid": true,
+      "retry_recommended": false,
+      "length_mm": 40.39,
+      "width_mm": 11.34,
+      "scale_system": "metric",
+      "scale_px_per_cm": 177.261,
+      "scale_px_per_inch": 450.243,
+      "geometry_steps": [
+        {
+          "operation": "outer_width",
+          "inputs": [
+            "threaded_shank"
+          ],
+          "purpose": "D",
+          "status": "measured",
+          "value_px": 105.603,
+          "value_mm": 5.96,
+          "derived_tpi": null,
+          "landmarks": {
+            "threaded_shank_start": {
+              "x_px": 101.527,
+              "y_px": 305.263
+            },
+            "threaded_shank_end": {
+              "x_px": 628.7,
+              "y_px": 310.624
+            }
+          },
+          "diagnostics": {},
+          "reason_codes": []
+        },
+        {
+          "operation": "periodicity",
+          "inputs": [
+            "threaded_shank"
+          ],
+          "purpose": "P",
+          "status": "measured",
+          "value_px": 18.0,
+          "value_mm": 1.015,
+          "derived_tpi": 25.01,
+          "landmarks": {
+            "threaded_shank_start": {
+              "x_px": 101.527,
+              "y_px": 305.263
+            },
+            "threaded_shank_end": {
+              "x_px": 628.7,
+              "y_px": 310.624
+            }
+          },
+          "diagnostics": {
+            "left_pitch_px": 18.0,
+            "right_pitch_px": 18.0,
+            "left_periodicity_score": 0.99,
+            "right_periodicity_score": 0.832,
+            "left_autocorrelation_px": 18.0,
+            "right_autocorrelation_px": 18.0,
+            "left_frequency_px": 17.782,
+            "right_frequency_px": 17.788,
+            "left_peak_spacing_px": 18.0,
+            "right_peak_spacing_px": 18.0,
+            "width_autocorrelation_px": 36.0,
+            "width_frequency_px": 17.847,
+            "width_peak_spacing_px": 9.5
+          },
+          "reason_codes": []
+        },
+        {
+          "operation": "axial_distance",
+          "inputs": [
+            "object_tip",
+            "head_top"
+          ],
+          "purpose": "L",
+          "status": "measured",
+          "value_px": 716.0,
+          "value_mm": 40.39,
+          "derived_tpi": null,
+          "landmarks": {
+            "object_tip": {
+              "x_px": 48.81,
+              "y_px": 304.727
+            },
+            "head_top": {
+              "x_px": 764.773,
+              "y_px": 312.007
+            }
+          },
+          "diagnostics": {},
+          "reason_codes": []
+        }
+      ],
+      "image": {
+        "width_px": 800,
+        "height_px": 800
+      },
+      "ruler": {
+        "detected": true,
+        "mark_count": 5,
+        "scale_system": "metric",
+        "scale_source": "rulernet_cm",
+        "scale_confidence": 1.0,
+        "px_per_cm": 177.355,
+        "px_per_inch": 450.482,
+        "reference_interval_cm": 1.0,
+        "median_px_per_cm": 177.355,
+        "local_px_per_cm": 177.261,
+        "perspective_ratio": 0.998941,
+        "perspective_step_pct": 0.106,
+        "perspective_ok": true
+      },
+      "object": {
+        "detected": true,
+        "contour_reliable": true,
+        "contour_area_px": 71923.0,
+        "contour_area_ratio": 0.11238,
+        "solidity": 0.656,
+        "principal_length_px": 715.993,
+        "principal_width_px": 201.04,
+        "min_area_length_px": 715.503,
+        "min_area_width_px": 201.032,
+        "principal_angle_deg": 0.583,
+        "ruler_alignment_deg": 0.33,
+        "segmentation_method": "physical_contour_selection:edge+semantic_roi+semantic_reference_exclusion",
+        "risk_signals": [],
+        "semantic_head_style": "flat_countersunk",
+        "semantic_target_region": {
+          "present": true,
+          "confidence": 0.95,
+          "x_min": 50.0,
+          "y_min": 245.0,
+          "x_max": 970.0,
+          "y_max": 515.0
+        },
+        "semantic_reference_region": {
+          "present": true,
+          "confidence": 0.95,
+          "x_min": 50.0,
+          "y_min": 535.0,
+          "x_max": 1000.0,
+          "y_max": 850.0
+        }
+      },
+      "reason_codes": [],
+      "capture_assumptions": {
+        "same_plane_required": true,
+        "same_plane_verified": false,
+        "near_overhead_required": true,
+        "ruler_parallel_required": false,
+        "ruler_parallel_preferred": true
+      }
+    }
+  },
+  {
+    "case": "C",
+    "source": "https://www.dougdeals.com/box-of-250-nucor-m14-2-0-x-45-grade-10-9-metric-hex-head-bolts-zinc-usa-made/",
+    "image_url": "https://cdn11.bigcommerce.com/s-1ygf19te2/images/stencil/1280x1280/products/20567/90373/r16b008-6__94664.1667485912.jpg?c=2%3Fimbypass%3Don",
+    "sha256": "3c52044724df828c971fee66c6b8f8dd4a684407d4b3c6b2ed2a75114a2fafa4",
+    "ground_truth": {
+      "D_mm": 14.0,
+      "P_mm": 2.0,
+      "L_mm": 45.0,
+      "head_style": "hex"
+    },
+    "baseline": {
+      "D": 14.23,
+      "P": 2.015,
+      "L": 46.52
+    },
+    "values_mm": {
+      "D": 14.23,
+      "P": 2.015,
+      "L": 47.0
+    },
+    "errors_pct": {
+      "D": 1.643,
+      "P": 0.75,
+      "L": 4.444
+    },
+    "structure": {
+      "tip_s": -413.59688142725133,
+      "head_top_s": 364.40311857274867,
+      "transition_start_s": 221.40311857274867,
+      "bearing_plane": {
+        "s": 227.92925460001845,
+        "shank_outer_px": 194.18087980034696,
+        "radial_support_px": 67.00000000000001,
+        "fit_residual_px": 2.4792436274944976,
+        "side_disagreement_px": 2.597029220389203
+      },
+      "reason_code": null
+    },
+    "controlled_semantics": true,
+    "api_calls": 0,
+    "result": {
+      "schema_version": "hcsi.measurement.v1",
+      "image_sha256": "3c52044724df828c971fee66c6b8f8dd4a684407d4b3c6b2ed2a75114a2fafa4",
+      "measurement_status": "valid",
+      "analysis_mode": "measurement_assisted",
+      "measurement_valid": true,
+      "retry_recommended": false,
+      "length_mm": 56.97,
+      "width_mm": 25.96,
+      "scale_system": "metric",
+      "scale_px_per_cm": 136.502,
+      "scale_px_per_inch": 346.716,
+      "geometry_steps": [
+        {
+          "operation": "outer_width",
+          "inputs": [
+            "threaded_shank"
+          ],
+          "purpose": "D",
+          "status": "measured",
+          "value_px": 194.181,
+          "value_mm": 14.23,
+          "derived_tpi": null,
+          "landmarks": {
+            "threaded_shank_start": {
+              "x_px": 68.675,
+              "y_px": 292.49
+            },
+            "threaded_shank_end": {
+              "x_px": 591.8,
+              "y_px": 301.361
+            }
+          },
+          "diagnostics": {},
+          "reason_codes": []
+        },
+        {
+          "operation": "periodicity",
+          "inputs": [
+            "threaded_shank"
+          ],
+          "purpose": "P",
+          "status": "measured",
+          "value_px": 27.5,
+          "value_mm": 2.015,
+          "derived_tpi": 12.61,
+          "landmarks": {
+            "threaded_shank_start": {
+              "x_px": 68.675,
+              "y_px": 292.49
+            },
+            "threaded_shank_end": {
+              "x_px": 591.8,
+              "y_px": 301.361
+            }
+          },
+          "diagnostics": {
+            "left_pitch_px": 28.0,
+            "right_pitch_px": 27.0,
+            "left_periodicity_score": 0.987,
+            "right_periodicity_score": 0.905,
+            "left_autocorrelation_px": 28.0,
+            "right_autocorrelation_px": 28.0,
+            "left_frequency_px": 28.051,
+            "right_frequency_px": 27.989,
+            "left_peak_spacing_px": 28.0,
+            "right_peak_spacing_px": 27.0,
+            "width_pitch_px": 13.0,
+            "width_periodicity_score": 0.73,
+            "width_autocorrelation_px": 56.0,
+            "width_frequency_px": 14.009,
+            "width_peak_spacing_px": 13.0
+          },
+          "reason_codes": []
+        },
+        {
+          "operation": "axial_distance",
+          "inputs": [
+            "object_tip",
+            "head_underface"
+          ],
+          "purpose": "L",
+          "status": "measured",
+          "value_px": 641.526,
+          "value_mm": 47.0,
+          "derived_tpi": null,
+          "landmarks": {
+            "object_tip": {
+              "x_px": 16.363,
+              "y_px": 291.603
+            },
+            "head_underface": {
+              "x_px": 657.797,
+              "y_px": 302.48
+            }
+          },
+          "diagnostics": {
+            "shank_outer_px": 194.181,
+            "bearing_radial_support_px": 67.0,
+            "bearing_fit_residual_px": 2.479,
+            "bearing_side_disagreement_px": 2.597,
+            "neck_to_bearing_px": 6.526
+          },
+          "reason_codes": []
+        }
+      ],
+      "image": {
+        "width_px": 800,
+        "height_px": 800
+      },
+      "ruler": {
+        "detected": true,
+        "mark_count": 6,
+        "scale_system": "metric",
+        "scale_source": "rulernet_cm",
+        "scale_confidence": 1.0,
+        "px_per_cm": 136.502,
+        "px_per_inch": 346.716,
+        "reference_interval_cm": 1.0,
+        "median_px_per_cm": 136.502,
+        "local_px_per_cm": 136.502,
+        "perspective_ratio": 0.996431,
+        "perspective_step_pct": 0.358,
+        "perspective_ok": true
+      },
+      "object": {
+        "detected": true,
+        "contour_reliable": true,
+        "contour_area_px": 153042.0,
+        "contour_area_ratio": 0.239128,
+        "solidity": 0.719,
+        "principal_length_px": 777.634,
+        "principal_width_px": 354.322,
+        "min_area_length_px": 777.365,
+        "min_area_width_px": 354.184,
+        "principal_angle_deg": 0.971,
+        "ruler_alignment_deg": 0.313,
+        "segmentation_method": "physical_contour_selection:edge+semantic_roi+semantic_reference_exclusion",
+        "risk_signals": [],
+        "semantic_head_style": "hex",
+        "semantic_target_region": {
+          "present": true,
+          "confidence": 0.95,
+          "x_min": 0.0,
+          "y_min": 60.0,
+          "x_max": 1000.0,
+          "y_max": 600.0
+        },
+        "semantic_reference_region": {
+          "present": true,
+          "confidence": 0.95,
+          "x_min": 0.0,
+          "y_min": 600.0,
+          "x_max": 1000.0,
+          "y_max": 900.0
+        }
+      },
+      "reason_codes": [],
+      "capture_assumptions": {
+        "same_plane_required": true,
+        "same_plane_verified": false,
+        "near_overhead_required": true,
+        "ruler_parallel_required": false,
+        "ruler_parallel_preferred": true
+      }
+    }
+  },
+  {
+    "case": "D",
+    "source": "https://www.univair.com/hardware/nas220-6-pan-head-machine-screw/",
+    "image_url": "https://cdn11.bigcommerce.com/s-dtwuls/images/stencil/1280x1280/products/25069/10465/nas220-6__83774.1494512951.jpg?c=2",
+    "sha256": "c0c0929f03eb6b3b053b92e0b6fcee12f20e921360d4cfe31bfef44cdc721d10",
+    "ground_truth": {
+      "spec": "#8-32 x 13/32 inch",
+      "D_mm": 4.1656,
+      "P_mm": 0.79375,
+      "L_mm": 10.31875,
+      "head_style": "pan",
+      "length_convention": "head_underface_to_tip"
+    },
+    "baseline": {
+      "D": 4.18,
+      "P": 0.774,
+      "L": 9.76
+    },
+    "values_mm": {
+      "D": 4.18,
+      "P": 0.774,
+      "L": null
+    },
+    "errors_pct": {
+      "D": 0.346,
+      "P": -2.488,
+      "L": null
+    },
+    "structure": {
+      "tip_s": -139.04115003830867,
+      "head_top_s": 114.95884996169133,
+      "transition_start_s": 49.95884996169133,
+      "bearing_plane": null,
+      "reason_code": "bearing_plane_unresolved"
+    },
+    "controlled_semantics": true,
+    "api_calls": 0,
+    "result": {
+      "schema_version": "hcsi.measurement.v1",
+      "image_sha256": "c0c0929f03eb6b3b053b92e0b6fcee12f20e921360d4cfe31bfef44cdc721d10",
+      "measurement_status": "valid",
+      "analysis_mode": "measurement_assisted",
+      "measurement_valid": true,
+      "retry_recommended": false,
+      "length_mm": 13.08,
+      "width_mm": 8.32,
+      "scale_system": "imperial",
+      "scale_px_per_cm": 193.701,
+      "scale_px_per_inch": 492.0,
+      "geometry_steps": [
+        {
+          "operation": "outer_width",
+          "inputs": [
+            "threaded_shank"
+          ],
+          "purpose": "D",
+          "status": "measured",
+          "value_px": 81.062,
+          "value_mm": 4.18,
+          "derived_tpi": null,
+          "landmarks": {
+            "threaded_shank_start": {
+              "x_px": 346.497,
+              "y_px": 518.434
+            },
+            "threaded_shank_end": {
+              "x_px": 504.872,
+              "y_px": 521.25
+            }
+          },
+          "diagnostics": {},
+          "reason_codes": []
+        },
+        {
+          "operation": "periodicity",
+          "inputs": [
+            "threaded_shank"
+          ],
+          "purpose": "P",
+          "status": "measured",
+          "value_px": 15.0,
+          "value_mm": 0.774,
+          "derived_tpi": 32.8,
+          "landmarks": {
+            "threaded_shank_start": {
+              "x_px": 346.497,
+              "y_px": 518.434
+            },
+            "threaded_shank_end": {
+              "x_px": 504.872,
+              "y_px": 521.25
+            }
+          },
+          "diagnostics": {
+            "left_pitch_px": 15.0,
+            "right_pitch_px": 15.0,
+            "left_periodicity_score": 0.941,
+            "right_periodicity_score": 0.903,
+            "left_autocorrelation_px": 15.0,
+            "right_autocorrelation_px": 16.0,
+            "left_frequency_px": 15.228,
+            "right_frequency_px": 15.389,
+            "left_peak_spacing_px": 15.0,
+            "right_peak_spacing_px": 15.0,
+            "width_frequency_px": 19.078,
+            "width_peak_spacing_px": 8.0
+          },
+          "reason_codes": []
+        },
+        {
+          "operation": "axial_distance",
+          "inputs": [
+            "object_tip",
+            "head_underface"
+          ],
+          "purpose": "L",
+          "status": "not_measured",
+          "value_px": null,
+          "value_mm": null,
+          "derived_tpi": null,
+          "landmarks": {},
+          "diagnostics": {},
+          "reason_codes": [
+            "bearing_plane_unresolved"
+          ]
+        }
+      ],
+      "image": {
+        "width_px": 1000,
+        "height_px": 1000
+      },
+      "ruler": {
+        "detected": true,
+        "mark_count": 23,
+        "scale_system": "imperial",
+        "scale_source": "imperial_ticks",
+        "scale_confidence": 0.92,
+        "px_per_cm": 193.701,
+        "px_per_inch": 492.0,
+        "reference_interval_cm": 0.15875,
+        "median_px_per_cm": null,
+        "local_px_per_cm": null,
+        "perspective_ratio": null,
+        "perspective_step_pct": 0.0,
+        "perspective_ok": true
+      },
+      "object": {
+        "detected": true,
+        "contour_reliable": true,
+        "contour_area_px": 22685.5,
+        "contour_area_ratio": 0.022686,
+        "solidity": 0.773,
+        "principal_length_px": 253.333,
+        "principal_width_px": 161.152,
+        "min_area_length_px": 254.17,
+        "min_area_width_px": 158.295,
+        "principal_angle_deg": 1.019,
+        "ruler_alignment_deg": 1.019,
+        "segmentation_method": "physical_contour_selection:edge+semantic_roi+semantic_reference_exclusion",
+        "risk_signals": [],
+        "semantic_head_style": "pan",
+        "semantic_target_region": {
+          "present": true,
+          "confidence": 0.95,
+          "x_min": 285.0,
+          "y_min": 390.0,
+          "x_max": 735.0,
+          "y_max": 650.0
+        },
+        "semantic_reference_region": {
+          "present": true,
+          "confidence": 0.95,
+          "x_min": 210.0,
+          "y_min": 615.0,
+          "x_max": 1000.0,
+          "y_max": 815.0
+        }
+      },
+      "reason_codes": [],
+      "capture_assumptions": {
+        "same_plane_required": true,
+        "same_plane_verified": false,
+        "near_overhead_required": true,
+        "ruler_parallel_required": false,
+        "ruler_parallel_preferred": true
+      }
+    }
+  }
+]

@@ -1,20 +1,18 @@
 from __future__ import annotations
 
-import math
 from typing import Any
 
-import cv2
 import numpy as np
 
 from geometry import (
-    _geometry_from_contour,
     _select_physical_object_candidate,
 )
 from thread_geometry import (
     HeadUnderfaceEstimate,
+    HeadBodyStructure,
     ThreadedShankProfile,
     detect_threaded_shank,
-    estimate_head_underface,
+    decompose_head_body,
     measure_outer_width_px,
     measure_periodicity_px,
 )
@@ -64,105 +62,18 @@ def _select_object_contour(
     )
     return None if selection.candidate is None else selection.candidate.contour
 
-def _filled_contour_points(contour: np.ndarray) -> np.ndarray:
-    x, y, width, height = cv2.boundingRect(contour)
-    if width <= 0 or height <= 0:
-        return np.empty((0, 2), dtype=np.float64)
-
-    mask = np.zeros((height + 2, width + 2), dtype=np.uint8)
-    shifted = contour.astype(np.int32).copy()
-    shifted[:, 0, 0] -= x - 1
-    shifted[:, 0, 1] -= y - 1
-    cv2.drawContours(mask, [shifted], -1, 255, thickness=-1)
-    ys, xs = np.nonzero(mask)
-    if len(xs) == 0:
-        return np.empty((0, 2), dtype=np.float64)
-    return np.column_stack((xs + x - 1, ys + y - 1)).astype(np.float64)
-
-
-def _smooth_width_profile(widths: np.ndarray) -> np.ndarray:
-    count = len(widths)
-    if count < 3:
-        return widths
-    kernel = max(3, int(round(count * 0.03)))
-    if kernel % 2 == 0:
-        kernel += 1
-    radius = kernel // 2
-    padded = np.pad(widths, radius, mode="edge")
-    return np.array([np.median(padded[index : index + kernel]) for index in range(count)], dtype=np.float64)
-
 
 def _axial_landmarks(contour: np.ndarray) -> dict[str, tuple[float, float]] | None:
-    center, axis, _, _, _, _ = _geometry_from_contour(contour)
-    axis = np.asarray(axis, dtype=np.float64)
-    axis_norm = float(np.linalg.norm(axis))
-    if axis_norm < 1e-6:
+    """Use the same axis, endpoints and shaft partition as D/P/under-head L."""
+    profile = detect_threaded_shank(contour)
+    if profile is None:
         return None
-    axis /= axis_norm
-    normal = np.array([-axis[1], axis[0]], dtype=np.float64)
-
-    points = _filled_contour_points(contour)
-    if len(points) < 12:
-        return None
-
-    relative = points - center
-    axial = relative @ axis
-    cross = relative @ normal
-    axial_min = float(np.min(axial))
-    axial_max = float(np.max(axial))
-    bin_count = max(3, int(math.ceil(axial_max - axial_min)) + 1)
-    indices = np.clip(np.floor(axial - axial_min).astype(np.int32), 0, bin_count - 1)
-
-    low = np.full(bin_count, np.inf, dtype=np.float64)
-    high = np.full(bin_count, -np.inf, dtype=np.float64)
-    np.minimum.at(low, indices, cross)
-    np.maximum.at(high, indices, cross)
-    widths = high - low
-    valid = np.isfinite(widths)
-    if int(np.count_nonzero(valid)) < 3:
-        return None
-
-    samples = np.arange(bin_count, dtype=np.float64)
-    widths = np.interp(samples, samples[valid], widths[valid])
-    widths = _smooth_width_profile(widths)
-
-    window = max(4, int(round(bin_count * 0.06)))
-    margin = max(window + 2, int(round(bin_count * 0.08)))
-    best: tuple[float, int] | None = None
-    for index in range(margin, bin_count - margin):
-        left = float(np.median(widths[max(0, index - window) : index]))
-        right = float(np.median(widths[index : min(bin_count, index + window)]))
-        narrow = max(min(left, right), 1.0)
-        wide = max(left, right)
-        delta = wide - narrow
-        ratio = wide / narrow
-        if ratio < 1.25 or delta < max(2.0, 0.18 * narrow):
-            continue
-        score = delta * ratio
-        if best is None or score > best[0]:
-            best = (score, index)
-
-    if best is None:
-        return None
-
-    transition_s = axial_min + float(best[1])
-    distance_to_min = abs(transition_s - axial_min)
-    distance_to_max = abs(axial_max - transition_s)
-    tip_s = axial_min if distance_to_min >= distance_to_max else axial_max
-    head_top_s = axial_max if tip_s == axial_min else axial_min
-    transition_xy = center + axis * transition_s
-    tip_xy = center + axis * tip_s
-    head_top_xy = center + axis * head_top_s
-    if abs(tip_s - transition_s) < 2.0 or abs(tip_s - head_top_s) < 2.0:
-        return None
-
-    transition_point = (float(transition_xy[0]), float(transition_xy[1]))
-    return {
-        "object_tip": (float(tip_xy[0]), float(tip_xy[1])),
-        "width_transition": transition_point,
-        "head_underface": transition_point,
-        "head_top": (float(head_top_xy[0]), float(head_top_xy[1])),
-    }
+    direction = 1 if profile.transition_s > profile.tip_s else -1
+    top = float(profile.s_values[-1] if direction > 0 else profile.s_values[0])
+    positions = {"object_tip": profile.tip_s,
+                 "width_transition": profile.transition_s, "head_top": top}
+    return {name: tuple(float(v) for v in profile.center + profile.axis * s)
+            for name, s in positions.items()}
 
 
 def _profile_underface_landmarks(
@@ -217,6 +128,7 @@ def execute_geometry_steps(
         return unmeasured_geometry_steps(steps, "object_contour_not_found")
 
     axial = None
+    structure: HeadBodyStructure | None = None
     underface_axial: dict[str, tuple[float, float]] | None = None
     underface_estimate: HeadUnderfaceEstimate | None = None
     shank_profile: ThreadedShankProfile | None = None
@@ -243,10 +155,11 @@ def execute_geometry_steps(
                 if shank_profile is None:
                     results.append(_not_measured(step, "head_underface_not_found"))
                     continue
+                if structure is None:
+                    structure = decompose_head_body(shank_profile)
+                underface_estimate = structure.bearing_plane
                 if underface_estimate is None:
-                    underface_estimate = estimate_head_underface(shank_profile)
-                if underface_estimate is None:
-                    results.append(_not_measured(step, "head_underface_not_found"))
+                    results.append(_not_measured(step, structure.reason_code or "bearing_plane_unresolved"))
                     continue
                 if underface_axial is None:
                     underface_axial = _profile_underface_landmarks(
@@ -256,9 +169,10 @@ def execute_geometry_steps(
                 step_landmarks = underface_axial
                 diagnostics = {
                     "shank_outer_px": _round(underface_estimate.shank_outer_px),
-                    "head_stable_limit_px": _round(underface_estimate.stable_limit_px),
-                    "head_expansion_threshold_px": _round(underface_estimate.expansion_threshold_px),
-                    "head_expansion_persistence_px": float(underface_estimate.persistence_px),
+                    "bearing_radial_support_px": _round(underface_estimate.radial_support_px),
+                    "bearing_fit_residual_px": _round(underface_estimate.fit_residual_px),
+                    "bearing_side_disagreement_px": _round(underface_estimate.side_disagreement_px),
+                    "neck_to_bearing_px": _round(abs(underface_estimate.s - structure.transition_start_s)),
                 }
             else:
                 if axial is None:

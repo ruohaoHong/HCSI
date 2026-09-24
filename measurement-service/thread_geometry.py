@@ -27,11 +27,28 @@ class ThreadedShankProfile:
 
 @dataclass(frozen=True)
 class HeadUnderfaceEstimate:
+    """A bilateral, observed bearing plane, not the start of a neck fillet."""
     s: float
     shank_outer_px: float
-    stable_limit_px: float
-    expansion_threshold_px: float
-    persistence_px: int
+    radial_support_px: float
+    fit_residual_px: float
+    side_disagreement_px: float
+
+
+@dataclass(frozen=True)
+class HeadBodyStructure:
+    """Common axial structure; separating regions does not establish a datum.
+
+    transition_start_s marks departure from the shaft envelope. bearing_plane
+    is optional because a neck/fillet, cone or curved projection is not itself
+    evidence of a perpendicular seating plane. All coordinates use the shank
+    profile's frame. No head-style name or catalog dimension enters the fit.
+    """
+    tip_s: float
+    head_top_s: float
+    transition_start_s: float | None
+    bearing_plane: HeadUnderfaceEstimate | None
+    reason_code: str | None
 
 
 @dataclass(frozen=True)
@@ -190,89 +207,151 @@ def detect_threaded_shank(contour: np.ndarray) -> ThreadedShankProfile | None:
     )
 
 
-def estimate_head_underface(profile: ThreadedShankProfile) -> HeadUnderfaceEstimate | None:
-    """Locate the physical bearing-plane onset for a protruding fastener head.
-
-    The threaded shank establishes the local diameter baseline.  Moving from
-    that stable shank toward the head, the underface is the first boundary
-    before a *persistent* expansion beyond the shank envelope.  This is a
-    physical definition shared by hex, pan, button, socket-cap and round heads;
-    it deliberately does not use the strongest width transition, which may be
-    a chamfer or another feature inside the head.
-    """
-    outer = measure_outer_width_px(profile)
-    if outer is None or outer <= 1.0:
-        return None
-
+def _neck_start(profile: ThreadedShankProfile, outer: float) -> float | None:
+    """Locate a region boundary only; this is explicitly NOT a length datum."""
     sample_indices = np.flatnonzero(profile.sample_mask)
-    if len(sample_indices) < 12:
-        return None
-
     toward_head = 1 if profile.transition_s > profile.tip_s else -1
-    shank_edge_index = int(sample_indices[-1] if toward_head > 0 else sample_indices[0])
-    head_edge_index = len(profile.widths) - 1 if toward_head > 0 else 0
-    ordered = np.arange(
-        shank_edge_index,
-        head_edge_index + toward_head,
-        toward_head,
-        dtype=np.int32,
-    )
-    if len(ordered) < 8:
-        return None
-
-    # Smooth only enough to suppress individual thread teeth.  The thresholds
-    # are relative to the measured shank itself, so this scales across M3/M14,
-    # metric/imperial and image resolution without a head-style lookup table.
+    edge = int(sample_indices[-1] if toward_head > 0 else sample_indices[0])
+    end = len(profile.widths) - 1 if toward_head > 0 else 0
+    ordered = np.arange(edge, end + toward_head, toward_head)
     smooth = _median_smooth(profile.widths, fraction=0.02)
     stable_limit = max(outer * 1.06, outer + 2.0)
-    expansion_threshold = max(outer * 1.15, outer + 4.0)
+    expansion = max(outer * 1.15, outer + 4.0)
     persistence = int(np.clip(round(outer * 0.08), 5, 24))
-    if len(ordered) < persistence + 2:
-        return None
-
-    expansion_pos: int | None = None
     for pos in range(1, len(ordered) - persistence + 1):
-        window = smooth[ordered[pos : pos + persistence]]
-        finite = window[np.isfinite(window)]
-        if len(finite) < max(3, int(math.ceil(persistence * 0.75))):
+        window = smooth[ordered[pos:pos + persistence]]
+        if np.median(window) < expansion or np.mean(window >= expansion) < 0.70:
             continue
-        if (
-            float(np.median(finite)) >= expansion_threshold
-            and float(np.mean(finite >= expansion_threshold)) >= 0.70
-        ):
-            expansion_pos = pos
-            break
+        while pos > 0 and smooth[ordered[pos - 1]] > stable_limit:
+            pos -= 1
+        return float(profile.s_values[ordered[pos]])
+    return None
 
-    if expansion_pos is None:
-        return None
 
-    # Once persistent head expansion is confirmed, walk back toward the shank
-    # through any fillet/chamfer and choose the first pixel after the last
-    # cross-section still consistent with the shank envelope.
-    boundary_pos = expansion_pos
-    while boundary_pos > 0:
-        previous = int(ordered[boundary_pos - 1])
-        if not np.isfinite(smooth[previous]) or smooth[previous] <= stable_limit:
-            break
-        boundary_pos -= 1
+def _radial_frontier(
+    profile: ThreadedShankProfile, envelope: np.ndarray, root_radius: float,
+    toward_head: int, outer: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """First head-facing silhouette intersection at each outward radius.
 
-    boundary_index = int(ordered[boundary_pos])
-    underface_s = float(profile.s_values[boundary_index])
+    Viewing the shoulder as axial position versus radius preserves a vertical
+    bearing face, which a width-versus-axis change point cannot localize.
+    Interpolation uses existing silhouette samples; it does not extrapolate a
+    hidden plane through a fillet or assume a circular head cross-section.
+    """
+    indices = np.flatnonzero(profile.sample_mask)
+    start = int(indices[-1] if toward_head > 0 else indices[0])
+    end = len(envelope) - 1 if toward_head > 0 else 0
+    ordered = np.arange(start, end + toward_head, toward_head)
+    radial = envelope[ordered]
+    axial = profile.s_values[ordered] * toward_head
+    # Exclude thread crests and the outermost rasterized rim from plane fitting.
+    radii = np.arange(root_radius + max(2.0, outer * 0.03),
+                      float(np.max(radial)) - 1.0, 1.0)
+    positions = []
+    for radius in radii:
+        hits = np.flatnonzero(radial >= radius)
+        if not len(hits) or hits[0] == 0:
+            return np.empty(0), np.empty(0)
+        i = int(hits[0])
+        fraction = (radius - radial[i - 1]) / (radial[i] - radial[i - 1])
+        positions.append(axial[i - 1] + fraction * (axial[i] - axial[i - 1]))
+    return radii, np.asarray(positions)
 
-    # Reject geometrically degenerate answers rather than inventing a length.
-    head_top_s = float(profile.s_values[-1] if toward_head > 0 else profile.s_values[0])
-    if abs(head_top_s - underface_s) < max(3.0, persistence * 0.5):
-        return None
-    if abs(underface_s - profile.tip_s) < 12.0:
-        return None
 
-    return HeadUnderfaceEstimate(
-        s=underface_s,
-        shank_outer_px=float(outer),
-        stable_limit_px=float(stable_limit),
-        expansion_threshold_px=float(expansion_threshold),
-        persistence_px=persistence,
-    )
+def _shoulder_segments(
+    radii: np.ndarray, positions: np.ndarray, outer: float,
+) -> list[tuple[float, float, float, float]]:
+    """Radially extended, near-perpendicular faces, ordered from root outward.
+
+    A valid segment has a small slope AND small residual over a finite span.
+    Thus a locally smooth cone/curve cannot become a face just because it is
+    noise-free. Pixel tolerances cover rasterization, not catalog error.
+    """
+    minimum_span = 3.0
+    count = int(math.ceil(minimum_span)) + 1
+    tolerance = max(1.0, 0.015 * outer)
+    candidates = []
+    for start in range(max(0, len(radii) - count + 1)):
+        stop = start + count
+        r, t = radii[start:stop], positions[start:stop]
+        slope = float(np.polyfit(r, t, 1)[0])
+        if abs(slope) > 0.15:
+            continue
+        fit = np.polyval(np.polyfit(r, t, 1), r)
+        residual = float(np.max(np.abs(t - fit)))
+        if residual > tolerance:
+            continue
+        # Extend the same plane, without incorporating the next head chamfer.
+        while stop < len(radii):
+            trial = positions[start:stop + 1]
+            trial_r = radii[start:stop + 1]
+            fit = np.polyfit(trial_r, trial, 1)
+            if abs(fit[0]) > 0.15 or np.max(np.abs(trial - np.polyval(fit, trial_r))) > tolerance:
+                break
+            stop += 1
+        t = positions[start:stop]
+        r = radii[start:stop]
+        residual = float(np.max(np.abs(t - np.polyval(np.polyfit(r, t, 1), r))))
+        candidates.append((float(np.median(t)), float(radii[start]),
+                           float(radii[stop - 1]), residual))
+    return candidates
+
+
+def decompose_head_body(profile: ThreadedShankProfile) -> HeadBodyStructure:
+    """Resolve shaft, transition and head, then independently verify a datum.
+
+    The first bilateral shoulder outside the shank envelope is the seating
+    face. Later parallel steps are head features, not replacement datums.
+    Insufficient, curved, conical or disagreeing boundaries remain unresolved.
+    This assumes an approximately side-on image, like the existing pipeline.
+    """
+    direction = 1 if profile.transition_s > profile.tip_s else -1
+    top = float(profile.s_values[-1] if direction > 0 else profile.s_values[0])
+    outer = measure_outer_width_px(profile)
+    if outer is None or np.count_nonzero(profile.sample_mask) < 12:
+        return HeadBodyStructure(profile.tip_s, top, None, None, "head_body_structure_unresolved")
+    neck = _neck_start(profile, outer)
+    if neck is None:
+        return HeadBodyStructure(profile.tip_s, top, None, None, "head_body_structure_unresolved")
+    upper = _side_crest_envelope(profile.high[profile.sample_mask], 1.0)
+    lower = _side_crest_envelope(profile.low[profile.sample_mask], -1.0)
+    middle = (upper - lower) / 2.0
+    sides = []
+    for envelope in (profile.high - middle, middle - profile.low):
+        radii, positions = _radial_frontier(profile, envelope, outer / 2.0, direction, outer)
+        sides.append(_shoulder_segments(radii, positions, outer))
+    tolerance = max(2.0, 0.04 * outer)
+    # Joint evidence: both sides must expose the same plane over overlapping
+    # radial ranges. A one-sided shadow/notch is not a physical bearing face.
+    candidates = []
+    for left in sides[0]:
+        for right in sides[1]:
+            overlap = min(left[2], right[2]) - max(left[1], right[1])
+            delta = abs(left[0] - right[0])
+            if overlap < 3.0 or delta > tolerance:
+                continue
+            t = (left[0] + right[0]) / 2.0
+            if (t - direction * profile.tip_s < 12.0
+                    or direction * top - t < 3.0
+                    or t < direction * neck - tolerance):
+                continue
+            candidates.append((max(left[1], right[1]), -overlap, t,
+                               max(left[3], right[3]), delta))
+    if not candidates:
+        return HeadBodyStructure(profile.tip_s, top, neck, None, "bearing_plane_unresolved")
+    _, negative_span, t, residual, delta = min(candidates)
+    if -negative_span < max(6.0, 0.20 * outer):
+        # A small first shoulder cannot be replaced by a broader, later head
+        # step merely because that step is easier to fit.
+        return HeadBodyStructure(profile.tip_s, top, neck, None, "bearing_plane_support_insufficient")
+    plane = HeadUnderfaceEstimate(t * direction, float(outer), -negative_span, residual, delta)
+    return HeadBodyStructure(profile.tip_s, top, neck, plane, None)
+
+
+def estimate_head_underface(profile: ThreadedShankProfile) -> HeadUnderfaceEstimate | None:
+    """Compatibility entry point; never substitute neck onset for a plane."""
+    return decompose_head_body(profile).bearing_plane
 
 
 def _side_crest_envelope(

@@ -242,8 +242,8 @@ def test_head_underface_uses_shank_envelope_not_strongest_internal_head_transiti
     # Threaded shank ends at x=600. The head begins with a modest 54 px-wide
     # bearing section, then expands much more strongly at x=625. A
     # strongest-transition detector is tempted by the internal head expansion;
-    # the physical underface is still the first persistent departure from the
-    # ~30 px shank envelope at x=600.
+    # the physical underface is the first bilateral planar shoulder at x=600,
+    # independently of the ~30 px shank envelope departure.
     xs = np.arange(180, 601)
     radius = 14.0 + 2.0 * np.cos(2.0 * np.pi * (xs - 180) / 20.0)
     top = np.column_stack([xs, 350.0 - radius]).astype(np.int32)
@@ -263,7 +263,7 @@ def test_head_underface_uses_shank_envelope_not_strongest_internal_head_transiti
     underface_x = result["landmarks"]["head_underface"]["x_px"]
     assert 594.0 <= underface_x <= 610.0, result
     assert 410.0 <= result["value_px"] <= 430.0, result
-    assert result["diagnostics"]["head_expansion_threshold_px"] > result["diagnostics"]["shank_outer_px"]
+    assert result["diagnostics"]["bearing_radial_support_px"] >= 6.0
 
 
 def test_underface_refuses_uniform_object_instead_of_guessing():
