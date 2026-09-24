@@ -10,6 +10,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
   local-regime:
     runs-on: ubuntu-latest
@@ -24,13 +25,31 @@ jobs:
       - run: pip install -r measurement-service/requirements.txt pytest
       - run: pytest -q measurement-service/tests
       - run: PYTHONPATH=measurement-service python -c "from rulernet import _load_session; _load_session(); print('RulerNet ready')"
+      - name: Restore SHA-pinned B C photos from the prior accepted run
+        uses: actions/download-artifact@v4
+        with:
+          name: thread-major-diameter-validation
+          run-id: 35992509709
+          github-token: ${{ github.token }}
+          path: acceptance-images
+      - name: Restore SHA-pinned D photo from prior accepted run
+        uses: actions/download-artifact@v4
+        with:
+          name: real-case-d
+          run-id: 36014502107
+          github-token: ${{ github.token }}
+          path: acceptance-images/D-reference
       - name: Pinned B C D regressions
         run: |
-          mkdir -p acceptance-results acceptance-images
+          set -euo pipefail
+          cp acceptance-images/D-reference/D-original.jpg acceptance-images/D-original.jpg
+          mkdir -p acceptance-results
           python benchmark/head-body-validation/run.py --images acceptance-images --output acceptance-results/BCD.json | tee acceptance-results/BCD.log
       - name: MS35207-279 short-wide pan test
         if: success()
-        run: python benchmark/ms35207-279/run.py | tee acceptance-results/MS35207.log
+        run: |
+          set -euo pipefail
+          python benchmark/ms35207-279/run.py | tee acceptance-results/MS35207.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
