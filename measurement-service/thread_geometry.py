@@ -191,14 +191,17 @@ def detect_threaded_shank(contour: np.ndarray) -> ThreadedShankProfile | None:
 
 
 def estimate_head_underface(profile: ThreadedShankProfile) -> HeadUnderfaceEstimate | None:
-    """Locate the physical bearing-plane onset for a protruding fastener head.
+    """Locate the physical bearing plane for a protruding fastener head.
 
-    The threaded shank establishes the local diameter baseline.  Moving from
-    that stable shank toward the head, the underface is the first boundary
-    before a *persistent* expansion beyond the shank envelope.  This is a
-    physical definition shared by hex, pan, button, socket-cap and round heads;
-    it deliberately does not use the strongest width transition, which may be
-    a chamfer or another feature inside the head.
+    Length semantics are defined by the load-bearing underside of the head, not
+    by the first place the shank begins to widen. Real fasteners commonly have
+    a thread runout, neck or fillet before that plane. Those gradual transitions
+    must not shorten L.
+
+    Starting from the stable threaded shank and walking toward the head, accept
+    the first *abrupt bilateral shoulder* that establishes a persistently wider
+    head footprint. Choosing the first qualified shoulder avoids a stronger
+    chamfer or dome transition farther inside the head.
     """
     outer = measure_outer_width_px(profile)
     if outer is None or outer <= 1.0:
@@ -220,46 +223,101 @@ def estimate_head_underface(profile: ThreadedShankProfile) -> HeadUnderfaceEstim
     if len(ordered) < 8:
         return None
 
-    # Smooth only enough to suppress individual thread teeth.  The thresholds
-    # are relative to the measured shank itself, so this scales across M3/M14,
-    # metric/imperial and image resolution without a head-style lookup table.
-    smooth = _median_smooth(profile.widths, fraction=0.02)
-    stable_limit = max(outer * 1.06, outer + 2.0)
-    expansion_threshold = max(outer * 1.15, outer + 4.0)
-    persistence = int(np.clip(round(outer * 0.08), 5, 24))
-    if len(ordered) < persistence + 2:
+    # Keep smoothing narrow. L is sensitive to only a few pixels, so a broad
+    # width filter can move the inferred plane enough to create a systematic
+    # short-length bias.
+    smooth_width = _median_smooth(profile.widths, fraction=0.008)
+    smooth_low = _median_smooth(profile.low, fraction=0.008)
+    smooth_high = _median_smooth(profile.high, fraction=0.008)
+
+    stable_limit = max(outer * 1.08, outer + 2.0)
+    expansion_threshold = max(outer * 1.30, outer + 6.0)
+    persistence = int(np.clip(round(outer * 0.10), 5, 24))
+    probe = int(np.clip(round(outer * 0.04), 2, 8))
+    min_step = max(3.0, outer * 0.12)
+    pre_head_limit = max(outer * 1.45, stable_limit + min_step * 1.5)
+
+    minimum_span = max(persistence + probe + 2, probe * 2 + 3)
+    if len(ordered) < minimum_span:
         return None
 
-    expansion_pos: int | None = None
-    for pos in range(1, len(ordered) - persistence + 1):
-        window = smooth[ordered[pos : pos + persistence]]
-        finite = window[np.isfinite(window)]
-        if len(finite) < max(3, int(math.ceil(persistence * 0.75))):
+    candidate: tuple[int, float, float] | None = None
+    max_pos = len(ordered) - max(probe, persistence)
+    for pos in range(probe, max_pos + 1):
+        before_indices = ordered[pos - probe : pos]
+        after_indices = ordered[pos : pos + probe]
+        persistence_indices = ordered[pos : pos + persistence]
+
+        before_width = smooth_width[before_indices]
+        after_width = smooth_width[after_indices]
+        persistent_width = smooth_width[persistence_indices]
+        if not (
+            np.all(np.isfinite(before_width))
+            and np.all(np.isfinite(after_width))
+            and np.all(np.isfinite(persistent_width))
+        ):
+            continue
+
+        pre_width = float(np.median(before_width))
+        post_width = float(np.median(after_width))
+        step = post_width - pre_width
+
+        # Internal head geometry can contain an even stronger transition. It is
+        # not the bearing plane if the profile is already clearly head-sized.
+        if pre_width > pre_head_limit:
+            continue
+        if step < min_step or post_width < expansion_threshold:
             continue
         if (
-            float(np.median(finite)) >= expansion_threshold
-            and float(np.mean(finite >= expansion_threshold)) >= 0.70
+            float(np.median(persistent_width)) < expansion_threshold
+            or float(np.mean(persistent_width >= expansion_threshold)) < 0.75
         ):
-            expansion_pos = pos
-            break
+            continue
 
-    if expansion_pos is None:
+        pre_low = float(np.median(smooth_low[before_indices]))
+        post_low = float(np.median(smooth_low[after_indices]))
+        pre_high = float(np.median(smooth_high[before_indices]))
+        post_high = float(np.median(smooth_high[after_indices]))
+        low_outward = pre_low - post_low
+        high_outward = post_high - pre_high
+        minimum_side = max(1.0, step * 0.15)
+
+        # A physical head shoulder expands both silhouette sides. Requiring
+        # bilateral support prevents a one-sided shadow or contour spur from
+        # becoming the L anchor.
+        if low_outward < minimum_side or high_outward < minimum_side:
+            continue
+
+        candidate = (pos, pre_width, post_width)
+        break
+
+    if candidate is None:
         return None
 
-    # Once persistent head expansion is confirmed, walk back toward the shank
-    # through any fillet/chamfer and choose the first pixel after the last
-    # cross-section still consistent with the shank envelope.
-    boundary_pos = expansion_pos
-    while boundary_pos > 0:
-        previous = int(ordered[boundary_pos - 1])
-        if not np.isfinite(smooth[previous]) or smooth[previous] <= stable_limit:
-            break
-        boundary_pos -= 1
+    candidate_pos, pre_width, post_width = candidate
 
+    # Refine from the window-level shoulder to the local bilateral edge. The
+    # search is deliberately local so a later, stronger head feature cannot
+    # replace the first qualified bearing plane.
+    refine_start = max(1, candidate_pos - probe)
+    refine_end = min(len(ordered) - 1, candidate_pos + probe)
+    best_edge: tuple[float, int] | None = None
+    for pos in range(refine_start, refine_end + 1):
+        previous = int(ordered[pos - 1])
+        current = int(ordered[pos])
+        width_jump = float(smooth_width[current] - smooth_width[previous])
+        low_outward = float(smooth_low[previous] - smooth_low[current])
+        high_outward = float(smooth_high[current] - smooth_high[previous])
+        if width_jump <= 0.0 or low_outward <= 0.0 or high_outward <= 0.0:
+            continue
+        score = width_jump + min(low_outward, high_outward)
+        if best_edge is None or score > best_edge[0]:
+            best_edge = (score, pos)
+
+    boundary_pos = candidate_pos if best_edge is None else best_edge[1]
     boundary_index = int(ordered[boundary_pos])
     underface_s = float(profile.s_values[boundary_index])
 
-    # Reject geometrically degenerate answers rather than inventing a length.
     head_top_s = float(profile.s_values[-1] if toward_head > 0 else profile.s_values[0])
     if abs(head_top_s - underface_s) < max(3.0, persistence * 0.5):
         return None
@@ -273,7 +331,6 @@ def estimate_head_underface(profile: ThreadedShankProfile) -> HeadUnderfaceEstim
         expansion_threshold_px=float(expansion_threshold),
         persistence_px=persistence,
     )
-
 
 def _side_crest_envelope(
     values: np.ndarray,

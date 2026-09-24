@@ -266,6 +266,43 @@ def test_head_underface_uses_shank_envelope_not_strongest_internal_head_transiti
     assert result["diagnostics"]["head_expansion_threshold_px"] > result["diagnostics"]["shank_outer_px"]
 
 
+
+def test_head_underface_skips_runout_fillet_and_uses_bearing_plane():
+    image = np.full((520, 900, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image, x0=60, x1=840, px_per_cm=50)
+
+    # Threaded shank -> gradual runout/fillet -> bearing shoulder -> larger head.
+    # The physical L anchor is x=590. A "first persistent widening" rule is
+    # pulled left into the fillet and therefore reports a systematically short L.
+    xs = np.arange(180, 561)
+    radius = 14.0 + 2.0 * np.cos(2.0 * np.pi * (xs - 180) / 20.0)
+    top = np.column_stack([xs, 350.0 - radius]).astype(np.int32)
+    bottom = np.column_stack([xs[::-1], (350.0 + radius)[::-1]]).astype(np.int32)
+    cv2.fillPoly(image, [np.vstack([top, bottom])], (25, 25, 25))
+
+    fillet_x = np.arange(560, 591)
+    fillet_radius = np.linspace(16.0, 22.0, len(fillet_x))
+    fillet_top = np.column_stack([fillet_x, 350.0 - fillet_radius]).astype(np.int32)
+    fillet_bottom = np.column_stack(
+        [fillet_x[::-1], (350.0 + fillet_radius)[::-1]]
+    ).astype(np.int32)
+    cv2.fillPoly(image, [np.vstack([fillet_top, fillet_bottom])], (25, 25, 25))
+
+    cv2.rectangle(image, (590, 312), (620, 388), (25, 25, 25), -1)
+    cv2.rectangle(image, (620, 285), (700, 415), (25, 25, 25), -1)
+
+    step = {
+        "operation": "axial_distance",
+        "inputs": ["object_tip", "head_underface"],
+        "purpose": "physical under-head length",
+    }
+    result = execute_geometry_steps(image, marks, 50.0, [step])[0]
+
+    assert result["status"] == "measured", result
+    underface_x = result["landmarks"]["head_underface"]["x_px"]
+    assert 586.0 <= underface_x <= 594.0, result
+    assert 400.0 <= result["value_px"] <= 420.0, result
+
 def test_underface_refuses_uniform_object_instead_of_guessing():
     image = np.full((520, 820, 3), 245, dtype=np.uint8)
     marks = _draw_ruler(image)
