@@ -125,7 +125,18 @@ def _borderless_metric_scale_image() -> np.ndarray:
 
 
 def test_borderless_metric_hierarchy_is_not_misread_as_imperial():
-    result = infer_visual_scale(_borderless_metric_scale_image())
+    image = _borderless_metric_scale_image()
+    result = infer_visual_scale(image)
+    if result.system != "metric":
+        import scale_units
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        edges = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 45, 135)
+        short = scale_units._short_lines(edges)
+        print("METRIC_DEBUG", [
+            (round(score,3), p.system, round(p.confidence,3),
+             round(p.minor_tick_px,2), p.repeat_period, len(p.points_xy))
+            for score,p,_axis in scale_units._borderless_pattern_candidates(short, gray.shape)
+        ])
 
     assert result.system == "metric", result
     assert result.px_per_cm is not None
