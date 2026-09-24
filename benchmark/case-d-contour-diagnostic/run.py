@@ -112,5 +112,12 @@ out={
   "stability":{"unstable":unstable,"observations":observations,"min_edge_support":MIN_CONTOUR_EDGE_SUPPORT},
   "geometry":dataclasses.asdict(result),
 }
-(OUT/"case-d-contour-diagnostic.json").write_text(json.dumps(out,indent=2))
-print(json.dumps(out,indent=2))
+def convert(value):
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    raise TypeError(type(value).__name__)
+
+(OUT/"case-d-contour-diagnostic.json").write_text(json.dumps(out,indent=2,default=convert))
+print(json.dumps(out,indent=2,default=convert))
