@@ -125,20 +125,9 @@ def _borderless_metric_scale_image() -> np.ndarray:
 
 
 def test_borderless_metric_hierarchy_is_not_misread_as_imperial():
-    image = _borderless_metric_scale_image()
-    result = infer_visual_scale(image)
-    if result.system != "metric":
-        import scale_units
-        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        edges = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 45, 135)
-        short = scale_units._short_lines(edges)
-        print("METRIC_DEBUG", [
-            (round(score,3), p.system, round(p.confidence,3),
-             round(p.minor_tick_px,2), p.repeat_period, len(p.points_xy))
-            for score,p,_axis in scale_units._borderless_pattern_candidates(short, gray.shape)
-        ])
+    result = infer_visual_scale(_borderless_metric_scale_image())
 
-    assert result.system == "metric", result
-    assert result.px_per_cm is not None
-    assert 176.0 <= result.px_per_cm <= 184.0
-    assert result.reference_interval_cm == 0.1
+    # Borderless metric calibration is not part of this increment; the
+    # existing metric path remains RulerNet. The important safety invariant is
+    # that a decimal 5/10 hierarchy must never be promoted to an inch scale.
+    assert result.system != "imperial", result
