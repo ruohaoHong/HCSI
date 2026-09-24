@@ -275,19 +275,80 @@ def estimate_head_underface(profile: ThreadedShankProfile) -> HeadUnderfaceEstim
     )
 
 
-def measure_outer_width_px(profile: ThreadedShankProfile) -> float | None:
-    """Return a robust major/outer diameter estimate for the shank envelope."""
-    values = profile.widths[profile.sample_mask]
-    values = values[np.isfinite(values)]
-    if len(values) < 12:
+def _side_crest_envelope(
+    values: np.ndarray,
+    outward_sign: float,
+) -> float | None:
+    """Estimate one side of the thread's outer crest envelope.
+
+    The two silhouette sides are measured independently so their crests do not
+    need to occur at the same axial coordinate.  Repeated local extrema are
+    preferred; a robust one-sided quantile is the fallback for nearly smooth
+    shanks.  This avoids isolated contour spikes without assuming a pitch.
+    """
+    raw = np.asarray(values, dtype=np.float64)
+    raw = raw[np.isfinite(raw)]
+    if len(raw) < 12:
         return None
 
-    median = float(np.percentile(values, 50))
-    outer = float(np.percentile(values, 90))
-    high = float(np.percentile(values, 98))
-    if median <= 1.0 or high / median > 1.35:
+    outward = raw * outward_sign
+    smooth = cv2.GaussianBlur(outward.reshape(1, -1), (0, 0), sigmaX=0.8).ravel()
+
+    peaks: list[float] = []
+    for index in range(1, len(smooth) - 1):
+        if smooth[index] >= smooth[index - 1] and smooth[index] >= smooth[index + 1]:
+            peaks.append(float(smooth[index]))
+
+    if len(peaks) >= 4:
+        peak_values = np.asarray(peaks, dtype=np.float64)
+        # Use the upper half of repeated crest candidates, then take its median.
+        # This estimates the recurring outer envelope rather than the single
+        # largest pixel excursion.
+        floor = float(np.percentile(peak_values, 50))
+        crest_values = peak_values[peak_values >= floor]
+        if len(crest_values) >= 2:
+            return float(np.median(crest_values))
+
+    return float(np.percentile(outward, 95))
+
+
+def measure_outer_width_px(profile: ThreadedShankProfile) -> float | None:
+    """Return the physical thread major diameter from independent crest envelopes.
+
+    A threaded silhouette is helical: upper and lower crests can be phase
+    shifted, so same-x width systematically underestimates the true major
+    diameter.  Estimate each side's recurring outer envelope independently and
+    combine them only after the one-sided measurements are resolved.
+    """
+    high = profile.high[profile.sample_mask]
+    low = profile.low[profile.sample_mask]
+    high = high[np.isfinite(high)]
+    low = low[np.isfinite(low)]
+    if len(high) < 12 or len(low) < 12:
         return None
-    return outer
+
+    upper_envelope = _side_crest_envelope(high, 1.0)
+    lower_envelope_outward = _side_crest_envelope(low, -1.0)
+    if upper_envelope is None or lower_envelope_outward is None:
+        return None
+
+    outer = upper_envelope + lower_envelope_outward
+    same_x_widths = profile.widths[profile.sample_mask]
+    same_x_widths = same_x_widths[np.isfinite(same_x_widths)]
+    if len(same_x_widths) < 12:
+        return None
+
+    median_width = float(np.percentile(same_x_widths, 50))
+    high_width = float(np.percentile(same_x_widths, 98))
+    if median_width <= 1.0:
+        return None
+
+    # The independent crest envelope may exceed any same-x section because the
+    # two thread sides can be phase shifted.  Reject only geometrically
+    # implausible envelopes, not that expected phase difference.
+    if outer < median_width * 0.95 or outer > max(high_width * 1.20, median_width * 1.35):
+        return None
+    return float(outer)
 
 
 def _detrended_envelope(values: np.ndarray, max_period: int) -> np.ndarray:
