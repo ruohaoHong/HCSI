@@ -323,3 +323,30 @@ def test_major_diameter_ignores_single_outward_contour_spike():
 
     assert width["status"] == "measured", width
     assert 36.0 <= width["value_px"] <= 40.5, width
+
+
+
+def test_phase_shifted_major_diameter_does_not_change_pitch_search():
+    image = np.full((520, 900, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image, x0=60, x1=840, px_per_cm=50)
+
+    cv2.rectangle(image, (180, 285), (230, 415), (25, 25, 25), -1)
+    xs = np.arange(230, 681)
+    period = 24.0
+    upper_radius = 16.0 + 4.0 * np.cos(2.0 * np.pi * (xs - 230) / period)
+    lower_radius = 16.0 + 4.0 * np.cos(2.0 * np.pi * (xs - 230) / period + np.pi)
+    top = np.column_stack([xs, 350.0 - upper_radius]).astype(np.int32)
+    bottom = np.column_stack([xs[::-1], (350.0 + lower_radius)[::-1]]).astype(np.int32)
+    cv2.fillPoly(image, [np.vstack([top, bottom])], (25, 25, 25))
+
+    width, periodicity = execute_geometry_steps(
+        image,
+        marks,
+        50.0,
+        [_width_step(), _periodicity_step()],
+    )
+
+    assert width["status"] == "measured", width
+    assert 38.0 <= width["value_px"] <= 41.5, width
+    assert periodicity["status"] == "measured", periodicity
+    assert 23.0 <= periodicity["value_px"] <= 25.0, periodicity
