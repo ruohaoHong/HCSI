@@ -1,0 +1,35 @@
+name: Scale Hierarchy Case D Validation
+on:
+  push:
+    branches: ['experiment/scale-tick-hierarchy']
+    paths:
+      - 'benchmark/real-case-d/**'
+      - '.github/workflows/real-case-d.yml'
+permissions:
+  contents: read
+jobs:
+  case-d:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r measurement-service/requirements.txt pytest
+      - name: Existing measurement tests
+        run: pytest -q measurement-service/tests
+      - name: Warm RulerNet
+        run: PYTHONPATH=measurement-service python -c "from rulernet import _load_session; _load_session(); print('RulerNet ready')"
+      - name: Run Case D controlled acceptance
+        run: |
+          mkdir -p acceptance-results
+          python benchmark/real-case-d/run.py | tee acceptance-results/run.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-case-d
+          path: acceptance-results/
+          retention-days: 30
