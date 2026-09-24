@@ -5,7 +5,7 @@ on:
     paths:
       - 'benchmark/real-diameter-validation/**'
       - 'measurement-service/**'
-      - '.github/workflows/real-underface-validation.yml'
+      - '.github/workflows/real-diameter-validation.yml'
 permissions:
   contents: read
 jobs:
