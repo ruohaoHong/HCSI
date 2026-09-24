@@ -13,7 +13,7 @@ sys.path.insert(0,str(ROOT/"measurement-service"))
 
 from app import measure_rgb
 from geometry import extract_object_geometry
-from geometry_executor import _select_object_contour
+from geometry_executor import _select_object_contour, execute_geometry_steps
 from rulernet import infer_ruler, local_px_per_cm
 from scale_reference import resolve_scale_reference
 from thread_geometry import detect_threaded_shank, detect_local_shank_regime, _detect_threaded_shank_global, decompose_head_body
@@ -124,6 +124,9 @@ geo=extract_object_geometry(
 contour=_select_object_contour(rgb,ref_points,effective,semantic)
 record["controlled_geometry"]=geo
 record["controlled_effective_px_per_cm"]=effective
+record["controlled_measurement_steps"]=execute_geometry_steps(
+    rgb, ref_points, effective, steps, semantic_vision=semantic
+)
 if contour is not None:
     legacy=_detect_threaded_shank_global(contour)
     local=detect_local_shank_regime(contour)
@@ -175,6 +178,7 @@ print(json.dumps({
     "controlled_ruler_scale":record.get("controlled_ruler_scale"),
     "controlled_geometry":record.get("controlled_geometry"),
     "measurement_steps":result.get("geometry_steps"),
+    "controlled_measurement_steps":record.get("controlled_measurement_steps"),
     "head_body_structure":record.get("head_body_structure"),
     "frame_comparison":record.get("frame_comparison"),
     "first_expansion_length":record.get("first_expansion_length"),
