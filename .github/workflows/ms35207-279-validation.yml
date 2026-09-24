@@ -1,0 +1,32 @@
+name: MS35207-279 Head Body Validation
+on:
+  push:
+    branches: ['test/head-body-ms35207-279']
+    paths:
+      - 'benchmark/ms35207-279/**'
+      - '.github/workflows/ms35207-279-validation.yml'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r measurement-service/requirements.txt pytest
+      - run: pytest -q measurement-service/tests
+      - run: PYTHONPATH=measurement-service python -c "from rulernet import _load_session; _load_session(); print('RulerNet ready')"
+      - run: |
+          mkdir -p acceptance-results
+          python benchmark/ms35207-279/run.py | tee acceptance-results/run.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ms35207-279-head-body-validation
+          path: acceptance-results/
+          retention-days: 30
