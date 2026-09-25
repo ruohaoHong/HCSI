@@ -108,6 +108,29 @@ jobs:
           gt = {"L": 30.0, "D": 3.0, "P": 0.5}
           print("CASE_E_GT=" + json.dumps(gt))
 
+          # D is not allowed to silently reuse the contour's known-short
+          # ~2.67 mm estimate. Either report a dimension backed by both
+          # observed edges, or explicitly refuse it with image-quality evidence.
+          diameter = next(
+              (step for step in result["geometry_steps"] if step["operation"] == "outer_width"),
+              None,
+          )
+          assert diameter is not None
+          print("CASE_E_D_STATUS=" + str(diameter["status"]))
+          print("CASE_E_D_DIAGNOSTICS=" + json.dumps(diameter["diagnostics"]))
+          if diameter["status"] == "measured":
+              assert abs(float(diameter["value_mm"]) - gt["D"]) <= 0.15, diameter
+              assert "edge_diameter_uncertainty_mm" in diameter["diagnostics"], diameter
+          else:
+              assert diameter["status"] == "not_measured", diameter
+              assert set(diameter["reason_codes"]) & {
+                  "edge_crest_underresolved",
+                  "edge_side_support_insufficient",
+                  "edge_diameter_uncertain",
+              }, diameter
+              assert "edge_upper_valid_samples" in diameter["diagnostics"], diameter
+              assert "edge_lower_valid_samples" in diameter["diagnostics"], diameter
+
           axial = next(
               (
                   step for step in result.get("geometry_steps", [])
