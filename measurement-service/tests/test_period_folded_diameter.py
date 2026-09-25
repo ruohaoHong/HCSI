@@ -69,7 +69,7 @@ def test_clear_side_can_recover_shared_thread_relief_when_opposite_crest_is_blur
         blurred.reshape(1, -1), (0, 0), sigmaX=3.0,
     ).ravel()
 
-    positive = _track(blurred, blur_meta=9.0, uncertainty=0.65)
+    positive = _track(blurred, blur_meta=13.0, uncertainty=0.65)
     negative = _track(clear, blur_meta=3.2, uncertainty=0.20)
     result = estimate_period_folded_diameter(
         positive, negative, pitch, bootstrap_repeats=32,
