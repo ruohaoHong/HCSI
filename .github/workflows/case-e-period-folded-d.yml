@@ -1,0 +1,101 @@
+name: Case E Period-Folded D PoC
+
+on:
+  push:
+    branches:
+      - feature/edge-observation-primitive
+    paths:
+      - 'measurement-service/period_folded_diameter.py'
+      - 'measurement-service/tests/test_period_folded_diameter.py'
+      - '.github/workflows/case-e-period-folded-d.yml'
+  workflow_dispatch:
+
+jobs:
+  case-e-folded-d:
+    runs-on: ubuntu-latest
+    env:
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: measurement-service/requirements.txt
+      - run: pip install -r measurement-service/requirements.txt
+      - name: Rebuild Case E fixture
+        run: |
+          cat benchmark/measurement-poc/cases/case-e-m3x30-q80.part*.b64 | base64 --decode > /tmp/case-e.webp
+          echo "b408b06f7cc0f70558203e90d8702680269c12fc276cf1fadf4d4f0800e3f385  /tmp/case-e.webp" | sha256sum --check -
+      - name: Run period-folded D PoC
+        run: |
+          PYTHONPATH=measurement-service python - <<'PY'
+          from dataclasses import asdict
+          import json
+          import numpy as np
+          from PIL import Image
+
+          from rulernet import infer_ruler
+          from scale_reference import resolve_scale_reference
+          from geometry_executor import _select_object_contour
+          from thread_geometry import (
+              detect_threaded_shank,
+              measure_outer_width_px,
+              measure_periodicity_px,
+          )
+          from edge_observation import observe_thread_edges
+          from period_folded_diameter import estimate_period_folded_diameter
+
+          image = np.asarray(Image.open('/tmp/case-e.webp').convert('RGB'))
+          semantic = {
+              "head_style":"socket_cap",
+              "target_region":{
+                  "present":True,"confidence":0.99,
+                  "x_min":165,"y_min":710,"x_max":850,"y_max":920,
+              },
+              "reference_region":{
+                  "present":True,"confidence":0.99,
+                  "x_min":230,"y_min":130,"x_max":1000,"y_max":705,
+              },
+          }
+          ruler = infer_ruler(image)
+          scale = resolve_scale_reference(image, ruler)
+          contour = _select_object_contour(
+              image, scale.reference_points_px, scale.px_per_cm, semantic,
+          )
+          profile = detect_threaded_shank(contour)
+          assert profile is not None
+          positive, negative = observe_thread_edges(image, profile)
+          width_prior = measure_outer_width_px(profile)
+          assert width_prior is not None
+          periodicity = measure_periodicity_px(
+              profile, width_prior, edge_tracks=(positive, negative),
+          )
+          assert periodicity.pitch_px is not None, periodicity
+          estimate = estimate_period_folded_diameter(
+              positive, negative, periodicity.pitch_px,
+              bootstrap_repeats=96, random_seed=7,
+          )
+
+          payload = asdict(estimate)
+          payload["pitch_px"] = periodicity.pitch_px
+          payload["scale_px_per_cm"] = scale.px_per_cm
+          if estimate.diameter_px is not None:
+              payload["diameter_mm"] = estimate.diameter_px * 10.0 / scale.px_per_cm
+          else:
+              payload["diameter_mm"] = None
+          print("CASE_E_PERIOD_FOLDED_D=" + json.dumps(payload, sort_keys=True))
+
+          # Ground truth is introduced only after the image-only estimate exists.
+          gt_mm = 3.0
+          gt_px = gt_mm * scale.px_per_cm / 10.0
+          print("CASE_E_D_GT_POSTHOC=" + json.dumps({
+              "gt_mm": gt_mm,
+              "gt_px": gt_px,
+              "estimate_mm": payload["diameter_mm"],
+              "error_mm": (
+                  payload["diameter_mm"] - gt_mm
+                  if payload["diameter_mm"] is not None else None
+              ),
+          }))
+          PY
