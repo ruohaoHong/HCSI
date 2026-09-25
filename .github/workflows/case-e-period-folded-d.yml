@@ -77,6 +77,19 @@ jobs:
               bootstrap_repeats=96, random_seed=7,
           )
 
+          # Diagnostic only: phase-binned raw edge tracks before any GT is known.
+          for label, track in (("positive", positive), ("negative", negative)):
+              s = np.asarray(track.s_px, dtype=float)
+              y = np.asarray(track.outward_px, dtype=float)
+              good = np.asarray(track.valid, dtype=bool) & np.isfinite(y)
+              phase = np.mod(s, periodicity.pitch_px)
+              edges = np.linspace(0.0, periodicity.pitch_px, 17)
+              folded = []
+              for i in range(16):
+                  use = good & (phase >= edges[i]) & (phase < edges[i + 1])
+                  folded.append(float(np.median(y[use])) if np.any(use) else None)
+              print("CASE_E_FOLDED_TRACK_" + label.upper() + "=" + json.dumps(folded))
+
           payload = asdict(estimate)
           payload["pitch_px"] = periodicity.pitch_px
           payload["scale_px_per_cm"] = scale.px_per_cm
