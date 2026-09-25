@@ -207,6 +207,9 @@ jobs:
                   tracks_syn[0], tracks_syn[1], p,
                   bootstrap_repeats=0, random_seed=1,
               )
+              sil_syn = estimate_periodic_silhouette_diameter(
+                  syn_rgb, prof_syn, p,
+              )
               synthetic.append({
                   "blur_sigma":blur_sigma,
                   "direct_px":measured_syn,
@@ -219,6 +222,13 @@ jobs:
                   "fold_negative_relief_px":fold_syn.negative.relief_px,
                   "fold_positive_reliable":fold_syn.positive.reliable,
                   "fold_negative_reliable":fold_syn.negative.reliable,
+                  "silhouette_diameter_px":sil_syn.diameter_px,
+                  "silhouette_mode":sil_syn.mode,
+                  "silhouette_reason":sil_syn.reason,
+                  "silhouette_positive_radius_px":sil_syn.positive.radius_px,
+                  "silhouette_negative_radius_px":sil_syn.negative.radius_px,
+                  "silhouette_positive_t":sil_syn.positive.t_score,
+                  "silhouette_negative_t":sil_syn.negative.t_score,
               })
           print("CASE_E_VTHREAD_SYNTHETIC_SWEEP=" + json.dumps(synthetic))
 
@@ -251,6 +261,7 @@ jobs:
               bs=[float(np.median(t.blur_10_90_px[t.valid])) if np.any(t.valid) else None for t in trs]
               corr=estimate_major_from_pitch_diameter(direct,p) if direct is not None else None
               fold=estimate_period_folded_diameter(trs[0],trs[1],p,bootstrap_repeats=0)
+              sil=estimate_periodic_silhouette_diameter(rgb,ps,p)
               asymmetric.append({
                   "top_sigma":top_sigma,"bottom_sigma":bottom_sigma,
                   "direct_px":direct,
@@ -258,6 +269,13 @@ jobs:
                   "edge_blur_px":bs,
                   "fold_positive_relief_px":fold.positive.relief_px,
                   "fold_negative_relief_px":fold.negative.relief_px,
+                  "silhouette_diameter_px":sil.diameter_px,
+                  "silhouette_mode":sil.mode,
+                  "silhouette_reason":sil.reason,
+                  "silhouette_positive_radius_px":sil.positive.radius_px,
+                  "silhouette_negative_radius_px":sil.negative.radius_px,
+                  "silhouette_positive_t":sil.positive.t_score,
+                  "silhouette_negative_t":sil.negative.t_score,
               })
           print("CASE_E_VTHREAD_ASYMMETRIC_SWEEP=" + json.dumps(asymmetric))
 
