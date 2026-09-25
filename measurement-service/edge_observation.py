@@ -37,6 +37,8 @@ class DiameterObservation:
     upper_crest_px: float | None
     lower_crest_px: float | None
     reason: str | None
+    positive_normal_relief_px: float | None = None
+    negative_normal_relief_px: float | None = None
 
 
 def _edge_track(
@@ -152,10 +154,10 @@ def observe_thread_edges(
     return upper, lower
 
 
-def _crest_envelope(track: EdgeTrack) -> tuple[float | None, float | None, int]:
+def _crest_envelope(track: EdgeTrack) -> tuple[float | None, float | None, int, float | None]:
     """Use repeatedly observed, trustworthy *outward* crests, not a blur-biased mask."""
     if int(np.count_nonzero(track.valid)) < 20:
-        return None, None, 0
+        return None, None, 0, None
     s = track.s_px
     values = track.outward_px
     valid = track.valid
@@ -166,6 +168,7 @@ def _crest_envelope(track: EdgeTrack) -> tuple[float | None, float | None, int]:
     smooth = cv2.GaussianBlur(filled.reshape(1, -1), (0, 0), sigmaX=0.6).ravel()
 
     peak_indices: list[int] = []
+    peak_prominences: list[float] = []
     for i in range(8, len(smooth) - 8):
         if not np.all(valid[i - 2 : i + 3]):
             continue
@@ -181,13 +184,26 @@ def _crest_envelope(track: EdgeTrack) -> tuple[float | None, float | None, int]:
         if peak_indices and i - peak_indices[-1] < 3:
             if smooth[i] > smooth[peak_indices[-1]]:
                 peak_indices[-1] = i
+                peak_prominences[-1] = float(prominence)
             continue
         peak_indices.append(i)
+        peak_prominences.append(float(prominence))
 
     if len(peak_indices) < 4:
-        return None, None, len(peak_indices)
+        # Smooth non-threaded shanks are still measurable. A single stable
+        # physical surface on both sides is sufficient for cylindrical D.
+        stable = values[valid]
+        median_stable = float(np.median(stable))
+        spread = float(np.percentile(stable, 75) - np.percentile(stable, 25))
+        if spread <= 1.0 and int(np.count_nonzero(valid)) >= 20:
+            return median_stable, max(
+                float(np.median(track.uncertainty_px[valid])),
+                1.4826 * float(np.median(np.abs(stable - median_stable))),
+            ), int(np.count_nonzero(valid)), None
+        return None, None, len(peak_indices), None
     peaks = np.array([float(smooth[i]) for i in peak_indices])
     errors = np.array([float(track.uncertainty_px[i]) for i in peak_indices])
+    relief = np.asarray(peak_prominences, dtype=np.float64)
 
     # Major D is the repeated outer crest envelope, not the inner root or
     # smooth shank.  Reject isolated high glints/spikes by requiring a cluster.
@@ -197,21 +213,23 @@ def _crest_envelope(track: EdgeTrack) -> tuple[float | None, float | None, int]:
         chosen[np.argsort(peaks)[-4:]] = True
     heights = peaks[chosen]
     uncertainties = errors[chosen]
+    relief = relief[chosen]
     median = float(np.median(heights))
     mad = float(np.median(np.abs(heights - median)))
     coherent = np.abs(heights - median) <= max(2.0, 3.0 * mad)
     if int(np.count_nonzero(coherent)) < 4:
-        return None, None, int(np.count_nonzero(coherent))
+        return None, None, int(np.count_nonzero(coherent)), None
     heights = heights[coherent]
     uncertainties = uncertainties[coherent]
+    relief = relief[coherent]
     estimate = float(np.median(heights))
     # The 1.4826*MAD term is observed tooth-to-tooth variation, not a fitted
     # edge's statistical error. Keep both to avoid false precision.
     dispersion = 1.4826 * float(np.median(np.abs(heights - estimate)))
     uncertainty = max(float(np.median(uncertainties)), dispersion)
     if uncertainty > max(2.0, 0.14 * abs(estimate)):
-        return None, uncertainty, len(heights)
-    return estimate, uncertainty, len(heights)
+        return None, uncertainty, len(heights), float(np.median(relief))
+    return estimate, uncertainty, len(heights), float(np.median(relief))
 
 
 def measure_thread_major_diameter(
@@ -219,8 +237,8 @@ def measure_thread_major_diameter(
     profile: ThreadedShankProfile,
 ) -> DiameterObservation:
     upper, lower = observe_thread_edges(image_rgb, profile)
-    up, up_unc, up_n = _crest_envelope(upper)
-    lo, lo_unc, lo_n = _crest_envelope(lower)
+    up, up_unc, up_n, up_relief = _crest_envelope(upper)
+    lo, lo_unc, lo_n, lo_relief = _crest_envelope(lower)
     reason = None
     value = None
     uncertainty = None
@@ -229,9 +247,22 @@ def measure_thread_major_diameter(
     else:
         value = up + lo
         uncertainty = float(np.hypot(up_unc, lo_unc))
-        if uncertainty > max(2.5, 0.08 * value):
+        # An apparently excellent logistic fit can track a dark reflectance
+        # band *inside* a shiny metal crest. Optical spread wider than the
+        # observed crest relief means the physical crest is under-resolved;
+        # tiny fit residuals alone must not produce false precision.
+        for track, relief in ((upper, up_relief), (lower, lo_relief)):
+            if relief is None:
+                continue  # genuinely smooth shank; no tooth relief to resolve
+            crest_blur = float(np.median(track.blur_10_90_px[track.valid]))
+            if crest_blur > max(3.0, relief * 2.5):
+                reason = "edge_crest_underresolved"
+                value = None
+                break
+        if value is not None and uncertainty > max(2.5, 0.08 * value):
             reason = "edge_diameter_uncertain"
             value = None
     return DiameterObservation(
         value, uncertainty, upper, lower, up_n, lo_n, up, lo, reason,
+        up_relief, lo_relief,
     )
