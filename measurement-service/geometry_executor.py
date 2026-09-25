@@ -346,6 +346,10 @@ def execute_geometry_steps(
                 diagnostics["edge_upper_crest_px"] = _round(observation.upper_crest_px)
             if observation.lower_crest_px is not None:
                 diagnostics["edge_lower_crest_px"] = _round(observation.lower_crest_px)
+            if observation.positive_normal_relief_px is not None:
+                diagnostics["edge_upper_crest_relief_px"] = _round(observation.positive_normal_relief_px)
+            if observation.negative_normal_relief_px is not None:
+                diagnostics["edge_lower_crest_relief_px"] = _round(observation.negative_normal_relief_px)
             if observation.uncertainty_px is not None:
                 diagnostics["edge_diameter_uncertainty_px"] = _round(observation.uncertainty_px)
             if observation.value_px is None:
