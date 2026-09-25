@@ -145,6 +145,60 @@ jobs:
           )
           print("CASE_E_VTHREAD_D=" + json.dumps(v_payload, sort_keys=True))
 
+          # Physics sanity sweep: idealized 60-degree V threads with known
+          # geometry, varied optical blur, no catalog-size lookup.
+          synthetic = []
+          for blur_sigma in (0.4, 0.8, 1.2, 1.6, 2.0, 2.5, 3.0):
+              h, w = 180, 720
+              center_y = 90.0
+              p = 8.0
+              major_r = 24.0
+              xs = np.arange(120, 661, dtype=float)
+              phase = np.mod(xs - 120 + 0.5 * p, p) - 0.5 * p
+              # Basic external 60-degree V depth, crest to root radius.
+              radial_depth = 0.613434 * p
+              radius = major_r - radial_depth * (np.abs(phase) / (0.5 * p))
+              mask = np.zeros((h, w), dtype=np.uint8)
+              head = np.array([[60,50],[120,50],[120,130],[60,130]], np.int32)
+              cv2.fillPoly(mask, [head], 255)
+              top = np.column_stack([xs, center_y - radius]).astype(np.int32)
+              bottom = np.column_stack([xs[::-1], (center_y + radius)[::-1]]).astype(np.int32)
+              cv2.fillPoly(mask, [np.vstack([top,bottom])], 255)
+              blurred = cv2.GaussianBlur(mask, (0,0), sigmaX=blur_sigma, sigmaY=blur_sigma)
+              binary = (blurred >= 128).astype(np.uint8) * 255
+              contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+              contour_syn = max(contours, key=cv2.contourArea)
+              prof_syn = detect_threaded_shank(contour_syn)
+              if prof_syn is None:
+                  synthetic.append({"blur_sigma":blur_sigma,"status":"no_profile"})
+                  continue
+              measured_syn = measure_outer_width_px(prof_syn)
+              if measured_syn is None:
+                  synthetic.append({"blur_sigma":blur_sigma,"status":"no_width"})
+                  continue
+              corrected_syn = estimate_major_from_pitch_diameter(measured_syn, p)
+              syn_rgb = np.repeat((255-blurred)[:, :, None], 3, axis=2)
+              # observe_thread_edges expects a dark-object/light-background RGB
+              syn_rgb = 255 - syn_rgb
+              syn_rgb = np.repeat((255-blurred)[:, :, None], 3, axis=2)
+              tracks_syn = observe_thread_edges(syn_rgb, prof_syn)
+              blur_stats = []
+              for tr in tracks_syn:
+                  blur_stats.append(
+                      float(np.median(tr.blur_10_90_px[tr.valid]))
+                      if np.any(tr.valid) else None
+                  )
+              synthetic.append({
+                  "blur_sigma":blur_sigma,
+                  "direct_px":measured_syn,
+                  "corrected_px":corrected_syn.major_diameter_px,
+                  "gt_major_px":48.0,
+                  "direct_error_px":measured_syn-48.0,
+                  "corrected_error_px":corrected_syn.major_diameter_px-48.0,
+                  "edge_blur_px":blur_stats,
+              })
+          print("CASE_E_VTHREAD_SYNTHETIC_SWEEP=" + json.dumps(synthetic))
+
           payload = asdict(estimate)
           payload["pitch_px"] = periodicity.pitch_px
           payload["scale_px_per_cm"] = scale.px_per_cm
