@@ -1,0 +1,73 @@
+{
+  "dataset_id": "hcsi-real-measurement-cases-v1",
+  "locked_at": "2026-09-26",
+  "baseline_code": {
+    "branch": "feature/edge-observation-primitive",
+    "commit": "64f8f405ff01053b2d0c8a29e8376119e9032dba"
+  },
+  "private_fixture_storage": "/HCSI/benchmarks/hcsi-real-measurement-cases-v1/",
+  "rules": {
+    "fixture_gt_pairing_is_immutable": true,
+    "verify_sha256_before_every_rerun": true,
+    "do_not_replace_fixture_with_similar_image": true,
+    "ground_truth_must_not_be_inferred_from_model_output": true,
+    "semantic_region_coordinate_space": "normalized_0_1000"
+  },
+  "cases": [
+    {
+      "id": "A",
+      "fixture": "case-a.jpg",
+      "sha256": "5d6ee9563fd9a2e0d6861d74d581d4bae38a4f9181326d568291c1981e70b988",
+      "identity": "Moss Motors 322-945, #10-32 x 7/8 in pan-head screw",
+      "source_page": "https://mossmotors.com/322-945-screw-10-32-x-7-8-pan-head",
+      "ground_truth": {"D_mm": 4.826, "P_mm": 0.79375, "L_mm": 22.225, "head_style": "pan"},
+      "length_convention": "head_underface_to_tip",
+      "semantic_input": {"target_region": [120,240,450,450], "reference_region": [185,155,1000,750], "head_style": "pan"},
+      "provenance": {"artifact_id": 10706328370, "workflow_run_id": 35753143674, "workflow_head_sha": "517ed63d26be563aa5aa9e0f0cd691539fe17b8e"}
+    },
+    {
+      "id": "B",
+      "fixture": "case-b.jpg",
+      "sha256": "6f18c4db1acb3879cf52f5965a53795f75dc069c428cd39af54e276bdaa02be6",
+      "identity": "DougDeals R20B002, M6-1.0 x 40 mm DIN 965 flat/countersunk screw",
+      "source_page": "https://www.dougdeals.com/box-of-1-000-m6-1-0-x-40mm-din-965-phillips-flat-head-machine-screws-zinc/",
+      "ground_truth": {"D_mm": 6.0, "P_mm": 1.0, "L_mm": 40.0, "head_style": "flat_countersunk"},
+      "length_convention": "head_top_to_tip",
+      "semantic_input": {"target_region": [50,245,970,515], "reference_region": [50,535,1000,850], "head_style": "flat_countersunk"},
+      "provenance": {"artifact_id": 10706328370, "workflow_run_id": 35753143674, "workflow_head_sha": "517ed63d26be563aa5aa9e0f0cd691539fe17b8e"}
+    },
+    {
+      "id": "C",
+      "fixture": "case-c.webp",
+      "sha256": "3c52044724df828c971fee66c6b8f8dd4a684407d4b3c6b2ed2a75114a2fafa4",
+      "identity": "DougDeals / Nucor M14-2.0 x 45 mm hex-head bolt",
+      "source_page": "https://www.dougdeals.com/box-of-250-nucor-m14-2-0-x-45-grade-10-9-metric-hex-head-bolts-zinc-usa-made/",
+      "ground_truth": {"D_mm": 14.0, "P_mm": 2.0, "L_mm": 45.0, "head_style": "hex"},
+      "length_convention": "head_underface_to_tip",
+      "semantic_input": {"target_region": [0,60,1000,600], "reference_region": [0,600,1000,900], "head_style": "hex"},
+      "provenance": {"artifact_id": 10767114473, "workflow_run_id": 35898262179, "workflow_head_sha": "8e32939af28aea17c398d3f6403dc21db0c3b0f9", "note": "Artifact filename was C-original.jpg but exact bytes decode as WEBP."}
+    },
+    {
+      "id": "D",
+      "fixture": "case-d.jpg",
+      "sha256": "c0c0929f03eb6b3b053b92e0b6fcee12f20e921360d4cfe31bfef44cdc721d10",
+      "identity": "Univair NAS220-6 / MS27039-0806, #8-32 x 13/32 in pan-head machine screw",
+      "source_page": "https://www.univair.com/hardware/nas220-6-pan-head-machine-screw/",
+      "ground_truth": {"D_mm": 4.1656, "P_mm": 0.79375, "L_mm": 10.31875, "head_style": "pan"},
+      "length_convention": "head_underface_to_tip",
+      "semantic_input": {"target_region": [285,390,735,650], "reference_region": [210,615,1000,815], "head_style": "pan"},
+      "provenance": {"artifact_id": 10811803296, "workflow_run_id": 36009560609, "workflow_head_sha": "8eccc5077f46c52fad45179d42c1839cca2a40a4", "note": "Use artifact-exact bytes; do not use a separately re-encoded D-original copy."}
+    },
+    {
+      "id": "E",
+      "fixture": "case-e.jpeg",
+      "sha256": "f05a8ab6d3188469a1d16648bb58cc0a7348e57d367266aa836e10b114a202af",
+      "identity": "User-provided M3 x 30 mm socket-head machine screw",
+      "ground_truth": {"D_mm": 3.0, "P_mm": 0.5, "L_mm": 30.0, "head_style": "socket_cap"},
+      "length_convention": "head_underface_to_tip",
+      "semantic_input": {"target_region": [165,710,850,920], "reference_region": [230,130,1000,705], "head_style": "socket_cap"},
+      "repository_derivative": {"sha256": "b408b06f7cc0f70558203e90d8702680269c12fc276cf1fadf4d4f0800e3f385", "parts_glob": "benchmark/measurement-poc/cases/case-e-m3x30-q80.part*.b64"},
+      "provenance": {"workflow_run_id": 36171926659, "workflow_head_sha": "64f8f405ff01053b2d0c8a29e8376119e9032dba", "status": "complete workflow passed; D/P/L all measured"}
+    }
+  ]
+}
