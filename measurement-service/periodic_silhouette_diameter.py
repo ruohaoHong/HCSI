@@ -139,17 +139,40 @@ def _outer_candidate(
         if valid[i] and np.count_nonzero(valid[i-2:i+3])>=3:
             good[i]=True
     idx=np.flatnonzero(good)
+    radial_idx=np.flatnonzero(radial)
+    peak_radius=abs(float(q[radial_idx[int(np.argmax(amps[radial_idx]))]])) if len(radial_idx) else None
+
     if not len(idx):
-        peak_idx=np.flatnonzero(radial)
-        peak_radius=abs(float(q[peak_idx[int(np.argmax(amps[peak_idx]))]])) if len(peak_idx) else None
+        # At high blur the periodic tail may never clear the conservative
+        # outer-support gate even though its high-SNR transition inflection is
+        # well defined. In that regime the inflection is the symmetric-PSF
+        # estimate of the latent physical edge.
+        if inflection_radius is not None:
+            inf_i=int(np.argmin(np.abs(np.abs(q)-inflection_radius)))
+            if scores[inf_i]>=8.0 and amps[inf_i]>=max(0.10,floor*0.60):
+                return PeriodicSilhouetteSide(
+                    inflection_radius,float(amps[inf_i]),float(scores[inf_i]),
+                    float(floor),peak_radius,inflection_radius,True,None,
+                )
         return PeriodicSilhouetteSide(None,None,None,floor,peak_radius,inflection_radius,False,
                                       "periodic_silhouette_not_resolved")
+
     chosen=int(idx[-1] if side>0 else idx[0])
-    radius=abs(float(q[chosen]))
-    radial_idx=np.flatnonzero(radial)
-    peak_radius=abs(float(q[radial_idx[int(np.argmax(amps[radial_idx]))]]))
+    outer_radius=abs(float(q[chosen]))
+    radius=outer_radius
+    chosen_i=chosen
+    # With strong periodic SNR, the farthest significant sample is merely the
+    # optical blur tail and biases D outward. The steepest outward decay is a
+    # better physical-boundary estimator. Low-SNR metal edges retain the
+    # conservative outer-support estimate because their derivative is dominated
+    # by internal reflectance texture.
+    if scores[chosen]>=10.0 and inflection_radius is not None:
+        inf_i=int(np.argmin(np.abs(np.abs(q)-inflection_radius)))
+        if amps[inf_i]>=max(0.10,floor*0.60):
+            radius=inflection_radius
+            chosen_i=inf_i
     return PeriodicSilhouetteSide(
-        radius,float(amps[chosen]),float(scores[chosen]),float(floor),
+        radius,float(amps[chosen_i]),float(scores[chosen_i]),float(floor),
         peak_radius,inflection_radius,True,None,
     )
 
