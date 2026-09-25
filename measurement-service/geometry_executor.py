@@ -11,6 +11,7 @@ from geometry import (
     _select_physical_object_candidate,
 )
 from edge_observation import measure_thread_major_diameter, observe_thread_edges
+from periodic_silhouette_diameter import estimate_periodic_silhouette_diameter
 from thread_geometry import (
     HeadUnderfaceEstimate,
     ThreadedShankProfile,
@@ -374,15 +375,97 @@ def execute_geometry_steps(
                 diagnostics["edge_axis_extrapolation_px"] = _round(observation.axis_extrapolation_px)
             if observation.uncertainty_px is not None:
                 diagnostics["edge_diameter_uncertainty_px"] = _round(observation.uncertainty_px)
-            if observation.value_px is None:
+            diameter_value_px = observation.value_px
+            diameter_uncertainty_px = observation.uncertainty_px
+            diameter_method = observation.measurement_mode
+
+            # If local crest/axis geometry cannot support D, use the independently
+            # measured thread period to accumulate weak raw-image silhouette
+            # evidence across many cycles. This is still a measurement path:
+            # it uses no catalog diameter or ground-truth size. Only a bilateral
+            # periodic silhouette is allowed to rescue an otherwise refused D.
+            if diameter_value_px is None and old_width is not None:
+                periodicity_for_d = measure_periodicity_px(
+                    shank_profile,
+                    old_width,
+                    edge_tracks=(observation.upper, observation.lower),
+                )
+                diagnostics["periodic_d_pitch_px"] = _round(
+                    periodicity_for_d.pitch_px,
+                )
+                diagnostics["periodic_d_pitch_side"] = (
+                    periodicity_for_d.selected_side
+                )
+                diagnostics["periodic_d_pitch_mode"] = (
+                    periodicity_for_d.selection_mode
+                )
+                if periodicity_for_d.pitch_px is not None:
+                    silhouette = estimate_periodic_silhouette_diameter(
+                        image_rgb,
+                        shank_profile,
+                        periodicity_for_d.pitch_px,
+                    )
+                    diagnostics["periodic_silhouette_mode"] = silhouette.mode
+                    diagnostics["periodic_silhouette_axis_rms_px"] = _round(
+                        silhouette.axis_rms_px,
+                    )
+                    diagnostics["periodic_silhouette_positive_radius_px"] = _round(
+                        silhouette.positive.radius_px,
+                    )
+                    diagnostics["periodic_silhouette_negative_radius_px"] = _round(
+                        silhouette.negative.radius_px,
+                    )
+                    diagnostics["periodic_silhouette_positive_t_score"] = _round(
+                        silhouette.positive.t_score,
+                    )
+                    diagnostics["periodic_silhouette_negative_t_score"] = _round(
+                        silhouette.negative.t_score,
+                    )
+                    diagnostics["periodic_silhouette_positive_noise_floor"] = _round(
+                        silhouette.positive.noise_floor,
+                    )
+                    diagnostics["periodic_silhouette_negative_noise_floor"] = _round(
+                        silhouette.negative.noise_floor,
+                    )
+                    if silhouette.diameter_px is not None:
+                        diagnostics["periodic_silhouette_candidate_px"] = _round(
+                            silhouette.diameter_px,
+                        )
+                    if silhouette.uncertainty_px is not None:
+                        diagnostics["periodic_silhouette_uncertainty_px"] = _round(
+                            silhouette.uncertainty_px,
+                        )
+                    if silhouette.reason is not None:
+                        diagnostics["periodic_silhouette_reason"] = silhouette.reason
+
+                    if (
+                        silhouette.diameter_px is not None
+                        and silhouette.uncertainty_px is not None
+                        and silhouette.mode == "bilateral_periodic_silhouette"
+                        and silhouette.uncertainty_px
+                        <= max(2.5, 0.08 * silhouette.diameter_px)
+                    ):
+                        diameter_value_px = float(silhouette.diameter_px)
+                        diameter_uncertainty_px = float(
+                            silhouette.uncertainty_px
+                        )
+                        diameter_method = "bilateral_periodic_silhouette"
+                        diagnostics["edge_diameter_mode_code"] = 3.0
+
+            if diameter_value_px is None:
                 results.append(_not_measured(
                     step, observation.reason or "edge_diameter_unreliable", diagnostics,
                 ))
                 continue
-            value_mm = observation.value_px / px_per_cm * 10.0
-            if observation.uncertainty_px is not None:
+
+            diagnostics["edge_diameter_method"] = diameter_method
+            value_mm = diameter_value_px / px_per_cm * 10.0
+            if diameter_uncertainty_px is not None:
+                diagnostics["edge_diameter_uncertainty_px"] = _round(
+                    diameter_uncertainty_px,
+                )
                 diagnostics["edge_diameter_uncertainty_mm"] = _round(
-                    observation.uncertainty_px / px_per_cm * 10.0,
+                    diameter_uncertainty_px / px_per_cm * 10.0,
                 )
             results.append(
                 {
@@ -390,7 +473,7 @@ def execute_geometry_steps(
                     "inputs": inputs,
                     "purpose": str(step.get("purpose", "")),
                     "status": "measured",
-                    "value_px": _round(observation.value_px),
+                    "value_px": _round(diameter_value_px),
                     "value_mm": _round(value_mm, 2),
                     "derived_tpi": None,
                     "landmarks": _threaded_shank_landmarks(shank_profile),
