@@ -7,13 +7,36 @@ This module intentionally has no knowledge of thread pitch or nominal fastener D
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import cv2
 import numpy as np
 
 from thread_geometry import ThreadedShankProfile
 from diameter_axis import estimate_independent_axis
+
+
+@dataclass(frozen=True)
+class EdgeObservation:
+    """One raw-image observation of an object-to-background transition.
+
+    ``position_xy`` is the fitted 50%-contrast location. ``offset_px`` is its
+    signed displacement from the coarse contour point along ``normal_xy``.
+    Uncertainty is an image-space localization proxy derived from sampling,
+    optical spread, contrast, gradient, and fit residual; it is not a
+    calibrated statistical confidence interval.
+    """
+
+    position_xy: tuple[float, float]
+    normal_xy: tuple[float, float]
+    offset_px: float
+    uncertainty_px: float
+    contrast: float
+    gradient_strength: float
+    edge_spread_px: float
+    fit_residual: float
+    valid: bool
+    reason_code: str | None
 
 
 @dataclass(frozen=True)
@@ -25,6 +48,32 @@ class EdgeTrack:
     blur_10_90_px: np.ndarray
     relative_residual: np.ndarray
     valid: np.ndarray
+    gradient_strength: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64)
+    )
+    observations: tuple[EdgeObservation, ...] = ()
+
+    @property
+    def valid_fraction(self) -> float:
+        return float(np.mean(self.valid)) if len(self.valid) else 0.0
+
+    def _valid_median(self, values: np.ndarray) -> float:
+        usable = self.valid & np.isfinite(values) if len(values) == len(self.valid) else None
+        if usable is None or not np.any(usable):
+            return float("nan")
+        return float(np.median(values[usable]))
+
+    @property
+    def median_uncertainty_px(self) -> float:
+        return self._valid_median(self.uncertainty_px)
+
+    @property
+    def median_edge_spread_px(self) -> float:
+        return self._valid_median(self.blur_10_90_px)
+
+    @property
+    def median_gradient_strength(self) -> float:
+        return self._valid_median(self.gradient_strength)
 
 
 @dataclass(frozen=True)
@@ -51,6 +100,233 @@ class DiameterObservation:
     axis_extrapolation_px: float | None = None
 
 
+def _grayscale(image: np.ndarray) -> np.ndarray:
+    data = np.asarray(image)
+    if data.ndim == 2:
+        gray = data
+    elif data.ndim == 3 and data.shape[2] == 3:
+        gray = cv2.cvtColor(data, cv2.COLOR_RGB2GRAY)
+    elif data.ndim == 3 and data.shape[2] == 4:
+        gray = cv2.cvtColor(data, cv2.COLOR_RGBA2GRAY)
+    else:
+        raise ValueError("image must be grayscale, RGB, or RGBA")
+    return gray.astype(np.float32, copy=False)
+
+
+def _invalid_observation(
+    coarse_xy: np.ndarray,
+    normal_xy: np.ndarray,
+    reason_code: str,
+    *,
+    contrast: float = float("nan"),
+    gradient_strength: float = float("nan"),
+    edge_spread_px: float = float("nan"),
+    fit_residual: float = float("nan"),
+) -> EdgeObservation:
+    return EdgeObservation(
+        position_xy=(float(coarse_xy[0]), float(coarse_xy[1])),
+        normal_xy=(float(normal_xy[0]), float(normal_xy[1])),
+        offset_px=float("nan"),
+        uncertainty_px=float("inf"),
+        contrast=contrast,
+        gradient_strength=gradient_strength,
+        edge_spread_px=edge_spread_px,
+        fit_residual=fit_residual,
+        valid=False,
+        reason_code=reason_code,
+    )
+
+
+def observe_edge(
+    image: np.ndarray,
+    coarse_position_xy: tuple[float, float] | np.ndarray,
+    outward_normal_xy: tuple[float, float] | np.ndarray,
+    *,
+    half_length_px: float = 10.0,
+    sample_step_px: float = 0.25,
+    min_contrast: float = 20.0,
+) -> EdgeObservation:
+    """Localize one physical edge from raw pixels near a coarse contour point.
+
+    Negative profile coordinates are expected to be inside the object and
+    positive coordinates outside it. The returned position is selected by a
+    small family of logistic edge-spread fits, never by resizing the image or
+    treating the supplied contour coordinate as the measurement edge.
+    """
+    coarse = np.asarray(coarse_position_xy, dtype=np.float64).reshape(-1)
+    normal = np.asarray(outward_normal_xy, dtype=np.float64).reshape(-1)
+    if coarse.shape != (2,) or not np.all(np.isfinite(coarse)):
+        raise ValueError("coarse_position_xy must contain two finite values")
+    if normal.shape != (2,) or not np.all(np.isfinite(normal)):
+        raise ValueError("outward_normal_xy must contain two finite values")
+    normal_length = float(np.linalg.norm(normal))
+    if normal_length <= 1e-9:
+        return _invalid_observation(coarse, np.zeros(2), "invalid_normal")
+    normal = normal / normal_length
+    if half_length_px < 5.0 or sample_step_px <= 0.0 or sample_step_px > 1.0:
+        raise ValueError("profile sampling must use half_length_px >= 5 and 0 < step <= 1")
+
+    gray = _grayscale(image)
+    u = np.arange(
+        -half_length_px,
+        half_length_px + sample_step_px * 0.5,
+        sample_step_px,
+        dtype=np.float64,
+    )
+    xy = coarse[None, :] + u[:, None] * normal[None, :]
+    if (
+        float(np.min(xy[:, 0])) < 1.0
+        or float(np.max(xy[:, 0])) >= gray.shape[1] - 1
+        or float(np.min(xy[:, 1])) < 1.0
+        or float(np.max(xy[:, 1])) >= gray.shape[0] - 1
+    ):
+        return _invalid_observation(coarse, normal, "profile_out_of_bounds")
+
+    samples = cv2.remap(
+        gray,
+        xy[:, 0].astype(np.float32).reshape(1, -1),
+        xy[:, 1].astype(np.float32).reshape(1, -1),
+        cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT_101,
+    ).astype(np.float64).ravel()
+    fg_region = (u >= -0.90 * half_length_px) & (u <= -0.55 * half_length_px)
+    bg_region = (u >= 0.60 * half_length_px) & (u <= 0.95 * half_length_px)
+    foreground = float(np.median(samples[fg_region]))
+    background = float(np.median(samples[bg_region]))
+    contrast = background - foreground
+    if contrast < min_contrast:
+        return _invalid_observation(
+            coarse, normal, "low_contrast", contrast=contrast,
+        )
+
+    mid_region = (u >= -0.60 * half_length_px) & (u <= 0.70 * half_length_px)
+    mid_u = u[mid_region]
+    observed = samples[mid_region]
+    sigmas = (0.55, 0.85, 1.25, 1.8, 2.5, 3.4)
+    centers = np.arange(
+        -0.55 * half_length_px,
+        0.65 * half_length_px + sample_step_px * 0.5,
+        sample_step_px,
+    )
+    model_centers = np.tile(centers, len(sigmas))
+    model_sigma = np.repeat(np.asarray(sigmas, dtype=np.float64), len(centers))
+    occupancy = 1.0 / (
+        1.0
+        + np.exp(
+            np.clip(
+                (mid_u[None, :] - model_centers[:, None]) / model_sigma[:, None],
+                -30,
+                30,
+            )
+        )
+    )
+    predicted = background + (foreground - background) * occupancy
+    residuals = observed[None, :] - predicted
+    clipped = np.clip(residuals, -contrast * 0.65, contrast * 0.65)
+    losses = np.mean(clipped * clipped, axis=1)
+    # Prefer the contour neighbourhood only as a weak prior; raw pixels still
+    # control the subpixel location and may move it in either direction.
+    losses += 0.15 * model_centers * model_centers
+    best = int(np.argmin(losses))
+    mu = float(model_centers[best])
+    sigma = float(model_sigma[best])
+    fit = predicted[best]
+    local = np.abs(mid_u - mu) <= max(2.5, 1.8 * sigma)
+    rmse = float(np.sqrt(np.mean((observed[local] - fit[local]) ** 2)))
+    relative_residual = rmse / contrast
+    edge_spread = 4.394 * sigma
+
+    derivative = np.gradient(samples, u)
+    near_edge = np.abs(u - mu) <= max(1.0, sigma)
+    gradient_strength = float(np.max(derivative[near_edge]))
+    metrics = dict(
+        contrast=contrast,
+        gradient_strength=gradient_strength,
+        edge_spread_px=edge_spread,
+        fit_residual=relative_residual,
+    )
+    if relative_residual > 0.30:
+        return _invalid_observation(coarse, normal, "poor_fit", **metrics)
+    if edge_spread > 12.0:
+        return _invalid_observation(coarse, normal, "edge_too_blurred", **metrics)
+    if gradient_strength < max(3.0, contrast * 0.07):
+        return _invalid_observation(coarse, normal, "weak_gradient", **metrics)
+
+    # Localization uncertainty grows when the transition is broad, its slope
+    # is weak, or the edge-spread fit leaves residual image noise. The small
+    # sampling term is a lower bound from the finite profile spacing, not a
+    # fixed uncertainty assigned to every observation.
+    sampling_uncertainty = sample_step_px / np.sqrt(12.0)
+    noise_to_slope = max(rmse, 1.0) / max(gradient_strength, 1e-6)
+    spread_penalty = 0.025 * edge_spread
+    residual_penalty = 0.20 * relative_residual * edge_spread
+    uncertainty = float(np.sqrt(
+        sampling_uncertainty ** 2
+        + noise_to_slope ** 2
+        + spread_penalty ** 2
+        + residual_penalty ** 2
+    ))
+    position = coarse + normal * mu
+    return EdgeObservation(
+        position_xy=(float(position[0]), float(position[1])),
+        normal_xy=(float(normal[0]), float(normal[1])),
+        offset_px=mu,
+        uncertainty_px=uncertainty,
+        contrast=contrast,
+        gradient_strength=gradient_strength,
+        edge_spread_px=edge_spread,
+        fit_residual=relative_residual,
+        valid=True,
+        reason_code=None,
+    )
+
+
+def observe_edge_track(
+    image: np.ndarray,
+    coarse_positions_xy: np.ndarray,
+    outward_normals_xy: np.ndarray | tuple[float, float],
+    *,
+    s_px: np.ndarray | None = None,
+    **observation_kwargs,
+) -> EdgeTrack:
+    """Observe a sequence of coarse edge points without pooling side quality."""
+    points = np.asarray(coarse_positions_xy, dtype=np.float64)
+    if points.ndim != 2 or points.shape[1] != 2:
+        raise ValueError("coarse_positions_xy must have shape (N, 2)")
+    normals = np.asarray(outward_normals_xy, dtype=np.float64)
+    if normals.shape == (2,):
+        normals = np.repeat(normals[None, :], len(points), axis=0)
+    if normals.shape != points.shape:
+        raise ValueError("outward_normals_xy must have shape (2,) or (N, 2)")
+    coordinates = (
+        np.arange(len(points), dtype=np.float64)
+        if s_px is None
+        else np.asarray(s_px, dtype=np.float64)
+    )
+    if coordinates.shape != (len(points),):
+        raise ValueError("s_px must have shape (N,)")
+
+    observations = tuple(
+        observe_edge(image, point, normal, **observation_kwargs)
+        for point, normal in zip(points, normals)
+    )
+    return EdgeTrack(
+        s_px=coordinates,
+        # For a generic track this compatibility field is the displacement
+        # from each coarse point. Thread tracks retain their radial semantics.
+        outward_px=np.asarray([item.offset_px for item in observations]),
+        uncertainty_px=np.asarray([item.uncertainty_px for item in observations]),
+        contrast=np.asarray([item.contrast for item in observations]),
+        blur_10_90_px=np.asarray([item.edge_spread_px for item in observations]),
+        relative_residual=np.asarray([item.fit_residual for item in observations]),
+        valid=np.asarray([item.valid for item in observations], dtype=bool),
+        gradient_strength=np.asarray(
+            [item.gradient_strength for item in observations]
+        ),
+        observations=observations,
+    )
+
+
 def _edge_track(
     image_rgb: np.ndarray,
     profile: ThreadedShankProfile,
@@ -67,7 +343,10 @@ def _edge_track(
     n = len(s)
     missing = np.full(n, np.nan, dtype=np.float64)
     if n == 0:
-        return EdgeTrack(s, missing, missing, missing, missing, missing, np.zeros(0, dtype=bool))
+        return EdgeTrack(
+            s, missing, missing, missing, missing, missing,
+            np.zeros(0, dtype=bool), gradient_strength=missing,
+        )
 
     gray = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2GRAY).astype(np.float32)
     u = np.arange(-10.0, 10.01, 0.25, dtype=np.float64)
@@ -92,7 +371,10 @@ def _edge_track(
     contrast_values = missing.copy()
     blur_values = missing.copy()
     residual_values = missing.copy()
+    gradient_values = missing.copy()
     valid = np.zeros(n, dtype=bool)
+    reasons = np.full(n, "profile_out_of_bounds", dtype=object)
+    reasons[~np.isfinite(coarse)] = "invalid_coarse_position"
 
     fg_region = (u >= -9.0) & (u <= -5.5)
     bg_region = (u >= 6.0) & (u <= 9.5)
@@ -112,10 +394,12 @@ def _edge_track(
     model_sigma = np.array([p[1] for p in templates])
 
     for index in np.flatnonzero(inside_image & np.isfinite(coarse)):
+        reasons[index] = "low_contrast"
         samples = profiles[index]
         foreground = float(np.median(samples[fg_region]))
         background = float(np.median(samples[bg_region]))
         contrast = background - foreground
+        contrast_values[index] = contrast
         if contrast < 20.0:
             continue
 
@@ -136,23 +420,62 @@ def _edge_track(
         rmse = float(np.sqrt(np.mean((observed[local] - fit[local]) ** 2)))
         relative = rmse / contrast
         blur = 4.394 * sigma  # Logistic 10-90% transition width.
-        if relative > 0.30 or blur > 12.0:
+        blur_values[index] = blur
+        residual_values[index] = relative
+        if relative > 0.30:
+            reasons[index] = "poor_fit"
+            continue
+        if blur > 12.0:
+            reasons[index] = "edge_too_blurred"
             continue
 
         # Check that the fitted edge is a real dark-to-light transition.
         derivative = np.gradient(samples, u)
         near_edge = np.abs(u - mu) <= max(1.0, sigma)
-        if float(np.max(derivative[near_edge])) < max(3.0, contrast * 0.07):
+        gradient = float(np.max(derivative[near_edge]))
+        gradient_values[index] = gradient
+        if gradient < max(3.0, contrast * 0.07):
+            reasons[index] = "weak_gradient"
             continue
         result_offset[index] = outward_sign * (coarse[index] + outward_sign * mu)
         # Proxy includes fit noise and optical spread; not a calibrated CI.
         uncertainty[index] = 0.15 + sigma * max(rmse, 2.0) / contrast
-        contrast_values[index] = contrast
-        blur_values[index] = blur
-        residual_values[index] = relative
         valid[index] = True
+        reasons[index] = None
 
-    return EdgeTrack(s, result_offset, uncertainty, contrast_values, blur_values, residual_values, valid)
+    coarse_xy = (
+        profile.center[None, :]
+        + profile.axis[None, :] * s[:, None]
+        + profile.normal[None, :] * coarse[:, None]
+    )
+    outward_normal = profile.normal * outward_sign
+    observations = tuple(
+        EdgeObservation(
+            position_xy=(
+                float(coarse_xy[i, 0] + outward_normal[0] * (
+                    result_offset[i] - outward_sign * coarse[i]
+                )) if valid[i] else float(coarse_xy[i, 0]),
+                float(coarse_xy[i, 1] + outward_normal[1] * (
+                    result_offset[i] - outward_sign * coarse[i]
+                )) if valid[i] else float(coarse_xy[i, 1]),
+            ),
+            normal_xy=(float(outward_normal[0]), float(outward_normal[1])),
+            offset_px=float(result_offset[i] - outward_sign * coarse[i])
+            if valid[i] else float("nan"),
+            uncertainty_px=float(uncertainty[i]) if valid[i] else float("inf"),
+            contrast=float(contrast_values[i]),
+            gradient_strength=float(gradient_values[i]),
+            edge_spread_px=float(blur_values[i]),
+            fit_residual=float(residual_values[i]),
+            valid=bool(valid[i]),
+            reason_code=None if valid[i] else str(reasons[i]),
+        )
+        for i in range(n)
+    )
+    return EdgeTrack(
+        s, result_offset, uncertainty, contrast_values, blur_values,
+        residual_values, valid, gradient_values, observations,
+    )
 
 
 def observe_thread_edges(
