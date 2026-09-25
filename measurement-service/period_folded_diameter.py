@@ -60,6 +60,41 @@ def _robust_line(x: np.ndarray, y: np.ndarray):
     return float(m), float(b), float(np.sqrt(np.mean(err * err))), keep
 
 
+def _harmonic_relief(
+    s: np.ndarray,
+    residual: np.ndarray,
+    pitch_px: float,
+    edge_spread_px: float | None,
+):
+    """Recover latent triangle relief from the repeated fundamental.
+
+    For a symmetric triangular radial profile the fundamental amplitude is
+    8/pi^2 of mean-to-crest relief.  A Gaussian PSF attenuates that harmonic by
+    exp(-0.5*(2*pi*sigma/P)^2).  The edge track's 10-90 spread supplies an
+    image-derived blur proxy; no nominal diameter participates.
+    """
+    if edge_spread_px is None or not np.isfinite(edge_spread_px):
+        return None
+    sigma = max(0.0, float(edge_spread_px) / 2.563)
+    transfer = float(np.exp(-0.5 * (2.0 * np.pi * sigma / pitch_px) ** 2))
+    if transfer < 0.30:
+        return None
+    omega = 2.0 * np.pi / pitch_px
+    design = np.column_stack((np.cos(omega * s), np.sin(omega * s)))
+    coeff, _, _, _ = np.linalg.lstsq(design, residual, rcond=None)
+    amplitude = float(np.hypot(coeff[0], coeff[1]))
+    fitted = design @ coeff
+    rms = float(np.sqrt(np.mean((residual - fitted) ** 2)))
+    cycles = max(1.0, float(np.ptp(s)) / pitch_px)
+    if amplitude < max(0.12, 2.5 * rms / np.sqrt(cycles)):
+        return None
+    latent = float((np.pi ** 2 / 8.0) * amplitude / transfer)
+    if not np.isfinite(latent) or latent <= 0.25 or latent > 0.90 * pitch_px:
+        return None
+    phase = float((np.arctan2(coeff[1], coeff[0]) / omega) % pitch_px)
+    return latent, phase, rms, transfer
+
+
 def _side(track, pitch_px: float, extra_mask: np.ndarray | None = None):
     s = np.asarray(track.s_px, dtype=np.float64)
     y = np.asarray(track.outward_px, dtype=np.float64)
@@ -93,6 +128,8 @@ def _side(track, pitch_px: float, extra_mask: np.ndarray | None = None):
     baseline = float(intercept + residual_center)
     residual = residual - residual_center
 
+    harmonic = _harmonic_relief(sv, residual, pitch_px, blur)
+
     phase = np.mod(sv, pitch_px)
     bins = max(8, min(32, int(round(pitch_px * 2.0))))
     edges = np.linspace(0.0, pitch_px, bins + 1)
@@ -114,27 +151,41 @@ def _side(track, pitch_px: float, extra_mask: np.ndarray | None = None):
     right = (d >= 0.16 * pitch_px) & (d <= 0.46 * pitch_px)
     lf = _robust_line(d[left], residual[left])
     rf = _robust_line(d[right], residual[right])
-    if lf is None or rf is None:
-        return FoldedSideEstimate(baseline, None, None, crest_phase, None, trend_rms,
-                                  valid_fraction, blur, 0, False,
-                                  "flank_fit_insufficient")
-    lm, lb, lrms, _ = lf
-    rm, rb, rrms, _ = rf
-    denom = lm - rm
-    if lm <= 0.03 or rm >= -0.03 or abs(denom) < 0.08:
+    flank_ok = lf is not None and rf is not None
+    apex_d = float("nan")
+    apex = float("nan")
+    flank_rms = float("inf")
+    if flank_ok:
+        lm, lb, lrms, _ = lf
+        rm, rb, rrms, _ = rf
+        denom = lm - rm
+        flank_rms = float(max(lrms, rrms))
+        flank_ok = lm > 0.03 and rm < -0.03 and abs(denom) >= 0.08
+        if flank_ok:
+            apex_d = float((rb - lb) / denom)
+            apex = float(lm * apex_d + lb)
+            flank_ok = abs(apex_d) <= 0.22 * pitch_px and apex > 0.25
+
+    use_harmonic = harmonic is not None and (
+        not flank_ok or (blur is not None and blur > 0.30 * pitch_px)
+    )
+    if use_harmonic:
+        relief, harmonic_phase, harmonic_rms, _ = harmonic
+        crest_phase = harmonic_phase
+        flank_rms = harmonic_rms
+        apex_d = 0.0
+    elif flank_ok:
+        relief = apex
+    else:
+        reason = "flank_geometry_invalid" if lf is not None and rf is not None else "flank_fit_insufficient"
         return FoldedSideEstimate(baseline, None, None, crest_phase,
-                                  max(lrms, rrms), trend_rms, valid_fraction,
-                                  blur, 0, False, "flank_geometry_invalid")
-    apex_d = float((rb - lb) / denom)
-    apex = float(lm * apex_d + lb)
-    relief = apex
+                                  None if not np.isfinite(flank_rms) else flank_rms,
+                                  trend_rms, valid_fraction, blur, 0, False, reason)
+
     cycles = np.floor((sv - float(np.min(sv))) / pitch_px).astype(np.int32)
     cycle_count = int(len(np.unique(cycles)))
-    flank_rms = float(max(lrms, rrms))
     reason = None
-    if abs(apex_d) > 0.22 * pitch_px:
-        reason = "apex_extrapolation_unstable"
-    elif relief <= 0.35:
+    if relief <= 0.35:
         reason = "thread_relief_too_small"
     elif cycle_count < 8:
         reason = "thread_cycles_insufficient"
