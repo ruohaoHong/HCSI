@@ -10,7 +10,7 @@ from geometry import (
     _geometry_from_contour,
     _select_physical_object_candidate,
 )
-from edge_observation import measure_thread_major_diameter
+from edge_observation import measure_thread_major_diameter, observe_thread_edges
 from thread_geometry import (
     HeadUnderfaceEstimate,
     ThreadedShankProfile,
@@ -319,8 +319,8 @@ def execute_geometry_steps(
 
         # D uses raw-image edge observations with per-side quality. Do not
         # silently fall back to the mask boundary when one physical edge is
-        # unobservable. P and head-underface still use the unchanged legacy
-        # contour profile in this D-only phase.
+        # unobservable. Head-underface remains on its existing contour path;
+        # P obtains its own quality-gated edge tracks below.
         if operation == "outer_width":
             observation = measure_thread_major_diameter(image_rgb, shank_profile)
             old_width = measure_outer_width_px(shank_profile)
@@ -406,7 +406,10 @@ def execute_geometry_steps(
             results.append(_not_measured(step, "outer_width_unreliable"))
             continue
 
-        periodicity = measure_periodicity_px(shank_profile, outer_width_px)
+        edge_tracks = observe_thread_edges(image_rgb, shank_profile)
+        periodicity = measure_periodicity_px(
+            shank_profile, outer_width_px, edge_tracks=edge_tracks,
+        )
         diagnostics = {
             key: value
             for key, value in {
@@ -427,6 +430,79 @@ def execute_geometry_steps(
                 "width_peak_spacing_px": _round(periodicity.width_peak_spacing_px),
             }.items()
             if value is not None
+        }
+        diagnostics.update({
+            "periodicity_selected_side": periodicity.selected_side,
+            "periodicity_selection_mode": periodicity.selection_mode,
+            "negative_normal_pitch_px": _round(periodicity.left_pitch_px),
+            "positive_normal_pitch_px": _round(periodicity.right_pitch_px),
+            "negative_normal_autocorrelation_px": _round(
+                periodicity.left_autocorrelation_px,
+            ),
+            "positive_normal_autocorrelation_px": _round(
+                periodicity.right_autocorrelation_px,
+            ),
+            "negative_normal_frequency_px": _round(periodicity.left_frequency_px),
+            "positive_normal_frequency_px": _round(periodicity.right_frequency_px),
+            "negative_normal_peak_spacing_px": _round(
+                periodicity.left_peak_spacing_px,
+            ),
+            "positive_normal_peak_spacing_px": _round(
+                periodicity.right_peak_spacing_px,
+            ),
+            "negative_normal_quality": _round(periodicity.negative_normal_quality),
+            "positive_normal_quality": _round(periodicity.positive_normal_quality),
+            "negative_normal_valid_fraction": _round(
+                periodicity.negative_normal_valid_fraction,
+            ),
+            "positive_normal_valid_fraction": _round(
+                periodicity.positive_normal_valid_fraction,
+            ),
+            "negative_normal_edge_spread_px": _round(
+                periodicity.negative_normal_edge_spread_px,
+            ),
+            "positive_normal_edge_spread_px": _round(
+                periodicity.positive_normal_edge_spread_px,
+            ),
+            "negative_normal_uncertainty_px": _round(
+                periodicity.negative_normal_uncertainty_px,
+            ),
+            "positive_normal_uncertainty_px": _round(
+                periodicity.positive_normal_uncertainty_px,
+            ),
+            "negative_normal_crest_count": periodicity.negative_normal_crest_count,
+            "positive_normal_crest_count": periodicity.positive_normal_crest_count,
+            "negative_normal_crest_continuity": _round(
+                periodicity.negative_normal_crest_continuity,
+            ),
+            "positive_normal_crest_continuity": _round(
+                periodicity.positive_normal_crest_continuity,
+            ),
+            "negative_normal_reason": periodicity.negative_normal_reason,
+            "positive_normal_reason": periodicity.positive_normal_reason,
+            "selected_crest_count": periodicity.selected_crest_count,
+            "selected_crest_spacing_px": _round(
+                periodicity.selected_crest_spacing_px,
+            ),
+        })
+        if periodicity.selected_side == "negative_normal":
+            diagnostics.update({
+                "selected_autocorrelation_px": _round(
+                    periodicity.left_autocorrelation_px,
+                ),
+                "selected_frequency_px": _round(periodicity.left_frequency_px),
+                "selected_periodicity_score": _round(periodicity.left_score),
+            })
+        elif periodicity.selected_side == "positive_normal":
+            diagnostics.update({
+                "selected_autocorrelation_px": _round(
+                    periodicity.right_autocorrelation_px,
+                ),
+                "selected_frequency_px": _round(periodicity.right_frequency_px),
+                "selected_periodicity_score": _round(periodicity.right_score),
+            })
+        diagnostics = {
+            key: value for key, value in diagnostics.items() if value is not None
         }
         if periodicity.pitch_px is None:
             results.append(

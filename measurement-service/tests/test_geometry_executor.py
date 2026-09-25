@@ -113,6 +113,13 @@ def test_outer_width_and_periodicity_execute_independently_on_threaded_shank():
     assert 6.0 <= periodicity["derived_tpi"] <= 6.7
     assert periodicity["diagnostics"]["left_pitch_px"] == 20.0
     assert periodicity["diagnostics"]["right_pitch_px"] == 20.0
+    assert periodicity["diagnostics"]["periodicity_selected_side"] == "bilateral"
+    assert (
+        periodicity["diagnostics"]["periodicity_selection_mode"]
+        == "quality_weighted_bilateral"
+    )
+    assert periodicity["diagnostics"]["negative_normal_crest_count"] >= 5
+    assert periodicity["diagnostics"]["positive_normal_crest_count"] >= 5
 
 
 def test_periodicity_rejects_smooth_shank_without_blocking_diameter():

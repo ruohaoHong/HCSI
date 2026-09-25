@@ -53,6 +53,42 @@ class PeriodicityEstimate:
     width_autocorrelation_px: float | None = None
     width_frequency_px: float | None = None
     width_peak_spacing_px: float | None = None
+    selected_side: str | None = None
+    selection_mode: str | None = None
+    negative_normal_quality: float | None = None
+    positive_normal_quality: float | None = None
+    negative_normal_valid_fraction: float | None = None
+    positive_normal_valid_fraction: float | None = None
+    negative_normal_edge_spread_px: float | None = None
+    positive_normal_edge_spread_px: float | None = None
+    negative_normal_uncertainty_px: float | None = None
+    positive_normal_uncertainty_px: float | None = None
+    negative_normal_crest_count: int = 0
+    positive_normal_crest_count: int = 0
+    negative_normal_crest_continuity: float | None = None
+    positive_normal_crest_continuity: float | None = None
+    negative_normal_reason: str | None = None
+    positive_normal_reason: str | None = None
+    selected_crest_count: int = 0
+    selected_crest_spacing_px: float | None = None
+
+
+@dataclass(frozen=True)
+class _SidePeriodicityEvidence:
+    pitch_px: float | None
+    score: float | None
+    autocorrelation_px: float | None
+    frequency_px: float | None
+    peak_spacing_px: float | None
+    crest_spacing_px: float | None
+    valid_fraction: float
+    median_edge_spread_px: float | None
+    median_uncertainty_px: float | None
+    crest_count: int
+    crest_continuity: float | None
+    quality_score: float
+    reliable: bool
+    reason: str | None
 
 
 def _filled_contour_points(contour: np.ndarray) -> np.ndarray:
@@ -660,17 +696,300 @@ def _resolve_fundamental_period(
     return float(fundamental), float(support_score), autocorrelation, frequency, peak_spacing
 
 
+def _crest_continuity_evidence(
+    values: np.ndarray,
+    pitch_px: float | None,
+    min_period: int,
+    max_period: int,
+) -> tuple[int, float | None, float | None]:
+    """Count consecutive outward crests and quantify their spacing continuity."""
+    signal = _detrended_envelope(values, max_period)
+    if len(signal) < max_period + 8 or float(np.std(signal)) < 0.35:
+        return 0, None, None
+    prominence_floor = max(0.30 * float(np.std(signal)), 0.18)
+    crests: list[int] = []
+    for index in range(1, len(signal) - 1):
+        if signal[index] < signal[index - 1] or signal[index] < signal[index + 1]:
+            continue
+        left = max(0, index - max_period)
+        right = min(len(signal), index + max_period + 1)
+        shoulder = max(
+            float(np.min(signal[left:index])) if index > left else float(signal[index]),
+            float(np.min(signal[index + 1:right])) if right > index + 1 else float(signal[index]),
+        )
+        if float(signal[index] - shoulder) >= prominence_floor:
+            crests.append(index)
+    if len(crests) < 2:
+        return len(crests), None, None
+
+    gaps = np.diff(np.asarray(crests, dtype=np.float64))
+    reference = pitch_px
+    if reference is None:
+        legal = gaps[(gaps >= min_period * 0.80) & (gaps <= max_period * 1.20)]
+        reference = float(np.median(legal)) if len(legal) else None
+    if reference is None or reference <= 0:
+        return len(crests), None, None
+    inlier = np.abs(gaps - reference) <= max(1.0, reference * 0.20)
+    inlier_gaps = gaps[inlier]
+    if not len(inlier_gaps):
+        return len(crests), 0.0, None
+    spacing = float(np.median(inlier_gaps))
+    relative_mad = float(np.median(np.abs(inlier_gaps - spacing))) / max(spacing, 1e-9)
+    gap_support = float(np.count_nonzero(inlier)) / max(len(gaps), 1)
+    consistency = max(0.0, 1.0 - relative_mad / 0.20)
+    continuity = float(np.clip(gap_support * consistency, 0.0, 1.0))
+    # Only crests joined by an inlier neighboring gap count as the continuous
+    # train. Isolated optical spikes do not increase the support count.
+    supported_crests = min(len(crests), int(np.count_nonzero(inlier)) + 1)
+    return supported_crests, continuity, spacing
+
+
+def _best_observed_span(valid: np.ndarray, maximum_gap: int = 2) -> tuple[int, int] | None:
+    indices = np.flatnonzero(valid)
+    if not len(indices):
+        return None
+    splits = np.flatnonzero(np.diff(indices) > maximum_gap + 1) + 1
+    runs = np.split(indices, splits)
+    run = max(runs, key=lambda part: int(part[-1] - part[0] + 1))
+    start, end = int(run[0]), int(run[-1]) + 1
+    if np.count_nonzero(valid[start:end]) < 0.72 * (end - start):
+        return None
+    return start, end
+
+
+def _periodicity_from_edge_track(
+    track,
+    min_period: int,
+    max_period: int,
+) -> _SidePeriodicityEvidence:
+    count = len(track.s_px)
+    finite_edge = np.isfinite(track.outward_px)
+    observed = np.asarray(track.valid, dtype=bool) & finite_edge
+    valid_fraction = float(np.mean(observed)) if count else 0.0
+
+    def median(values: np.ndarray) -> float | None:
+        data = np.asarray(values, dtype=np.float64)
+        use = observed & np.isfinite(data) if len(data) == count else np.zeros(count, dtype=bool)
+        return float(np.median(data[use])) if np.any(use) else None
+
+    spread = median(track.blur_10_90_px)
+    uncertainty = median(track.uncertainty_px)
+    residual = median(track.relative_residual)
+    contrast = median(track.contrast)
+    quality_valid = observed.copy()
+    if len(track.blur_10_90_px) == count:
+        quality_valid &= np.isfinite(track.blur_10_90_px) & (track.blur_10_90_px <= 12.0)
+    if len(track.uncertainty_px) == count:
+        quality_valid &= np.isfinite(track.uncertainty_px) & (track.uncertainty_px <= 2.0)
+    if len(track.relative_residual) == count:
+        quality_valid &= np.isfinite(track.relative_residual) & (track.relative_residual <= 0.30)
+    if len(track.contrast) == count:
+        quality_valid &= np.isfinite(track.contrast) & (track.contrast >= 20.0)
+
+    span = _best_observed_span(quality_valid)
+    if span is None:
+        return _SidePeriodicityEvidence(
+            None, None, None, None, None, None,
+            valid_fraction, spread, uncertainty,
+            0, None, 0.0, False, "continuous_edge_support_insufficient",
+        )
+    start, end = span
+    if end - start < max(36, min_period * 5):
+        return _SidePeriodicityEvidence(
+            None, None, None, None, None, None,
+            valid_fraction, spread, uncertainty,
+            0, None, 0.0, False, "continuous_edge_support_insufficient",
+        )
+    span_valid = quality_valid[start:end]
+    span_values = np.asarray(track.outward_px[start:end], dtype=np.float64)
+    local = np.arange(len(span_values), dtype=np.float64)
+    usable = np.flatnonzero(span_valid)
+    values = np.interp(local, local[usable], span_values[usable])
+    pitch, score, autocorrelation, frequency, peak_spacing = _resolve_fundamental_period(
+        values, min_period, max_period,
+    )
+    crest_count, crest_continuity, crest_spacing = _crest_continuity_evidence(
+        values, pitch, min_period, max_period,
+    )
+
+    reason: str | None = None
+    if pitch is None:
+        reason = (
+            "periodicity_methods_disagree"
+            if frequency is not None or peak_spacing is not None
+            else "periodicity_signal_weak"
+        )
+    elif valid_fraction < 0.55:
+        reason = "valid_observation_fraction_low"
+    elif spread is None or spread > max(3.5, 0.55 * pitch):
+        reason = "edge_spread_too_wide"
+    elif uncertainty is None or uncertainty > max(0.80, 0.12 * pitch):
+        reason = "edge_uncertainty_high"
+    elif residual is None or residual > 0.20:
+        reason = "edge_fit_residual_high"
+    elif contrast is None or contrast < 28.0:
+        reason = "edge_contrast_low"
+    elif frequency is None or peak_spacing is None:
+        reason = "independent_period_evidence_insufficient"
+    elif _relative_delta(frequency, peak_spacing) > 0.12:
+        reason = "periodicity_methods_disagree"
+    elif crest_count < 5:
+        reason = "continuous_crest_count_insufficient"
+    elif crest_continuity is None or crest_continuity < 0.50:
+        reason = "crest_spacing_discontinuous"
+    elif len(values) / pitch < 4.0:
+        reason = "periodicity_cycles_insufficient"
+
+    spread_score = (
+        min(1.0, max(3.5, 0.55 * pitch) / max(spread, 1e-6))
+        if pitch is not None and spread is not None else 0.0
+    )
+    uncertainty_score = (
+        min(1.0, max(0.80, 0.12 * pitch) / max(uncertainty, 1e-6))
+        if pitch is not None and uncertainty is not None else 0.0
+    )
+    quality_score = float(np.mean([
+        min(1.0, valid_fraction / 0.80),
+        spread_score,
+        uncertainty_score,
+        crest_continuity or 0.0,
+        min(1.0, crest_count / 7.0),
+        score or 0.0,
+    ]))
+    reliable = reason is None and quality_score >= 0.65
+    if reason is None and not reliable:
+        reason = "edge_quality_score_low"
+    return _SidePeriodicityEvidence(
+        pitch, score, autocorrelation, frequency, peak_spacing, crest_spacing,
+        valid_fraction, spread, uncertainty, crest_count, crest_continuity,
+        quality_score, reliable, reason,
+    )
+
+
+def _measure_edge_track_periodicity(
+    profile: ThreadedShankProfile,
+    edge_tracks: tuple[object, object],
+    min_period: int,
+    max_period: int,
+) -> PeriodicityEstimate:
+    positive_track, negative_track = edge_tracks
+    negative = _periodicity_from_edge_track(negative_track, min_period, max_period)
+    positive = _periodicity_from_edge_track(positive_track, min_period, max_period)
+
+    width_values = (profile.high - profile.low)[profile.sample_mask]
+    (
+        width_pitch, width_score, width_autocorrelation,
+        width_frequency, width_peak_spacing,
+    ) = _resolve_fundamental_period(width_values, min_period, max_period)
+
+    pitch: float | None = None
+    selected_side: str | None = None
+    selection_mode: str | None = None
+    selected_crest_count = 0
+    selected_crest_spacing: float | None = None
+    reason: str | None = None
+    reliable = [
+        ("negative_normal", negative),
+        ("positive_normal", positive),
+    ]
+    reliable = [(name, evidence) for name, evidence in reliable if evidence.reliable]
+    if len(reliable) == 2:
+        first, second = reliable
+        assert first[1].pitch_px is not None and second[1].pitch_px is not None
+        if _relative_delta(first[1].pitch_px, second[1].pitch_px) <= 0.05:
+            total_quality = first[1].quality_score + second[1].quality_score
+            pitch = float(
+                (first[1].pitch_px * first[1].quality_score
+                 + second[1].pitch_px * second[1].quality_score)
+                / max(total_quality, 1e-9)
+            )
+            selected_side = "bilateral"
+            selection_mode = "quality_weighted_bilateral"
+            selected_crest_count = first[1].crest_count + second[1].crest_count
+            spacings = [
+                value for value in (
+                    first[1].crest_spacing_px, second[1].crest_spacing_px,
+                ) if value is not None
+            ]
+            selected_crest_spacing = float(np.mean(spacings)) if spacings else None
+        else:
+            harmonic = (
+                _matches_integer_multiple(first[1].pitch_px, second[1].pitch_px)
+                or _matches_integer_multiple(second[1].pitch_px, first[1].pitch_px)
+            )
+            reason = (
+                "periodicity_harmonic_ambiguous"
+                if harmonic else "periodicity_methods_disagree"
+            )
+    elif len(reliable) == 1:
+        selected_side, evidence = reliable[0]
+        pitch = evidence.pitch_px
+        selection_mode = "quality_gated_single_side"
+        selected_crest_count = evidence.crest_count
+        selected_crest_spacing = evidence.crest_spacing_px
+    else:
+        reason = (
+            "periodicity_edge_quality_insufficient"
+            if negative.pitch_px is not None or positive.pitch_px is not None
+            else "periodicity_signal_weak"
+        )
+
+    if pitch is not None and len(profile.s_values[profile.sample_mask]) / pitch < 4.0:
+        pitch = None
+        selected_side = None
+        selection_mode = None
+        reason = "periodicity_cycles_insufficient"
+
+    return PeriodicityEstimate(
+        pitch_px=pitch,
+        left_pitch_px=negative.pitch_px,
+        right_pitch_px=positive.pitch_px,
+        left_score=negative.score,
+        right_score=positive.score,
+        reason_code=reason,
+        left_autocorrelation_px=negative.autocorrelation_px,
+        right_autocorrelation_px=positive.autocorrelation_px,
+        left_frequency_px=negative.frequency_px,
+        right_frequency_px=positive.frequency_px,
+        left_peak_spacing_px=negative.peak_spacing_px,
+        right_peak_spacing_px=positive.peak_spacing_px,
+        width_pitch_px=width_pitch,
+        width_score=width_score,
+        width_autocorrelation_px=width_autocorrelation,
+        width_frequency_px=width_frequency,
+        width_peak_spacing_px=width_peak_spacing,
+        selected_side=selected_side,
+        selection_mode=selection_mode,
+        negative_normal_quality=negative.quality_score,
+        positive_normal_quality=positive.quality_score,
+        negative_normal_valid_fraction=negative.valid_fraction,
+        positive_normal_valid_fraction=positive.valid_fraction,
+        negative_normal_edge_spread_px=negative.median_edge_spread_px,
+        positive_normal_edge_spread_px=positive.median_edge_spread_px,
+        negative_normal_uncertainty_px=negative.median_uncertainty_px,
+        positive_normal_uncertainty_px=positive.median_uncertainty_px,
+        negative_normal_crest_count=negative.crest_count,
+        positive_normal_crest_count=positive.crest_count,
+        negative_normal_crest_continuity=negative.crest_continuity,
+        positive_normal_crest_continuity=positive.crest_continuity,
+        negative_normal_reason=negative.reason,
+        positive_normal_reason=positive.reason,
+        selected_crest_count=selected_crest_count,
+        selected_crest_spacing_px=selected_crest_spacing,
+    )
+
+
 def measure_periodicity_px(
     profile: ThreadedShankProfile,
     outer_width_px: float,
+    edge_tracks: tuple[object, object] | None = None,
 ) -> PeriodicityEstimate:
-    """Estimate the fundamental thread pitch from contour periodicity.
+    """Estimate fundamental thread pitch, preferring raw-image edge tracks.
 
-    Each visible side fuses autocorrelation, spatial frequency and neighboring
-    extrema spacing. Matching sides are accepted directly. If one side is
-    harmonic/noisy, a conservative fallback requires the total shank-width
-    signal to confirm the fundamental and the opposite-side evidence to be an
-    integer multiple. Otherwise the measurement is rejected.
+    With edge tracks, each side must independently pass optical-quality,
+    continuous-crest, frequency, and neighboring-spacing gates. One reliable
+    side may supply P; two reliable but incompatible sides remain ambiguous.
+    Calls without tracks retain the legacy contour resolver for compatibility.
     """
     low = profile.low[profile.sample_mask]
     high = profile.high[profile.sample_mask]
@@ -704,6 +1023,11 @@ def measure_periodicity_px(
             None,
             None,
             "threaded_shank_too_short_for_periodicity",
+        )
+
+    if edge_tracks is not None:
+        return _measure_edge_track_periodicity(
+            profile, edge_tracks, min_period, max_period,
         )
 
     (

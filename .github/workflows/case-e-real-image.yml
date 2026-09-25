@@ -212,6 +212,26 @@ jobs:
               assert "edge_upper_valid_samples" in diameter["diagnostics"], diameter
               assert "edge_lower_valid_samples" in diameter["diagnostics"], diameter
 
+          periodicity = next(
+              (step for step in result["geometry_steps"] if step["operation"] == "periodicity"),
+              None,
+          )
+          assert periodicity is not None
+          print("CASE_E_P_STATUS=" + str(periodicity["status"]))
+          print("CASE_E_P_DIAGNOSTICS=" + json.dumps(periodicity["diagnostics"]))
+          assert periodicity["status"] == "measured", periodicity
+          assert abs(float(periodicity["value_mm"]) - gt["P"]) <= 0.05, periodicity
+          p_diag = periodicity["diagnostics"]
+          assert p_diag["periodicity_selected_side"] == "negative_normal", p_diag
+          assert p_diag["periodicity_selection_mode"] == "quality_gated_single_side", p_diag
+          assert "negative_normal_reason" not in p_diag, p_diag
+          assert p_diag.get("positive_normal_reason"), p_diag
+          assert int(p_diag["selected_crest_count"]) >= 5, p_diag
+          assert abs(
+              float(p_diag["selected_frequency_px"])
+              - float(p_diag["selected_crest_spacing_px"])
+          ) / float(p_diag["selected_crest_spacing_px"]) <= 0.12, p_diag
+
           axial = next(
               (
                   step for step in result.get("geometry_steps", [])
