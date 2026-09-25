@@ -275,6 +275,13 @@ def measure_thread_major_diameter(
     lo, lo_unc, lo_n, lo_relief = _crest_envelope(lower)
     trusted_up = _trusted_crest(upper, up, up_relief)
     trusted_lo = _trusted_crest(lower, lo, lo_relief)
+    # An unresolved threaded flank can look like a smooth silhouette after
+    # blur. Never combine its root/baseline with the opposite side's actual
+    # thread crests and call the sum a physical major diameter.
+    if up_relief is None and lo_relief is not None:
+        trusted_up = False
+    if lo_relief is None and up_relief is not None:
+        trusted_lo = False
 
     def result(
         value: float | None, uncertainty: float | None,
