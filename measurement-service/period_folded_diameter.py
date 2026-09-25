@@ -62,37 +62,54 @@ def _robust_line(x: np.ndarray, y: np.ndarray):
 
 def _harmonic_relief(
     s: np.ndarray,
-    residual: np.ndarray,
+    values: np.ndarray,
     pitch_px: float,
     edge_spread_px: float | None,
 ):
-    """Recover latent triangle relief from the repeated fundamental.
-
-    For a symmetric triangular radial profile the fundamental amplitude is
-    8/pi^2 of mean-to-crest relief.  A Gaussian PSF attenuates that harmonic by
-    exp(-0.5*(2*pi*sigma/P)^2).  The edge track's 10-90 spread supplies an
-    image-derived blur proxy; no nominal diameter participates.
-    """
+    """Jointly fit drift + fundamental, then undo image-derived blur attenuation."""
     if edge_spread_px is None or not np.isfinite(edge_spread_px):
         return None
     sigma = max(0.0, float(edge_spread_px) / 2.563)
     transfer = float(np.exp(-0.5 * (2.0 * np.pi * sigma / pitch_px) ** 2))
-    if transfer < 0.30:
-        return None
     omega = 2.0 * np.pi / pitch_px
-    design = np.column_stack((np.cos(omega * s), np.sin(omega * s)))
-    coeff, _, _, _ = np.linalg.lstsq(design, residual, rcond=None)
-    amplitude = float(np.hypot(coeff[0], coeff[1]))
-    fitted = design @ coeff
-    rms = float(np.sqrt(np.mean((residual - fitted) ** 2)))
-    cycles = max(1.0, float(np.ptp(s)) / pitch_px)
-    if amplitude < max(0.12, 2.5 * rms / np.sqrt(cycles)):
+    s0 = float(np.median(s))
+    x = s - s0
+    design = np.column_stack((
+        np.ones(len(s)), x, np.cos(omega * s), np.sin(omega * s),
+    ))
+    keep = np.isfinite(values)
+    if np.count_nonzero(keep) < 24:
         return None
-    latent = float((np.pi ** 2 / 8.0) * amplitude / transfer)
-    if not np.isfinite(latent) or latent <= 0.25 or latent > 0.90 * pitch_px:
-        return None
-    phase = float((np.arctan2(coeff[1], coeff[0]) / omega) % pitch_px)
-    return latent, phase, rms, transfer
+    for _ in range(4):
+        coeff, _, _, _ = np.linalg.lstsq(design[keep], values[keep], rcond=None)
+        err = values - design @ coeff
+        med = float(np.median(err[keep]))
+        mad = 1.4826 * float(np.median(np.abs(err[keep] - med)))
+        nxt = keep & (np.abs(err - med) <= max(0.65, 3.0 * mad))
+        if np.count_nonzero(nxt) < 24:
+            break
+        keep = nxt
+    coeff, _, _, _ = np.linalg.lstsq(design[keep], values[keep], rcond=None)
+    err = values[keep] - design[keep] @ coeff
+    rms = float(np.sqrt(np.mean(err * err)))
+    amplitude = float(np.hypot(coeff[2], coeff[3]))
+    cycles = max(1.0, float(np.ptp(s[keep])) / pitch_px)
+    relief = None
+    if transfer >= 0.30 and amplitude >= max(0.12, 2.5 * rms / np.sqrt(cycles)):
+        candidate = float((np.pi ** 2 / 8.0) * amplitude / transfer)
+        if np.isfinite(candidate) and 0.25 < candidate <= 0.90 * pitch_px:
+            relief = candidate
+    phase = float((np.arctan2(coeff[3], coeff[2]) / omega) % pitch_px)
+    return {
+        "baseline": float(coeff[0]),
+        "slope": float(coeff[1]),
+        "relief": relief,
+        "phase": phase,
+        "rms": rms,
+        "transfer": transfer,
+        "amplitude": amplitude,
+        "s0": s0,
+    }
 
 
 def _side(track, pitch_px: float, extra_mask: np.ndarray | None = None):
@@ -128,7 +145,13 @@ def _side(track, pitch_px: float, extra_mask: np.ndarray | None = None):
     baseline = float(intercept + residual_center)
     residual = residual - residual_center
 
-    harmonic = _harmonic_relief(sv, residual, pitch_px, blur)
+    harmonic = _harmonic_relief(sv, yv, pitch_px, blur)
+    if harmonic is not None:
+        # Joint fitting prevents an imbalanced set of thread phases from leaking
+        # periodic amplitude into the linear baseline.
+        baseline = float(harmonic["baseline"])
+        slope = float(harmonic["slope"])
+        residual = yv - (baseline + slope * (sv - float(harmonic["s0"])))
 
     phase = np.mod(sv, pitch_px)
     bins = max(8, min(32, int(round(pitch_px * 2.0))))
@@ -166,13 +189,15 @@ def _side(track, pitch_px: float, extra_mask: np.ndarray | None = None):
             apex = float(lm * apex_d + lb)
             flank_ok = abs(apex_d) <= 0.22 * pitch_px and apex > 0.25
 
-    use_harmonic = harmonic is not None and (
-        not flank_ok or (blur is not None and blur > 0.30 * pitch_px)
+    use_harmonic = (
+        harmonic is not None
+        and harmonic["relief"] is not None
+        and (not flank_ok or (blur is not None and blur > 0.30 * pitch_px))
     )
     if use_harmonic:
-        relief, harmonic_phase, harmonic_rms, _ = harmonic
-        crest_phase = harmonic_phase
-        flank_rms = harmonic_rms
+        relief = float(harmonic["relief"])
+        crest_phase = float(harmonic["phase"])
+        flank_rms = float(harmonic["rms"])
         apex_d = 0.0
     elif flank_ok:
         relief = apex
