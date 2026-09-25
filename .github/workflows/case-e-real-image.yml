@@ -100,6 +100,43 @@ jobs:
                   "y_max":705,
               },
           }
+          # Generic axis-diagnostic evidence. The fixture GT is deliberately
+          # NOT passed into any geometry or edge-estimation function.
+          from geometry_executor import _select_object_contour
+          from thread_geometry import detect_threaded_shank
+          from edge_observation import observe_thread_edges
+          from diameter_axis import estimate_independent_axis
+          coarse = _select_object_contour(image, scale_ref.reference_points_px, scale_ref.px_per_cm, semantic)
+          profile = detect_threaded_shank(coarse)
+          if profile is not None:
+              up, lo = observe_thread_edges(image, profile)
+              mid = profile.center[0] + profile.axis[0] * up.s_px
+              paired = up.valid & lo.valid
+              good = (
+                  paired & (up.contrast >= 28) & (lo.contrast >= 28)
+                  & (up.relative_residual <= 0.18) & (lo.relative_residual <= 0.18)
+                  & (up.blur_10_90_px <= 9) & (lo.blur_10_90_px <= 9)
+                  & (up.uncertainty_px <= 1) & (lo.uncertainty_px <= 1)
+              )
+              for begin, end in ((210, 280), (280, 340), (340, 385), (385, 500), (500, 640)):
+                  region = (mid >= begin) & (mid < end)
+                  both = region & paired
+                  print("CASE_E_AXIS_REGION=" + json.dumps({
+                      "x": [begin,end],
+                      "sample_count": int(np.count_nonzero(region)),
+                      "paired": int(np.count_nonzero(both)),
+                      "good": int(np.count_nonzero(region & good)),
+                      "upper_blur": float(np.nanmedian(up.blur_10_90_px[region & up.valid])) if np.any(region & up.valid) else None,
+                      "lower_blur": float(np.nanmedian(lo.blur_10_90_px[region & lo.valid])) if np.any(region & lo.valid) else None,
+                      "width_p10_p90": np.percentile((up.outward_px+lo.outward_px)[both],[10,90]).tolist() if np.any(both) else None,
+                  }))
+              axis = estimate_independent_axis(up,lo)
+              print("CASE_E_AXIS=" + json.dumps({
+                  "source":"bilateral_smooth_raw_edges",
+                  "present":axis is not None,
+                  "samples":axis.reference_samples if axis is not None else 0,
+                  "rms":axis.residual_px if axis is not None else None,
+              }))
           result = measure_rgb(image, "case-e-m3x30-real", steps, semantic)
           print("CASE_E_RESULT_START")
           print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -127,6 +164,10 @@ jobs:
                   "edge_crest_underresolved",
                   "edge_side_support_insufficient",
                   "edge_diameter_uncertain",
+                  "independent_axis_unavailable",
+                  "one_sided_crest_insufficient",
+                  "one_sided_crest_underresolved",
+                  "one_sided_diameter_uncertain",
               }, diameter
               assert "edge_upper_valid_samples" in diameter["diagnostics"], diameter
               assert "edge_lower_valid_samples" in diameter["diagnostics"], diameter
