@@ -7,6 +7,8 @@ on:
     paths:
       - 'measurement-service/period_folded_diameter.py'
       - 'measurement-service/tests/test_period_folded_diameter.py'
+      - 'measurement-service/periodic_silhouette_diameter.py'
+      - 'measurement-service/tests/test_periodic_silhouette_diameter.py'
       - '.github/workflows/case-e-period-folded-d.yml'
   workflow_dispatch:
 
@@ -47,6 +49,7 @@ jobs:
           from edge_observation import observe_thread_edges
           from period_folded_diameter import estimate_period_folded_diameter
           from v_thread_geometry import estimate_major_from_pitch_diameter
+          from periodic_silhouette_diameter import estimate_periodic_silhouette_diameter
 
           image = np.asarray(Image.open('/tmp/case-e.webp').convert('RGB'))
           semantic = {
@@ -78,6 +81,17 @@ jobs:
               positive, negative, periodicity.pitch_px,
               bootstrap_repeats=96, random_seed=7,
           )
+          silhouette = estimate_periodic_silhouette_diameter(
+              image, profile, periodicity.pitch_px,
+          )
+          silhouette_payload = asdict(silhouette)
+          silhouette_payload["diameter_mm"] = (
+              silhouette.diameter_px * 10.0 / scale.px_per_cm
+              if silhouette.diameter_px is not None else None
+          )
+          print("CASE_E_PERIODIC_SILHOUETTE_D=" + json.dumps(
+              silhouette_payload, sort_keys=True
+          ))
 
           # Diagnostic only: phase-binned raw edge tracks before any GT is known.
           for label, track in (("positive", positive), ("negative", negative)):
