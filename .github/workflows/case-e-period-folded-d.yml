@@ -30,7 +30,7 @@ jobs:
       - name: Run period-folded D PoC
         run: |
           PYTHONPATH=measurement-service python - <<'PY'
-          from dataclasses import asdict
+          from dataclasses import asdict, replace
           import json
           import numpy as np
           from PIL import Image
@@ -45,6 +45,7 @@ jobs:
           )
           from edge_observation import observe_thread_edges
           from period_folded_diameter import estimate_period_folded_diameter
+          from v_thread_geometry import estimate_major_from_pitch_diameter
 
           image = np.asarray(Image.open('/tmp/case-e.webp').convert('RGB'))
           semantic = {
@@ -89,6 +90,42 @@ jobs:
                   use = good & (phase >= edges[i]) & (phase < edges[i + 1])
                   folded.append(float(np.median(y[use])) if np.any(use) else None)
               print("CASE_E_FOLDED_TRACK_" + label.upper() + "=" + json.dumps(folded))
+
+          # Alternative physical formulation: when crest apexes are optically
+          # unresolved, test whether the stable apparent diameter behaves as a
+          # 60-degree V-thread pitch-diameter proxy. Segment dispersion is used
+          # as image-derived proxy uncertainty; GT is still unknown here.
+          indices = np.flatnonzero(profile.sample_mask)
+          proxy_windows = []
+          for chunk in np.array_split(indices, 6):
+              if len(chunk) < 20:
+                  continue
+              local_mask = np.zeros_like(profile.sample_mask, dtype=bool)
+              local_mask[chunk] = True
+              local_proxy = measure_outer_width_px(replace(profile, sample_mask=local_mask))
+              if local_proxy is not None and np.isfinite(local_proxy):
+                  proxy_windows.append(float(local_proxy))
+          if len(proxy_windows) >= 3:
+              med = float(np.median(proxy_windows))
+              proxy_sigma = 1.4826 * float(np.median(np.abs(np.asarray(proxy_windows) - med)))
+          else:
+              proxy_sigma = 1.0
+          v_thread = estimate_major_from_pitch_diameter(
+              width_prior, periodicity.pitch_px,
+              proxy_uncertainty_px=proxy_sigma,
+              pitch_uncertainty_px=abs(
+                  float(periodicity.left_frequency_px or periodicity.pitch_px)
+                  - float(periodicity.pitch_px)
+              ),
+          )
+          v_payload = asdict(v_thread)
+          v_payload["proxy_windows_px"] = proxy_windows
+          v_payload["proxy_sigma_px"] = proxy_sigma
+          v_payload["major_diameter_mm"] = (
+              v_thread.major_diameter_px * 10.0 / scale.px_per_cm
+              if v_thread.major_diameter_px is not None else None
+          )
+          print("CASE_E_VTHREAD_D=" + json.dumps(v_payload, sort_keys=True))
 
           payload = asdict(estimate)
           payload["pitch_px"] = periodicity.pitch_px
