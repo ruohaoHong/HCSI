@@ -33,6 +33,9 @@ jobs:
           from PIL import Image
           import numpy as np
           from app import measure_rgb
+          from rulernet import infer_ruler
+          from scale_units import infer_visual_scale
+          from scale_reference import resolve_scale_reference
 
           # Normalized WebP derivative of the exact user-provided Case E image.
           # Geometry and dimensions are unchanged (814x594); only storage encoding
@@ -40,6 +43,38 @@ jobs:
           # Exact uploaded JPEG SHA256:
           # f05a8ab6d3188469a1d16648bb58cc0a7348e57d367266aa836e10b114a202af
           image = np.asarray(Image.open('/tmp/case-e.webp').convert('RGB'))
+
+          ruler_obs = infer_ruler(image)
+          visual_obs = infer_visual_scale(image)
+          scale_ref = resolve_scale_reference(image, ruler_obs)
+          print("CASE_E_RULERNET=" + json.dumps({
+              "detected": ruler_obs.detected,
+              "mark_count": len(ruler_obs.mark_points_px),
+              "mark_points_px": np.asarray(ruler_obs.mark_points_px).round(3).tolist(),
+              "median_px_per_cm": ruler_obs.median_px_per_cm,
+              "perspective_ratio": ruler_obs.perspective_ratio,
+              "direction_xy": ruler_obs.direction_xy,
+              "gate_reasons": list(ruler_obs.gate_reasons),
+          }))
+          print("CASE_E_VISUAL_SCALE=" + json.dumps({
+              "system": visual_obs.system,
+              "confidence": visual_obs.confidence,
+              "px_per_cm": visual_obs.px_per_cm,
+              "minor_tick_px": visual_obs.minor_tick_px,
+              "reference_interval_cm": visual_obs.reference_interval_cm,
+              "reference_point_count": len(visual_obs.reference_points_px),
+              "direction_xy": visual_obs.direction_xy,
+              "reason_codes": list(visual_obs.reason_codes),
+          }))
+          print("CASE_E_SCALE_REF=" + json.dumps({
+              "system": scale_ref.system,
+              "source": scale_ref.source,
+              "confidence": scale_ref.confidence,
+              "px_per_cm": scale_ref.px_per_cm,
+              "reference_point_count": len(scale_ref.reference_points_px),
+              "reason_codes": list(scale_ref.reason_codes),
+          }))
+
           steps = [
               {"operation":"axial_distance","inputs":["object_tip","head_underface"],"purpose":"nominal fastener length L"},
               {"operation":"outer_width","inputs":["threaded_shank"],"purpose":"major diameter D"},
