@@ -45,6 +45,10 @@ class DiameterObservation:
     axis_residual_px: float | None = None
     axis_uncertainty_px: float | None = None
     axis_slope: float | None = None
+    candidate_value_px: float | None = None
+    candidate_uncertainty_px: float | None = None
+    axis_crest_uncertainty_px: float | None = None
+    axis_extrapolation_px: float | None = None
 
 
 def _edge_track(
@@ -288,6 +292,10 @@ def measure_thread_major_diameter(
         reason: str | None, mode: str, axis=None,
         final_up: float | None = up, final_lo: float | None = lo,
         final_up_n: int = up_n, final_lo_n: int = lo_n,
+        candidate_value: float | None = None,
+        candidate_uncertainty: float | None = None,
+        axis_crest_uncertainty: float | None = None,
+        axis_extrapolation: float | None = None,
     ) -> DiameterObservation:
         return DiameterObservation(
             value_px=value,
@@ -306,6 +314,10 @@ def measure_thread_major_diameter(
             axis_residual_px=axis.residual_px if axis is not None else None,
             axis_uncertainty_px=axis.uncertainty_at_origin_px if axis is not None else None,
             axis_slope=axis.normal_slope if axis is not None else None,
+            candidate_value_px=candidate_value,
+            candidate_uncertainty_px=candidate_uncertainty,
+            axis_crest_uncertainty_px=axis_crest_uncertainty,
+            axis_extrapolation_px=axis_extrapolation,
         )
 
     if trusted_up and trusted_lo:
@@ -370,6 +382,9 @@ def measure_thread_major_diameter(
 
     crest_s = float(np.median(track.s_px[trusted]))
     center_uncertainty = axis.uncertainty(crest_s)
+    extrapolation = max(
+        axis.span_start_px - crest_s, crest_s - axis.span_end_px, 0.0
+    )
     value = float(radius * 2.0)
     uncertainty = float(2.0 * np.hypot(radius_unc, center_uncertainty))
     if (
@@ -377,7 +392,13 @@ def measure_thread_major_diameter(
         or uncertainty > max(4.0, 0.12 * value)
         or not np.isfinite(value)
     ):
-        return result(None, None, "one_sided_diameter_uncertain", "none", axis=axis)
+        return result(
+            None, None, "one_sided_diameter_uncertain", "none", axis=axis,
+            candidate_value=value,
+            candidate_uncertainty=uncertainty,
+            axis_crest_uncertainty=center_uncertainty,
+            axis_extrapolation=extrapolation,
+        )
     return result(
         value, uncertainty, None,
         "positive_normal_plus_independent_axis"
@@ -387,4 +408,7 @@ def measure_thread_major_diameter(
         final_lo=radius if sign < 0 else lo,
         final_up_n=crest_count if sign > 0 else up_n,
         final_lo_n=crest_count if sign < 0 else lo_n,
+        candidate_value=value, candidate_uncertainty=uncertainty,
+        axis_crest_uncertainty=center_uncertainty,
+        axis_extrapolation=extrapolation,
     )
