@@ -13,6 +13,7 @@ ScaleSource = Literal[
     "rulernet_cm",
     "imperial_ticks",
     "rulernet_cm+imperial_ticks",
+    "metric_ticks",
     "visual_dual",
     "none",
 ]
@@ -71,6 +72,14 @@ def resolve_scale_reference(image_rgb: np.ndarray, ruler: RulerObservation) -> S
         and len(ruler.mark_points_px) >= 2
     )
 
+    metric_visual_available = (
+        visual.system == "metric"
+        and visual.confidence >= IMPERIAL_MIN_CONFIDENCE
+        and visual.px_per_cm is not None
+        and visual.reference_interval_cm is not None
+        and len(visual.reference_points_px) >= 2
+    )
+
     imperial_available = (
         visual.system == "imperial"
         and visual.confidence >= IMPERIAL_MIN_CONFIDENCE
@@ -116,6 +125,20 @@ def resolve_scale_reference(image_rgb: np.ndarray, ruler: RulerObservation) -> S
             direction_xy=ruler.direction_xy,
             perspective_step_pct=None,
             reason_codes=(),
+        )
+
+    if metric_visual_available:
+        return ScaleReference(
+            system="metric",
+            source="metric_ticks",
+            confidence=visual.confidence,
+            px_per_cm=float(visual.px_per_cm),
+            px_per_inch=float(visual.px_per_cm * 2.54),
+            reference_points_px=_visual_reference_points(image_rgb, visual),
+            reference_interval_cm=float(visual.reference_interval_cm),
+            direction_xy=visual.direction_xy,
+            perspective_step_pct=visual.perspective_step_pct,
+            reason_codes=visual.reason_codes,
         )
 
     if imperial_available:
