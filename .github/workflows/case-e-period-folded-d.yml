@@ -110,6 +110,24 @@ jobs:
               proxy_sigma = 1.4826 * float(np.median(np.abs(np.asarray(proxy_windows) - med)))
           else:
               proxy_sigma = 1.0
+          contour_widths = np.asarray(profile.widths[profile.sample_mask], dtype=float)
+          contour_widths = contour_widths[np.isfinite(contour_widths)]
+          paired = positive.valid & negative.valid
+          raw_edge_widths = (
+              positive.outward_px[paired] + negative.outward_px[paired]
+              if np.any(paired) else np.asarray([], dtype=float)
+          )
+          print("CASE_E_WIDTH_DISTRIBUTIONS=" + json.dumps({
+              "contour_percentiles_px": np.percentile(
+                  contour_widths, [5,10,25,50,75,90,95,98,100]
+              ).tolist(),
+              "raw_edge_percentiles_px": (
+                  np.percentile(raw_edge_widths, [5,10,25,50,75,90,95,98,100]).tolist()
+                  if len(raw_edge_widths) else []
+              ),
+              "contour_major_prior_px": width_prior,
+          }))
+
           v_thread = estimate_major_from_pitch_diameter(
               width_prior, periodicity.pitch_px,
               proxy_uncertainty_px=proxy_sigma,
