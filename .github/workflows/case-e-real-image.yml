@@ -6,6 +6,7 @@ on:
       - feature/semantic-pixel-ownership
     paths:
       - '.github/workflows/case-e-real-image.yml'
+      - 'benchmark/measurement-poc/cases/case-e-m3x30.jpg.b64'
   workflow_dispatch:
 
 jobs:
@@ -21,8 +22,10 @@ jobs:
           cache: pip
           cache-dependency-path: measurement-service/requirements.txt
       - run: pip install -r measurement-service/requirements.txt
-      - name: Download exact Case E image
-        run: curl --fail --location --retry 3 -o /tmp/case-e.jpg https://www.dutyhook.eu/1961-large_default/m6x16-din912-a2.jpg
+      - name: Decode exact Case E fixture
+        run: |
+          base64 --decode benchmark/measurement-poc/cases/case-e-m3x30.jpg.b64 > /tmp/case-e.jpg
+          echo "f05a8ab6d3188469a1d16648bb58cc0a7348e57d367266aa836e10b114a202af  /tmp/case-e.jpg" | sha256sum --check -
       - name: Run complete HCSI measurement path
         run: |
           PYTHONPATH=measurement-service python - <<'PY'
@@ -39,14 +42,57 @@ jobs:
           ]
           semantic = {
               "head_style":"socket_cap",
-              "target_region":{"present":True,"confidence":0.99,"x_min":210,"y_min":390,"x_max":620,"y_max":670},
-              "reference_region":{"present":False,"confidence":0.0,"x_min":0,"y_min":0,"x_max":0,"y_max":0},
+              "target_region":{
+                  "present":True,
+                  "confidence":0.99,
+                  "x_min":165,
+                  "y_min":710,
+                  "x_max":850,
+                  "y_max":920,
+              },
+              "reference_region":{
+                  "present":True,
+                  "confidence":0.99,
+                  "x_min":230,
+                  "y_min":130,
+                  "x_max":1000,
+                  "y_max":705,
+              },
           }
-          result = measure_rgb(image, "case-e-real", steps, semantic)
+          result = measure_rgb(image, "case-e-m3x30-real", steps, semantic)
           print("CASE_E_RESULT_START")
           print(json.dumps(result, ensure_ascii=False, indent=2))
           print("CASE_E_RESULT_END")
-          print("GT_L_MM=16.0")
-          print("GT_D_MM=6.0")
-          print("GT_P_MM=1.0")
+
+          gt = {"L": 30.0, "D": 3.0, "P": 0.5}
+          print("CASE_E_GT=" + json.dumps(gt))
+
+          axial = next(
+              (
+                  step for step in result.get("geometry_steps", [])
+                  if step.get("operation") == "axial_distance"
+                  and set(step.get("inputs", [])) == {"object_tip", "head_underface"}
+              ),
+              None,
+          )
+          if result.get("measurement_status") != "valid":
+              raise SystemExit(
+                  "Case E failed: measurement_status="
+                  + str(result.get("measurement_status"))
+                  + " reasons="
+                  + json.dumps(result.get("reason_codes", []))
+              )
+          if axial is None or axial.get("status") != "measured" or axial.get("value_mm") is None:
+              raise SystemExit("Case E failed: semantic fastener L was not measured")
+
+          measured_l = float(axial["value_mm"])
+          abs_error = abs(measured_l - gt["L"])
+          rel_error = abs_error / gt["L"]
+          print(f"CASE_E_L_MM={measured_l:.3f}")
+          print(f"CASE_E_L_ABS_ERROR_MM={abs_error:.3f}")
+          print(f"CASE_E_L_REL_ERROR_PCT={rel_error * 100.0:.3f}")
+          if rel_error > 0.05:
+              raise SystemExit(
+                  f"Case E failed: L error {rel_error * 100.0:.2f}% exceeds 5%"
+              )
           PY
