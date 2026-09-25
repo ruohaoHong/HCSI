@@ -7,7 +7,7 @@ import numpy as np
 SERVICE = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVICE))
 
-from scale_units import infer_visual_scale  # noqa: E402
+from scale_units import _infer_tick_pattern, infer_visual_scale  # noqa: E402
 
 
 def _imperial_ruler_image() -> np.ndarray:
@@ -92,3 +92,26 @@ def test_detects_standalone_metric_tick_hierarchy_without_ruler_body():
     assert result.px_per_cm is not None
     assert 196.0 <= result.px_per_cm <= 204.0
     assert result.reference_interval_cm == 0.1
+
+
+def test_missing_tick_slots_do_not_masquerade_as_perspective():
+    pitch = 20.0
+    omitted = {5, 12, 19}
+    slots = [index for index in range(30) if index not in omitted]
+    positions = np.asarray([index * pitch for index in slots], dtype=np.float64)
+    lengths = np.asarray(
+        [
+            100.0 if index % 10 == 0 else 70.0 if index % 5 == 0 else 40.0
+            for index in slots
+        ],
+        dtype=np.float64,
+    )
+    points = np.column_stack(
+        [positions, np.full(len(positions), 120.0, dtype=np.float64)]
+    )
+
+    pattern = _infer_tick_pattern(positions, lengths, points)
+
+    assert pattern is not None
+    assert pattern.system == "metric"
+    assert pattern.perspective_step_pct < 1.0
