@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/semantic-pixel-ownership
+      - feature/edge-observation-primitive
     paths:
       - '.github/workflows/case-e-real-image.yml'
       - 'benchmark/measurement-poc/cases/case-e-m3x30-q80.part*.b64'
@@ -104,12 +105,45 @@ jobs:
           # NOT passed into any geometry or edge-estimation function.
           from geometry_executor import _select_object_contour
           from thread_geometry import detect_threaded_shank
-          from edge_observation import observe_thread_edges
+          from edge_observation import observe_thread_edges, observe_edge_track
           from diameter_axis import estimate_independent_axis
           coarse = _select_object_contour(image, scale_ref.reference_points_px, scale_ref.px_per_cm, semantic)
           profile = detect_threaded_shank(coarse)
           if profile is not None:
               up, lo = observe_thread_edges(image, profile)
+              # Compare identical coarse points and normals; D/P/L remain unchanged.
+              sample_mask = profile.sample_mask
+              sample_s = profile.s_values[sample_mask].astype(np.float64)
+              baseline = profile.center[None, :] + profile.axis[None, :] * sample_s[:, None]
+              for side_name, old_track, coarse, outward in (
+                  ("positive_normal", up, profile.high[sample_mask], profile.normal),
+                  ("negative_normal", lo, profile.low[sample_mask], -profile.normal),
+              ):
+                  coarse_xy = baseline + profile.normal[None, :] * coarse[:, None]
+                  new_track = observe_edge_track(image, coarse_xy, outward, s_px=sample_s)
+                  paired = old_track.valid & new_track.valid
+                  old_xy = np.asarray([obs.position_xy for obs in old_track.observations], dtype=np.float64)
+                  new_xy = np.asarray([obs.position_xy for obs in new_track.observations], dtype=np.float64)
+                  displacement = np.linalg.norm(old_xy[paired] - new_xy[paired], axis=1)
+                  def finite_median(values, valid):
+                      part = np.asarray(values)[valid]
+                      return float(np.median(part)) if len(part) else None
+                  print("CASE_E_EDGE_PARITY=" + json.dumps({
+                      "side": side_name,
+                      "samples": int(len(sample_s)),
+                      "old_valid": int(np.count_nonzero(old_track.valid)),
+                      "new_valid": int(np.count_nonzero(new_track.valid)),
+                      "valid_disagreements": int(np.count_nonzero(old_track.valid != new_track.valid)),
+                      "paired": int(np.count_nonzero(paired)),
+                      "median_position_delta_px": float(np.median(displacement)) if len(displacement) else None,
+                      "p90_position_delta_px": float(np.percentile(displacement, 90)) if len(displacement) else None,
+                      "old_blur_median_px": finite_median(old_track.blur_10_90_px, old_track.valid),
+                      "new_blur_median_px": finite_median(new_track.blur_10_90_px, new_track.valid),
+                      "old_uncertainty_median_px": finite_median(old_track.uncertainty_px, old_track.valid),
+                      "new_uncertainty_median_px": finite_median(new_track.uncertainty_px, new_track.valid),
+                      "old_gradient_median": finite_median(old_track.gradient_strength, old_track.valid),
+                      "new_gradient_median": finite_median(new_track.gradient_strength, new_track.valid),
+                  }))
               mid = profile.center[0] + profile.axis[0] * up.s_px
               paired = up.valid & lo.valid
               good = (
