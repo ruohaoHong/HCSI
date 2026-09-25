@@ -136,6 +136,12 @@ jobs:
                   "present":axis is not None,
                   "samples":axis.reference_samples if axis is not None else 0,
                   "rms":axis.residual_px if axis is not None else None,
+                  "span_s": [axis.span_start_px,axis.span_end_px] if axis is not None else None,
+                  "span_x": [
+                      float(profile.center[0]+profile.axis[0]*axis.span_start_px),
+                      float(profile.center[0]+profile.axis[0]*axis.span_end_px)
+                  ] if axis is not None else None,
+                  "slope":axis.normal_slope if axis is not None else None,
               }))
           result = measure_rgb(image, "case-e-m3x30-real", steps, semantic)
           print("CASE_E_RESULT_START")
