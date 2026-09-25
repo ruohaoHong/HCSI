@@ -20,6 +20,7 @@ class PeriodicSilhouetteSide:
     harmonic_amplitude: float | None
     t_score: float | None
     noise_floor: float | None
+    peak_radius_px: float | None
     reliable: bool
     reason: str | None
 
@@ -108,13 +109,17 @@ def _outer_candidate(
             good[i]=True
     idx=np.flatnonzero(good)
     if not len(idx):
-        return PeriodicSilhouetteSide(None,None,None,floor,False,
+        peak_idx=np.flatnonzero(radial)
+        peak_radius=abs(float(q[peak_idx[int(np.argmax(amps[peak_idx]))]])) if len(peak_idx) else None
+        return PeriodicSilhouetteSide(None,None,None,floor,peak_radius,False,
                                       "periodic_silhouette_not_resolved")
     chosen=int(idx[-1] if side>0 else idx[0])
     radius=abs(float(q[chosen]))
+    radial_idx=np.flatnonzero(radial)
+    peak_radius=abs(float(q[radial_idx[int(np.argmax(amps[radial_idx]))]]))
     return PeriodicSilhouetteSide(
         radius,float(amps[chosen]),float(scores[chosen]),float(floor),
-        True,None,
+        peak_radius,True,None,
     )
 
 
@@ -126,18 +131,18 @@ def estimate_periodic_silhouette_diameter(
     radial_step_px: float=0.25,
 ) -> PeriodicSilhouetteDiameter:
     if not np.isfinite(pitch_px) or pitch_px<3.0:
-        empty=PeriodicSilhouetteSide(None,None,None,None,False,"invalid_pitch")
+        empty=PeriodicSilhouetteSide(None,None,None,None,None,False,"invalid_pitch")
         return PeriodicSilhouetteDiameter(None,None,empty,empty,None,"none","invalid_pitch")
     s=np.asarray(profile.s_values[profile.sample_mask],dtype=np.float64)
     low=np.asarray(profile.low[profile.sample_mask],dtype=np.float64)
     high=np.asarray(profile.high[profile.sample_mask],dtype=np.float64)
     if len(s)<max(48,int(round(6*pitch_px))):
-        empty=PeriodicSilhouetteSide(None,None,None,None,False,"thread_span_too_short")
+        empty=PeriodicSilhouetteSide(None,None,None,None,None,False,"thread_span_too_short")
         return PeriodicSilhouetteDiameter(None,None,empty,empty,None,"none","thread_span_too_short")
 
     axis=_robust_axis(s,0.5*(low+high))
     if axis is None:
-        empty=PeriodicSilhouetteSide(None,None,None,None,False,"axis_fit_failed")
+        empty=PeriodicSilhouetteSide(None,None,None,None,None,False,"axis_fit_failed")
         return PeriodicSilhouetteDiameter(None,None,empty,empty,None,"none","axis_fit_failed")
     origin,slope,intercept,axis_rms=axis
     center_n=intercept+slope*(s-origin)
@@ -162,7 +167,7 @@ def estimate_periodic_silhouette_diameter(
         np.min(xx)<1 or np.max(xx)>=gray.shape[1]-1
         or np.min(yy)<1 or np.max(yy)>=gray.shape[0]-1
     ):
-        empty=PeriodicSilhouetteSide(None,None,None,None,False,"sample_grid_out_of_bounds")
+        empty=PeriodicSilhouetteSide(None,None,None,None,None,False,"sample_grid_out_of_bounds")
         return PeriodicSilhouetteDiameter(None,None,empty,empty,axis_rms,"none",
                                           "sample_grid_out_of_bounds")
     samples=cv2.remap(
