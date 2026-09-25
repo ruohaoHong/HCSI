@@ -32,6 +32,7 @@ jobs:
           PYTHONPATH=measurement-service python - <<'PY'
           from dataclasses import asdict, replace
           import json
+          import cv2
           import numpy as np
           from PIL import Image
 
