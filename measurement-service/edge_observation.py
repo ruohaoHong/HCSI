@@ -7,12 +7,13 @@ This module intentionally has no knowledge of thread pitch or nominal fastener D
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import cv2
 import numpy as np
 
 from thread_geometry import ThreadedShankProfile
+from diameter_axis import estimate_independent_axis
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,11 @@ class DiameterObservation:
     reason: str | None
     positive_normal_relief_px: float | None = None
     negative_normal_relief_px: float | None = None
+    measurement_mode: str = "none"
+    axis_reference_samples: int = 0
+    axis_residual_px: float | None = None
+    axis_uncertainty_px: float | None = None
+    axis_slope: float | None = None
 
 
 def _edge_track(
@@ -154,7 +160,9 @@ def observe_thread_edges(
     return upper, lower
 
 
-def _crest_envelope(track: EdgeTrack) -> tuple[float | None, float | None, int, float | None]:
+def _crest_envelope(
+    track: EdgeTrack, *, allow_smooth: bool = True,
+) -> tuple[float | None, float | None, int, float | None]:
     """Use repeatedly observed, trustworthy *outward* crests, not a blur-biased mask."""
     if int(np.count_nonzero(track.valid)) < 20:
         return None, None, 0, None
@@ -190,6 +198,8 @@ def _crest_envelope(track: EdgeTrack) -> tuple[float | None, float | None, int, 
         peak_prominences.append(float(prominence))
 
     if len(peak_indices) < 4:
+        if not allow_smooth:
+            return None, None, len(peak_indices), None
         # Smooth non-threaded shanks are still measurable. A single stable
         # physical surface on both sides is sufficient for cylindrical D.
         stable = values[valid]
@@ -232,39 +242,142 @@ def _crest_envelope(track: EdgeTrack) -> tuple[float | None, float | None, int, 
     return estimate, uncertainty, len(heights), float(np.median(relief))
 
 
+def _trusted_crest(
+    track: EdgeTrack,
+    envelope: float | None,
+    relief: float | None,
+) -> bool:
+    if envelope is None:
+        return False
+    if relief is None:
+        # A smooth cylindrical shank has a valid surface but cannot on its own
+        # serve as the one-sided thread-major crest observation.
+        return True
+    if not np.any(track.valid):
+        return False
+    median_blur = float(np.median(track.blur_10_90_px[track.valid]))
+    return median_blur <= max(3.0, relief * 2.5)
+
+
 def measure_thread_major_diameter(
     image_rgb: np.ndarray,
     profile: ThreadedShankProfile,
 ) -> DiameterObservation:
+    """Adaptive D: two trusted crests, or one crest + independent centerline.
+
+    Crucially, the independent axis is determined *without* the selected
+    threaded flank: it must be grounded in a separate bilateral cylindrical
+    image region. We never double a single edge against an assumed center or
+    use catalog D to select an estimator. P and L consume their old inputs.
+    """
     upper, lower = observe_thread_edges(image_rgb, profile)
     up, up_unc, up_n, up_relief = _crest_envelope(upper)
     lo, lo_unc, lo_n, lo_relief = _crest_envelope(lower)
-    reason = None
-    value = None
-    uncertainty = None
-    if up is None or lo is None:
-        reason = "edge_side_support_insufficient"
-    else:
-        value = up + lo
+    trusted_up = _trusted_crest(upper, up, up_relief)
+    trusted_lo = _trusted_crest(lower, lo, lo_relief)
+
+    def result(
+        value: float | None, uncertainty: float | None,
+        reason: str | None, mode: str, axis=None,
+        final_up: float | None = up, final_lo: float | None = lo,
+        final_up_n: int = up_n, final_lo_n: int = lo_n,
+    ) -> DiameterObservation:
+        return DiameterObservation(
+            value_px=value,
+            uncertainty_px=uncertainty,
+            upper=upper,
+            lower=lower,
+            upper_crest_count=final_up_n,
+            lower_crest_count=final_lo_n,
+            upper_crest_px=final_up,
+            lower_crest_px=final_lo,
+            reason=reason,
+            positive_normal_relief_px=up_relief,
+            negative_normal_relief_px=lo_relief,
+            measurement_mode=mode,
+            axis_reference_samples=axis.reference_samples if axis is not None else 0,
+            axis_residual_px=axis.residual_px if axis is not None else None,
+            axis_uncertainty_px=axis.uncertainty_at_origin_px if axis is not None else None,
+            axis_slope=axis.normal_slope if axis is not None else None,
+        )
+
+    if trusted_up and trusted_lo:
+        value = float(up + lo)
         uncertainty = float(np.hypot(up_unc, lo_unc))
-        # An apparently excellent logistic fit can track a dark reflectance
-        # band *inside* a shiny metal crest. Optical spread wider than the
-        # observed crest relief means the physical crest is under-resolved;
-        # tiny fit residuals alone must not produce false precision.
-        for track, relief in ((upper, up_relief), (lower, lo_relief)):
-            if relief is None:
-                continue  # genuinely smooth shank; no tooth relief to resolve
-            crest_blur = float(np.median(track.blur_10_90_px[track.valid]))
-            if crest_blur > max(3.0, relief * 2.5):
-                reason = "edge_crest_underresolved"
-                value = None
-                uncertainty = None  # Cannot bound model bias from a blurred crest.
-                break
-        if value is not None and uncertainty > max(2.5, 0.08 * value):
-            reason = "edge_diameter_uncertain"
-            value = None
-            uncertainty = None
-    return DiameterObservation(
-        value, uncertainty, upper, lower, up_n, lo_n, up, lo, reason,
-        up_relief, lo_relief,
+        if uncertainty <= max(2.5, 0.08 * value):
+            return result(value, uncertainty, None, "two_side")
+        # Both physical surfaces visible, but tooth-to-tooth dispersion is too
+        # large to support a numeric major diameter.
+        return result(None, None, "edge_diameter_uncertain", "none")
+
+    if not trusted_up and not trusted_lo:
+        reason = (
+            "edge_side_support_insufficient"
+            if up is None or lo is None
+            else "edge_crest_underresolved"
+        )
+        return result(None, None, reason, "none")
+
+    # The *other* side must establish a truly independent axis, i.e. an
+    # observable bilateral smooth region, not a guessed symmetric offset of
+    # the selected thread crests.
+    axis = estimate_independent_axis(upper, lower)
+    if axis is None:
+        reason = (
+            "edge_side_support_insufficient"
+            if up is None or lo is None
+            else "independent_axis_unavailable"
+        )
+        return result(None, None, reason, "none")
+
+    sign, track = (1.0, upper) if trusted_up else (-1.0, lower)
+    # The axis reference segment cannot also count as the crests used to
+    # estimate thread major D. This prevents a smooth partial shank from
+    # masquerading as the threaded surface being measured.
+    separate = (
+        (track.s_px < axis.span_start_px - 8.0)
+        | (track.s_px > axis.span_end_px + 8.0)
+    )
+    candidate = replace(
+        track,
+        outward_px=track.outward_px - sign * axis.normal_coordinate(track.s_px),
+        valid=track.valid & separate,
+    )
+    radius, radius_unc, crest_count, relief = _crest_envelope(
+        candidate, allow_smooth=False,
+    )
+    if radius is None or radius_unc is None or relief is None:
+        return result(
+            None, None, "one_sided_crest_insufficient", "none", axis=axis,
+        )
+
+    # The selected side must remain physically resolved after excluding the
+    # smooth reference section. Check its own optical blur vs crest relief,
+    # not the unusable opposite flank's blur.
+    trusted = track.valid & separate
+    if not np.any(trusted):
+        return result(None, None, "one_sided_crest_insufficient", "none", axis=axis)
+    median_blur = float(np.median(track.blur_10_90_px[trusted]))
+    if median_blur > max(3.0, relief * 2.5):
+        return result(None, None, "one_sided_crest_underresolved", "none", axis=axis)
+
+    crest_s = float(np.median(track.s_px[trusted]))
+    center_uncertainty = axis.uncertainty(crest_s)
+    value = float(radius * 2.0)
+    uncertainty = float(2.0 * np.hypot(radius_unc, center_uncertainty))
+    if (
+        radius <= 2.0
+        or uncertainty > max(4.0, 0.12 * value)
+        or not np.isfinite(value)
+    ):
+        return result(None, None, "one_sided_diameter_uncertain", "none", axis=axis)
+    return result(
+        value, uncertainty, None,
+        "positive_normal_plus_independent_axis"
+        if sign > 0 else "negative_normal_plus_independent_axis",
+        axis=axis,
+        final_up=radius if sign > 0 else up,
+        final_lo=radius if sign < 0 else lo,
+        final_up_n=crest_count if sign > 0 else up_n,
+        final_lo_n=crest_count if sign < 0 else lo_n,
     )
