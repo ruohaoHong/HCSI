@@ -350,6 +350,20 @@ def execute_geometry_steps(
                 diagnostics["edge_upper_crest_relief_px"] = _round(observation.positive_normal_relief_px)
             if observation.negative_normal_relief_px is not None:
                 diagnostics["edge_lower_crest_relief_px"] = _round(observation.negative_normal_relief_px)
+            # 0=no defensible D, 1=one trusted flank + separately observed
+            # cylindrical axis, 2=two trusted physical flank envelopes.
+            diagnostics["edge_diameter_mode_code"] = (
+                2.0 if observation.measurement_mode == "two_side"
+                else 1.0 if observation.measurement_mode.endswith("independent_axis")
+                else 0.0
+            )
+            diagnostics["edge_axis_reference_samples"] = float(observation.axis_reference_samples)
+            if observation.axis_residual_px is not None:
+                diagnostics["edge_axis_residual_px"] = _round(observation.axis_residual_px)
+            if observation.axis_uncertainty_px is not None:
+                diagnostics["edge_axis_uncertainty_px"] = _round(observation.axis_uncertainty_px)
+            if observation.axis_slope is not None:
+                diagnostics["edge_axis_slope"] = _round(observation.axis_slope, 6)
             if observation.uncertainty_px is not None:
                 diagnostics["edge_diameter_uncertainty_px"] = _round(observation.uncertainty_px)
             if observation.value_px is None:
