@@ -58,8 +58,9 @@ def _image(*, radius=16.0, period=13.0, smooth_length=205, damaged="top"):
 
 @pytest.mark.parametrize("damaged", ["top", "bottom"])
 @pytest.mark.parametrize("period", [12.0, 17.0])
-def test_independent_axis_recovers_single_good_flank_across_pitches(damaged, period):
-    image, contour = _image(damaged=damaged, period=period)
+@pytest.mark.parametrize("radius", [12.0, 16.0, 21.0])
+def test_independent_axis_recovers_single_good_flank_across_sizes_and_pitches(damaged, period, radius):
+    image, contour = _image(damaged=damaged, period=period, radius=radius)
     profile = detect_threaded_shank(contour)
     assert profile is not None
     result = measure_thread_major_diameter(image, profile)
@@ -67,7 +68,7 @@ def test_independent_axis_recovers_single_good_flank_across_pitches(damaged, per
     assert result.measurement_mode.endswith("independent_axis"), result.measurement_mode
     assert result.axis_reference_samples >= 36
     assert result.value_px is not None
-    assert abs(result.value_px - 32.0) <= 3.0, result
+    assert abs(result.value_px - 2.0 * radius) <= 3.0, result
     assert result.uncertainty_px is not None
     assert result.uncertainty_px > 0
 
@@ -89,3 +90,18 @@ def test_fully_threaded_single_good_side_does_not_fabricate_a_centerline():
     result = measure_thread_major_diameter(image, profile)
     assert result.value_px is None
     assert result.measurement_mode == "none"
+
+
+def test_single_side_diameter_handles_reversed_head_tip_direction():
+    image, contour = _image(damaged="bottom", period=17.0)
+    h, w = image.shape[:2]
+    image = cv2.rotate(image, cv2.ROTATE_180)
+    contour = contour.copy()
+    contour[:, 0, 0] = w - 1 - contour[:, 0, 0]
+    contour[:, 0, 1] = h - 1 - contour[:, 0, 1]
+    profile = detect_threaded_shank(contour)
+    assert profile is not None
+    result = measure_thread_major_diameter(image, profile)
+    assert result.reason is None, result.reason
+    assert result.measurement_mode.endswith("independent_axis")
+    assert abs(result.value_px - 32.0) <= 3.0
