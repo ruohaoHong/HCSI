@@ -1,0 +1,175 @@
+name: Fixed Cases A-D Latest Code
+
+on:
+  push:
+    branches:
+      - test/fixed-cases-abcd-64f8f405-20260926
+  workflow_dispatch:
+
+jobs:
+  run-fixed-cases:
+    runs-on: ubuntu-latest
+    env:
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: measurement-service/requirements.txt
+      - run: pip install -r measurement-service/requirements.txt
+      - name: Run locked A-D fixtures through latest measurement code
+        run: |
+          PYTHONPATH=measurement-service python - <<'PY'
+          import hashlib, json, pathlib, urllib.request, traceback
+          import numpy as np
+          from PIL import Image
+          from io import BytesIO
+          from app import measure_rgb
+
+          OUT = pathlib.Path("/tmp/fixed-abcd")
+          OUT.mkdir(parents=True, exist_ok=True)
+
+          cases = [
+            {
+              "id":"A",
+              "url":"https://mossmotors.com/media/catalog/product/3/2/322-945_1.jpg",
+              "sha256":"5d6ee9563fd9a2e0d6861d74d581d4bae38a4f9181326d568291c1981e70b988",
+              "gt":{"D_mm":4.826,"P_mm":0.79375,"L_mm":22.225},
+              "head_style":"pan",
+              "length_anchor":"head_underface",
+              "target":[120,240,450,450],
+              "reference":[185,155,1000,750],
+              "headers":{},
+            },
+            {
+              "id":"B",
+              "url":"https://cdn11.bigcommerce.com/s-1ygf19te2/images/stencil/1280x1280/products/20420/89736/r20b002-5__33578.1667485725.jpg?c=2?imbypass=on",
+              "sha256":"6f18c4db1acb3879cf52f5965a53795f75dc069c428cd39af54e276bdaa02be6",
+              "gt":{"D_mm":6.0,"P_mm":1.0,"L_mm":40.0},
+              "head_style":"flat_countersunk",
+              "length_anchor":"head_top",
+              "target":[50,245,970,515],
+              "reference":[50,535,1000,850],
+              "headers":{},
+            },
+            {
+              "id":"C",
+              "url":"https://cdn11.bigcommerce.com/s-1ygf19te2/images/stencil/1280x1280/products/20567/90373/r16b008-6__94664.1667485912.jpg?c=2%3Fimbypass%3Don",
+              "sha256":"3c52044724df828c971fee66c6b8f8dd4a684407d4b3c6b2ed2a75114a2fafa4",
+              "gt":{"D_mm":14.0,"P_mm":2.0,"L_mm":45.0},
+              "head_style":"hex",
+              "length_anchor":"head_underface",
+              "target":[0,60,1000,600],
+              "reference":[0,600,1000,900],
+              "headers":{},
+            },
+            {
+              "id":"D",
+              "url":"https://cdn11.bigcommerce.com/s-dtwuls/images/stencil/1280x1280/products/25069/10465/nas220-6__83774.1494512951.jpg?c=2",
+              "sha256":"c0c0929f03eb6b3b053b92e0b6fcee12f20e921360d4cfe31bfef44cdc721d10",
+              "gt":{"D_mm":4.1656,"P_mm":0.79375,"L_mm":10.31875},
+              "head_style":"pan",
+              "length_anchor":"head_underface",
+              "target":[285,390,735,650],
+              "reference":[210,615,1000,815],
+              "headers":{"User-Agent":"Mozilla/5.0 HCSI acceptance"},
+            },
+          ]
+
+          def region(v):
+              return {
+                  "present": True, "confidence": 0.95,
+                  "x_min":v[0], "y_min":v[1], "x_max":v[2], "y_max":v[3],
+              }
+
+          def summarize(case, raw_result):
+              by_op = {}
+              for step in raw_result.get("geometry_steps", []):
+                  by_op.setdefault(step.get("operation"), []).append(step)
+              d = (by_op.get("outer_width") or [None])[0]
+              p = (by_op.get("periodicity") or [None])[0]
+              l = (by_op.get("axial_distance") or [None])[0]
+              vals = {
+                  "D_mm": None if not d else d.get("value_mm"),
+                  "P_mm": None if not p else p.get("value_mm"),
+                  "L_mm": None if not l else l.get("value_mm"),
+              }
+              statuses = {
+                  "D": None if not d else d.get("status"),
+                  "P": None if not p else p.get("status"),
+                  "L": None if not l else l.get("status"),
+              }
+              errs = {}
+              for k in ("D_mm","P_mm","L_mm"):
+                  pred = vals[k]
+                  gt = case["gt"][k]
+                  errs[k] = None if pred is None else abs(float(pred)-gt)/gt*100.0
+              return {
+                  "measurement_status": raw_result.get("measurement_status"),
+                  "measurement_valid": raw_result.get("measurement_valid"),
+                  "reason_codes": raw_result.get("reason_codes", []),
+                  "values": vals,
+                  "statuses": statuses,
+                  "error_pct": errs,
+                  "geometry_steps": raw_result.get("geometry_steps", []),
+                  "ruler": raw_result.get("ruler"),
+                  "object": raw_result.get("object"),
+              }
+
+          results = []
+          for case in cases:
+              row = {"case":case["id"], "expected_sha256":case["sha256"], "ground_truth":case["gt"]}
+              try:
+                  req = urllib.request.Request(case["url"], headers=case["headers"])
+                  raw = urllib.request.urlopen(req, timeout=60).read()
+                  actual = hashlib.sha256(raw).hexdigest()
+                  row["actual_sha256"] = actual
+                  row["sha_match"] = actual == case["sha256"]
+                  row["download_bytes"] = len(raw)
+                  if actual != case["sha256"]:
+                      row["status"] = "FIXTURE_SHA_MISMATCH"
+                      results.append(row)
+                      print("CASE_RESULT="+json.dumps(row, ensure_ascii=False))
+                      continue
+
+                  (OUT / f'case-{case["id"].lower()}.bin').write_bytes(raw)
+                  image = np.asarray(Image.open(BytesIO(raw)).convert("RGB"))
+                  semantic = {
+                      "target_region": region(case["target"]),
+                      "reference_region": region(case["reference"]),
+                      "head_style": case["head_style"],
+                  }
+                  steps = [
+                      {"operation":"outer_width","inputs":["threaded_shank"],"purpose":"D"},
+                      {"operation":"periodicity","inputs":["threaded_shank"],"purpose":"P"},
+                      {"operation":"axial_distance","inputs":["object_tip",case["length_anchor"]],"purpose":"L"},
+                  ]
+                  measured = measure_rgb(image, actual, steps, semantic)
+                  row["status"] = "RAN"
+                  row["summary"] = summarize(case, measured)
+                  row["raw_result"] = measured
+              except Exception as e:
+                  row["status"] = "ERROR"
+                  row["error_type"] = type(e).__name__
+                  row["error"] = str(e)
+                  row["traceback"] = traceback.format_exc()
+              results.append(row)
+              print("CASE_RESULT="+json.dumps(row, ensure_ascii=False))
+
+          payload = {
+              "code_baseline":"64f8f405ff01053b2d0c8a29e8376119e9032dba",
+              "runner_branch":"test/fixed-cases-abcd-64f8f405-20260926",
+              "cases":results,
+          }
+          (OUT/"results.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+          print("FINAL_RESULTS_START")
+          print(json.dumps(payload, ensure_ascii=False, indent=2))
+          print("FINAL_RESULTS_END")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fixed-cases-abcd-64f8f405
+          path: /tmp/fixed-abcd
+          retention-days: 30
