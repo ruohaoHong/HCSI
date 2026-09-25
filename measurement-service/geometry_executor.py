@@ -364,6 +364,14 @@ def execute_geometry_steps(
                 diagnostics["edge_axis_uncertainty_px"] = _round(observation.axis_uncertainty_px)
             if observation.axis_slope is not None:
                 diagnostics["edge_axis_slope"] = _round(observation.axis_slope, 6)
+            if observation.candidate_value_px is not None:
+                diagnostics["edge_one_sided_candidate_px"] = _round(observation.candidate_value_px)
+            if observation.candidate_uncertainty_px is not None:
+                diagnostics["edge_one_sided_uncertainty_px"] = _round(observation.candidate_uncertainty_px)
+            if observation.axis_crest_uncertainty_px is not None:
+                diagnostics["edge_axis_at_crest_uncertainty_px"] = _round(observation.axis_crest_uncertainty_px)
+            if observation.axis_extrapolation_px is not None:
+                diagnostics["edge_axis_extrapolation_px"] = _round(observation.axis_extrapolation_px)
             if observation.uncertainty_px is not None:
                 diagnostics["edge_diameter_uncertainty_px"] = _round(observation.uncertainty_px)
             if observation.value_px is None:
