@@ -38,10 +38,9 @@ jobs:
               {"operation":"periodicity","inputs":["threaded_shank"],"purpose":"thread pitch P"},
           ]
           semantic = {
-              "category":"fasteners",
               "head_style":"socket_cap",
-              "target_region":None,
-              "reference_region":None,
+              "target_region":{"present":True,"confidence":0.99,"x_min":210,"y_min":390,"x_max":620,"y_max":670},
+              "reference_region":{"present":False,"confidence":0.0,"x_min":0,"y_min":0,"x_max":0,"y_max":0},
           }
           result = measure_rgb(image, "case-e-real", steps, semantic)
           print("CASE_E_RESULT_START")
