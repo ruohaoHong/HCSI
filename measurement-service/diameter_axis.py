@@ -38,7 +38,7 @@ class IndependentAxis:
         ))
 
 
-def estimate_independent_axis(upper, lower) -> IndependentAxis | None:
+def _estimate_paired_axis(upper, lower) -> IndependentAxis | None:
     """Find an observable straight, bilateral non-crest cylindrical segment.
 
     upper and lower are independent raw-image EdgeTracks. Their outward values
@@ -176,3 +176,138 @@ def estimate_independent_axis(upper, lower) -> IndependentAxis | None:
         uncertainty_at_origin_px=sigma_origin,
         slope_uncertainty=slope_sigma,
     )
+
+
+def _fit_side_line(
+    s: np.ndarray, edge: np.ndarray,
+) -> tuple[float, float, float, np.ndarray] | None:
+    """Robust line for a raw physical edge; never infer the other side here."""
+    if len(s) < 16 or float(np.ptp(s)) < 35.0:
+        return None
+    origin = float(np.median(s))
+    x = s - origin
+    slope, at_origin = np.polyfit(x, edge, 1)
+    for _ in range(3):
+        err = edge - (slope * x + at_origin)
+        mad = 1.4826 * float(np.median(np.abs(err - np.median(err))))
+        keep = np.abs(err) <= max(0.8, 2.8 * mad)
+        if np.count_nonzero(keep) < max(16, 0.70 * len(s)):
+            return None
+        slope, at_origin = np.polyfit(x[keep], edge[keep], 1)
+    err = edge - (slope * x + at_origin)
+    keep = np.abs(err) <= max(0.8, 2.8 * np.median(np.abs(err)))
+    if np.count_nonzero(keep) < max(16, 0.70 * len(s)):
+        return None
+    rms = float(np.sqrt(np.mean(err[keep] ** 2)))
+    if rms > 0.75 or float(np.ptp(s[keep])) < 0.65 * float(np.ptp(s)):
+        return None
+    # Convert intercept to s=0. The caller will re-anchor its centerline.
+    return float(slope), float(at_origin - slope * origin), rms, keep
+
+
+def _estimate_disjoint_side_axis(upper, lower) -> IndependentAxis | None:
+    """Two clear *straight sides* need not occur at identical axial pixels.
+
+    Reflections or texture may intermittently hide alternating sides of a
+    smooth cylinder. In a shared axial interval, fit each raw-image surface
+    independently, validate long-span parallelism and low residual, then take
+    the mean geometric centerline. Do not require paired observations at every
+    x, and do not substitute a contour-only axis.
+    """
+    s = upper.s_px
+    if len(s) < 64 or len(lower.s_px) != len(s):
+        return None
+    def good(t):
+        return (
+            t.valid & np.isfinite(t.outward_px)
+            & (t.contrast >= 28.0)
+            & (t.relative_residual <= 0.20)
+            & (t.blur_10_90_px <= 10.0)
+            & (t.uncertainty_px <= 1.0)
+        )
+    valid_up = good(upper)
+    valid_lo = good(lower)
+    if np.count_nonzero(valid_up) < 20 or np.count_nonzero(valid_lo) < 20:
+        return None
+
+    best = None
+    for span in (64, 96, 128, 160, 192):
+        if span > len(s):
+            continue
+        for left in range(0, len(s) - span + 1, max(8, span // 7)):
+            right = left + span
+            u = np.flatnonzero(valid_up[left:right]) + left
+            l = np.flatnonzero(valid_lo[left:right]) + left
+            min_samples = max(16, int(round(0.30 * span)))
+            if len(u) < min_samples or len(l) < min_samples:
+                continue
+            if float(np.ptp(s[u])) < 0.65 * span or float(np.ptp(s[l])) < 0.65 * span:
+                continue
+            u_fit = _fit_side_line(s[u], upper.outward_px[u])
+            l_fit = _fit_side_line(s[l], lower.outward_px[l])
+            if u_fit is None or l_fit is None:
+                continue
+            um, ub, urms, u_keep = u_fit
+            lm, lb, lrms, l_keep = l_fit
+            if abs(um + lm) > 0.018:
+                continue
+            # The observable spans must overlap: parallel fragments on
+            # completely different physical sections cannot certify a shaft.
+            us = s[u[u_keep]]
+            ls = s[l[l_keep]]
+            overlap_start = max(float(us.min()), float(ls.min()))
+            overlap_end = min(float(us.max()), float(ls.max()))
+            if overlap_end - overlap_start < max(35.0, span * 0.55):
+                continue
+            # Reject a pair that only looks straight locally but carries an
+            # unstable diameter in their actual simultaneously seen pixels.
+            both = valid_up[left:right] & valid_lo[left:right]
+            if np.count_nonzero(both) >= 8:
+                k = np.flatnonzero(both) + left
+                model_width = (um + lm) * s[k] + ub + lb
+                discrepancies = upper.outward_px[k] + lower.outward_px[k] - model_width
+                if float(np.percentile(np.abs(discrepancies), 80)) > 1.5:
+                    continue
+            support = int(np.count_nonzero(u_keep) + np.count_nonzero(l_keep))
+            # Prefer long, well-supported bilateral sections, not a favorable
+            # nominal D or a benchmark-specific position in the photo.
+            score = (overlap_end - overlap_start) * min(len(u),len(l)) / (
+                1.0 + urms + lrms
+            )
+            if best is None or score > best[0]:
+                best = (
+                    score, overlap_start, overlap_end, um, ub, urms,
+                    lm, lb, lrms, support,
+                )
+    if best is None:
+        return None
+    _, start, end, um, ub, urms, lm, lb, lrms, support = best
+    center_s = (start + end) * 0.5
+    center_slope = 0.5 * (um - lm)
+    center_zero = 0.5 * (ub - lb)
+    # Unlike simultaneous pairs, the two sides are fitted separately, so
+    # account for the weaker side's regression residual and extrapolation.
+    rms = float(np.hypot(urms, lrms) * 0.5)
+    uncertainty = max(0.7, 0.5 * (urms + lrms), rms)
+    slope_uncertainty = max(
+        0.001, 2.0 * max(urms, lrms, 0.25) / max((end - start) * 0.5, 1.0)
+    )
+    return IndependentAxis(
+        s_origin_px=float(center_s),
+        normal_at_origin_px=float(center_zero + center_slope * center_s),
+        normal_slope=float(center_slope),
+        span_start_px=float(start),
+        span_end_px=float(end),
+        reference_samples=support,
+        residual_px=rms,
+        uncertainty_at_origin_px=uncertainty,
+        slope_uncertainty=slope_uncertainty,
+    )
+
+
+def estimate_independent_axis(upper, lower) -> IndependentAxis | None:
+    """Select a geometric two-side axis without using thread crest identity."""
+    paired = _estimate_paired_axis(upper, lower)
+    if paired is not None:
+        return paired
+    return _estimate_disjoint_side_axis(upper, lower)
