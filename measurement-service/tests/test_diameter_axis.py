@@ -56,3 +56,28 @@ def test_missing_bilateral_reference_rejects_axis_even_with_one_flat_side():
         lower.contrast, lower.blur_10_90_px, lower.relative_residual, flags,
     )
     assert estimate_independent_axis(upper, lower) is None
+
+
+def test_centerline_uses_complementary_side_pixels_not_same_column_only():
+    # The two optical edges can be observed at alternating axial samples;
+    # rejecting them merely because they do not coexist at each x wastes real
+    # bilateral geometric evidence.
+    upper, lower = _tracks(smooth_samples=135)
+    u_valid = upper.valid.copy()
+    l_valid = lower.valid.copy()
+    early = upper.s_px < 135
+    u_valid[early] = (upper.s_px[early] % 3 != 0)
+    l_valid[early] = (lower.s_px[early] % 3 == 0)
+    assert not np.any(u_valid[early] & l_valid[early])
+    upper = EdgeTrack(
+        upper.s_px, upper.outward_px, upper.uncertainty_px,
+        upper.contrast, upper.blur_10_90_px, upper.relative_residual, u_valid,
+    )
+    lower = EdgeTrack(
+        lower.s_px, lower.outward_px, lower.uncertainty_px,
+        lower.contrast, lower.blur_10_90_px, lower.relative_residual, l_valid,
+    )
+    axis = estimate_independent_axis(upper, lower)
+    assert axis is not None
+    assert axis.span_end_px < 155.0
+    assert abs(float(axis.normal_coordinate(320.0)) - (1.5 + .002 * 320.0)) < .35
