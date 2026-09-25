@@ -183,32 +183,20 @@ def estimate_periodic_silhouette_diameter(
             "periodic_silhouette_not_resolved",
         )
     if len(candidates)==2:
-        dp,dn=candidates[0][1],candidates[1][1]
-        if abs(dp-dn)<=max(2.0,0.06*max(dp,dn)):
-            weights=np.array([
-                max(candidates[0][2].t_score or 0.0,1.0),
-                max(candidates[1][2].t_score or 0.0,1.0),
-            ])
-            value=float(np.average([dp,dn],weights=weights))
-            disagreement=0.5*abs(dp-dn)
-            uncertainty=max(axis_rms,disagreement,radial_step_px)
-            return PeriodicSilhouetteDiameter(
-                value,uncertainty,positive,negative,axis_rms,
-                "bilateral_periodic_silhouette",None,
-            )
-        # One side can still be used if its periodic evidence is far stronger.
-        pscore=positive.t_score or 0.0
-        nscore=negative.t_score or 0.0
-        if max(pscore,nscore)>=1.8*max(min(pscore,nscore),1e-6):
-            chosen=candidates[0] if pscore>nscore else candidates[1]
-            uncertainty=max(axis_rms*2.0,radial_step_px,0.5*abs(dp-dn))
-            return PeriodicSilhouetteDiameter(
-                chosen[1],uncertainty,positive,negative,axis_rms,
-                f"single_{chosen[0]}_periodic_silhouette",None,
-            )
+        # Diameter is the physical separation of the two independently observed
+        # periodic silhouettes.  Do not double either radius: any small offset
+        # in the provisional centerline moves one radius up and the other down,
+        # while their sum is invariant to that offset.
+        assert positive.radius_px is not None and negative.radius_px is not None
+        value=float(positive.radius_px+negative.radius_px)
+        radial_resolution=max(0.35,2.0*radial_step_px)
+        uncertainty=max(
+            math.sqrt(2.0)*radial_resolution,
+            0.25*float(axis_rms),
+        )
         return PeriodicSilhouetteDiameter(
-            None,None,positive,negative,axis_rms,"none",
-            "side_radii_disagree",
+            value,uncertainty,positive,negative,axis_rms,
+            "bilateral_periodic_silhouette",None,
         )
     chosen=candidates[0]
     # Single-side use relies on the contour-midline axis; keep its uncertainty
