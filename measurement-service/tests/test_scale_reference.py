@@ -73,3 +73,33 @@ def test_conflicting_imperial_candidate_cannot_override_valid_cm_scale(monkeypat
     assert result.system == "metric"
     assert result.source == "rulernet_cm"
     assert result.px_per_cm == 150.0
+
+
+def test_pure_metric_visual_fallback_is_accepted_without_enough_rulernet_marks(monkeypatch):
+    partial_marks = np.array(
+        [[100.0, 90.0], [262.0, 90.0], [424.0, 90.0]],
+        dtype=np.float32,
+    )
+    partial_ruler = RulerObservation(
+        False,
+        partial_marks,
+        162.0,
+        1.0,
+        (1.0, 0.0),
+        ("ruler_marks_insufficient",),
+    )
+    monkeypatch.setattr(
+        scale_reference,
+        "infer_visual_scale",
+        lambda _image: _visual("metric", 162.0, 0.93),
+    )
+
+    result = scale_reference.resolve_scale_reference(
+        np.zeros((20, 20, 3), dtype=np.uint8),
+        partial_ruler,
+    )
+
+    assert result.system == "metric"
+    assert result.source == "metric_ticks"
+    assert result.px_per_cm == 162.0
+    assert result.confidence == 0.93

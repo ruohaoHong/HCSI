@@ -16,8 +16,16 @@ export interface SemanticMeasurementPlan {
   proposed_concepts: ProposedGeometryConcept[]
 }
 
+export type FastenerLengthConvention = 'under_head_to_tip' | 'overall' | 'unresolved'
+
+export interface MeasurementResolutionContext {
+  category?: string
+  head_style?: string
+}
+
 export interface ResolvedMeasurementPlan {
   minimum_sufficient_evidence: string
+  length_convention: FastenerLengthConvention
   steps: ResolvedGeometryPlanStep[]
   executable_steps: ResolvedGeometryPlanStep[]
   unsupported_steps: ResolvedGeometryPlanStep[]
@@ -33,18 +41,56 @@ export interface ResolvedMeasurementPlan {
  * handed to the executor; unsupported ideas remain visible as proposals so real
  * demand can guide future engine capabilities.
  */
-export function resolveMeasurementPlan(plan: SemanticMeasurementPlan): ResolvedMeasurementPlan {
-  const steps = plan.steps.map(resolveGeometryPlanStep)
+export function resolveMeasurementPlan(
+  plan: SemanticMeasurementPlan,
+  context: MeasurementResolutionContext = {}
+): ResolvedMeasurementPlan {
+  const lengthConvention = resolveFastenerLengthConvention(context)
+  const conventionAwareSteps = plan.steps.map((step) =>
+    applyFastenerLengthConvention(step, context, lengthConvention)
+  )
+  const steps = conventionAwareSteps.map(resolveGeometryPlanStep)
   const executableSteps = steps.filter((step) => step.resolution !== 'unsupported_proposed')
   const unsupportedSteps = steps.filter((step) => step.resolution === 'unsupported_proposed')
 
   return {
     minimum_sufficient_evidence: plan.minimum_sufficient_evidence,
+    length_convention: lengthConvention,
     steps,
     executable_steps: executableSteps,
     unsupported_steps: unsupportedSteps,
     proposed_concepts: dedupeProposedConcepts(plan.proposed_concepts),
     fully_supported: unsupportedSteps.length === 0,
+  }
+}
+
+
+const PROTRUDING_HEAD_STYLES = new Set(['hex', 'pan', 'button', 'socket_cap', 'round'])
+
+export function resolveFastenerLengthConvention(
+  context: MeasurementResolutionContext
+): FastenerLengthConvention {
+  if (context.category !== 'fasteners') return 'unresolved'
+  if (context.head_style === 'flat_countersunk') return 'overall'
+  if (context.head_style && PROTRUDING_HEAD_STYLES.has(context.head_style)) return 'under_head_to_tip'
+  return 'unresolved'
+}
+
+function applyFastenerLengthConvention(
+  step: GeometryPlanStep,
+  context: MeasurementResolutionContext,
+  convention: FastenerLengthConvention
+): GeometryPlanStep {
+  if (context.category !== 'fasteners' || convention === 'unresolved') return step
+  if (step.operation !== 'axial_distance' || !step.inputs.includes('object_tip')) return step
+
+  const lengthAnchors = new Set(['width_transition', 'head_underface', 'head_top'])
+  if (!step.inputs.some((input) => lengthAnchors.has(input))) return step
+
+  const anchor = convention === 'overall' ? 'head_top' : 'head_underface'
+  return {
+    ...step,
+    inputs: step.inputs.map((input) => (lengthAnchors.has(input) ? anchor : input)),
   }
 }
 

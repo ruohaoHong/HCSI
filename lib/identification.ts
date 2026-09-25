@@ -13,11 +13,28 @@ export const HARDWARE_CATEGORIES = [
 export type HardwareCategory = (typeof HARDWARE_CATEGORIES)[number]
 export type Provider = 'gemini' | 'openai' | 'grok'
 export type EvidenceLevel = 'measured' | 'observed' | 'estimated' | 'unconfirmed'
+export type HeadStyle = 'hex' | 'flat_countersunk' | 'pan' | 'button' | 'socket_cap' | 'round' | 'other' | 'unknown'
+
+export interface SemanticVisionRegion {
+  present: boolean
+  confidence: number
+  x_min: number
+  y_min: number
+  x_max: number
+  y_max: number
+}
+
+export interface SemanticVisionContext {
+  target_region: SemanticVisionRegion
+  reference_region: SemanticVisionRegion
+  head_style: HeadStyle
+}
 
 export interface CategoryRoutingResult {
   category: HardwareCategory
   object_hint: string
   reason: string
+  semantic_vision: SemanticVisionContext
   measurement_plan: SemanticMeasurementPlan
 }
 
@@ -73,6 +90,20 @@ const PLAN_STEP_SCHEMA = {
   required: ['operation', 'inputs', 'purpose'],
 } as const
 
+const SEMANTIC_REGION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    present: { type: 'boolean' },
+    confidence: { type: 'number', minimum: 0, maximum: 1 },
+    x_min: { type: 'number', minimum: 0, maximum: 1000 },
+    y_min: { type: 'number', minimum: 0, maximum: 1000 },
+    x_max: { type: 'number', minimum: 0, maximum: 1000 },
+    y_max: { type: 'number', minimum: 0, maximum: 1000 },
+  },
+  required: ['present', 'confidence', 'x_min', 'y_min', 'x_max', 'y_max'],
+} as const
+
 const PROPOSED_CONCEPT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -92,6 +123,19 @@ export const ROUTING_JSON_SCHEMA = {
     category: { type: 'string', enum: HARDWARE_CATEGORIES },
     object_hint: { type: 'string' },
     reason: { type: 'string' },
+    semantic_vision: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        target_region: SEMANTIC_REGION_SCHEMA,
+        reference_region: SEMANTIC_REGION_SCHEMA,
+        head_style: {
+          type: 'string',
+          enum: ['hex', 'flat_countersunk', 'pan', 'button', 'socket_cap', 'round', 'other', 'unknown'],
+        },
+      },
+      required: ['target_region', 'reference_region', 'head_style'],
+    },
     measurement_plan: {
       type: 'object',
       additionalProperties: false,
@@ -103,7 +147,7 @@ export const ROUTING_JSON_SCHEMA = {
       required: ['minimum_sufficient_evidence', 'steps', 'proposed_concepts'],
     },
   },
-  required: ['category', 'object_hint', 'reason', 'measurement_plan'],
+  required: ['category', 'object_hint', 'reason', 'semantic_vision', 'measurement_plan'],
 } as const
 
 export const IDENTIFICATION_JSON_SCHEMA = {
@@ -131,6 +175,15 @@ export function buildRoutingPrompt() {
 
 category 從 fasteners、plumbing、electrical、building-hardware、general-repair、unknown 選一個。object_hint 用簡短繁體中文描述最可能的物件形態；不確定就明確表達不確定。
 
+semantic_vision 是「語義空間先驗」，不是量測：
+- target_region：主要五金在整張圖中的粗略 bounding box。
+- reference_region：尺、捲尺或其他實際尺度參考物的粗略 bounding box；沒有就 present=false。
+- 座標一律使用 0..1000 正規化座標，左上為 (0,0)、右下為 (1000,1000)。
+- bounding box 要保守包住物件，不需要貼邊到像素級；後續 CV 會在這個 ROI 裡重新做 pixel ownership。
+- confidence 是你對「這個框真的框到正確語義物件」的信心，不是尺寸信心。
+- head_style 僅描述照片可見的頭型語義；不確定填 unknown。
+- 絕對禁止由 bounding box 尺寸換算或猜測 mm / cm / inch；box 只用來告訴 CV「哪裡是目標、哪裡是尺度參考物」。
+
 ${geometryCapabilityPromptReference()}
 
 measurement_plan 規則：
@@ -141,6 +194,7 @@ measurement_plan 規則：
 5. 每個 step 的 purpose 必須回答「這項證據能排除什麼規格歧義？」若不能回答，就不要加入該 step。
 6. 不要把物件名稱或商品規格名稱當 geometry operation。Geometry plan 描述的是可由影像幾何執行器取得的證據。
 7. 這是暫時語義規劃；後續 deterministic resolver 會自行判斷哪些 step 現在可執行，哪些只能保留為 proposed。你不需要假裝 Engine 會做所有事情。
+8. fastener 的 L 量測 convention 不由你決定。若需要長度證據，可提出 axial_distance(object_tip, width_transition) 表達「需要軸向長度」；deterministic resolver 會依 semantic head_style 強制轉成 flat/countersunk 的 head_top→tip，或突出頭型的 head_underface→tip。
 `
 }
 
@@ -153,6 +207,7 @@ export function buildIdentificationPrompt(routing: CategoryRoutingResult, coreRe
 第一階段暫時路由：${routing.category}
 第一階段物件提示：${routing.object_hint}
 路由理由：${routing.reason}
+語義頭型：${routing.semantic_vision.head_style}
 最小充分物理證據：${routing.measurement_plan.minimum_sufficient_evidence}
 規劃的 geometry steps：\n${plannedSteps}
 Planner 提出的新 geometry concepts：${proposed}
@@ -208,10 +263,37 @@ export function isSemanticMeasurementPlan(value: unknown): value is SemanticMeas
   return typeof v.minimum_sufficient_evidence === 'string' && Array.isArray(v.steps) && v.steps.every(isPlanStep) && Array.isArray(v.proposed_concepts) && v.proposed_concepts.every(isProposedConcept)
 }
 
+function isSemanticVisionRegion(value: unknown): value is SemanticVisionRegion {
+  if (!value || typeof value !== 'object') return false
+  const v = value as Record<string, unknown>
+  if (typeof v.present !== 'boolean' || typeof v.confidence !== 'number' || !Number.isFinite(v.confidence)) return false
+  if (v.confidence < 0 || v.confidence > 1) return false
+  for (const key of ['x_min', 'y_min', 'x_max', 'y_max']) {
+    const coordinate = v[key]
+    if (typeof coordinate !== 'number' || !Number.isFinite(coordinate) || coordinate < 0 || coordinate > 1000) return false
+  }
+  if (v.present && ((v.x_max as number) <= (v.x_min as number) || (v.y_max as number) <= (v.y_min as number))) return false
+  return true
+}
+
+function isSemanticVisionContext(value: unknown): value is SemanticVisionContext {
+  if (!value || typeof value !== 'object') return false
+  const v = value as Record<string, unknown>
+  const headStyles: HeadStyle[] = ['hex', 'flat_countersunk', 'pan', 'button', 'socket_cap', 'round', 'other', 'unknown']
+  return isSemanticVisionRegion(v.target_region) &&
+    isSemanticVisionRegion(v.reference_region) &&
+    typeof v.head_style === 'string' &&
+    headStyles.includes(v.head_style as HeadStyle)
+}
+
 export function isRoutingResult(value: unknown): value is CategoryRoutingResult {
   if (!value || typeof value !== 'object') return false
   const v = value as Record<string, unknown>
-  return isHardwareCategory(v.category) && typeof v.object_hint === 'string' && typeof v.reason === 'string' && isSemanticMeasurementPlan(v.measurement_plan)
+  return isHardwareCategory(v.category) &&
+    typeof v.object_hint === 'string' &&
+    typeof v.reason === 'string' &&
+    isSemanticVisionContext(v.semantic_vision) &&
+    isSemanticMeasurementPlan(v.measurement_plan)
 }
 
 export function isIdentificationResult(value: unknown): value is IdentificationResult {

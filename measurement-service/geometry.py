@@ -6,6 +6,12 @@ import math
 import cv2
 import numpy as np
 
+from semantic_regions import SemanticMasks, apply_semantic_constraints, build_semantic_masks
+
+
+MIN_CONTOUR_EDGE_SUPPORT = 0.055
+RULER_MASK_CONTACT_TOLERANCE_PX = 2.0
+
 
 @dataclass(frozen=True)
 class ObjectGeometry:
@@ -34,6 +40,15 @@ class _Candidate:
     solidity: float
     border: bool
     edge_support: float
+
+
+@dataclass(frozen=True)
+class _PhysicalContourSelection:
+    candidate: _Candidate | None
+    source: str
+    exclusion_mask: np.ndarray
+    exclusion_radius: float
+    semantic_masks: SemanticMasks
 
 
 def _background_distance(image_rgb: np.ndarray) -> tuple[np.ndarray, float]:
@@ -87,10 +102,26 @@ def _segment_overlap_along_axis(
     return overlap / expected
 
 
+def _segment_reference_support(
+    a: np.ndarray,
+    b: np.ndarray,
+    reference_mask: np.ndarray | None,
+) -> float:
+    if reference_mask is None:
+        return 1.0
+    height, width = reference_mask.shape[:2]
+    samples = np.linspace(0.0, 1.0, 11)
+    points = a[None, :] + (b - a)[None, :] * samples[:, None]
+    xs = np.clip(np.rint(points[:, 0]).astype(np.int32), 0, width - 1)
+    ys = np.clip(np.rint(points[:, 1]).astype(np.int32), 0, height - 1)
+    return float(np.mean(reference_mask[ys, xs] > 0))
+
+
 def _ruler_exclusion_mask(
     image_rgb: np.ndarray,
     mark_points_px: np.ndarray,
     px_per_cm: float,
+    semantic_masks: SemanticMasks | None = None,
 ) -> tuple[np.ndarray, float]:
     height, width = image_rgb.shape[:2]
     mask = np.zeros((height, width), dtype=np.uint8)
@@ -138,6 +169,19 @@ def _ruler_exclusion_mask(
             overlap = _segment_overlap_along_axis(a, b, center, axis, span_min, span_max)
             if overlap < 0.24:
                 continue
+
+            # The VLM reference box is a coarse ownership prior, not a ruler
+            # edge detector. When it is trustworthy, reject long parallel lines
+            # that live mostly outside the coarse ruler region. This prevents a
+            # strong hardware edge from being paired with a true ruler edge.
+            reference_mask = (
+                semantic_masks.reference_exclusion_mask
+                if semantic_masks is not None and semantic_masks.reference_applied
+                else None
+            )
+            if reference_mask is not None and _segment_reference_support(a, b, reference_mask) < 0.35:
+                continue
+
             midpoint = (a + b) * 0.5
             offset = float(np.dot(midpoint - center, normal))
             if abs(offset) > max_offset:
@@ -321,6 +365,80 @@ def _candidate_from_mask(mask: np.ndarray, edge_mask: np.ndarray, width: int, he
     return max(pool, key=lambda item: item.score)
 
 
+def _select_physical_object_candidate(
+    image_rgb: np.ndarray,
+    ruler_mark_points_px: np.ndarray,
+    px_per_cm: float,
+    semantic_vision: dict | None = None,
+) -> _PhysicalContourSelection:
+    """Select one physical contour from appearance and edge proposals.
+
+    Appearance-threshold perturbations are proposal-generation evidence, not
+    independent measurements with veto power over the selected contour.
+    Reliability is evaluated on the selected physical contour itself.
+    """
+    height, width = image_rgb.shape[:2]
+    semantic_masks = build_semantic_masks(image_rgb.shape, semantic_vision)
+    distance, base_threshold = _background_distance(image_rgb)
+    edge_mask = _edge_mask(image_rgb)
+    exclusion, exclusion_radius = _ruler_exclusion_mask(
+        image_rgb,
+        ruler_mark_points_px,
+        px_per_cm,
+        semantic_masks,
+    )
+
+    close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    selected: list[_Candidate | None] = []
+    for factor in (0.82, 1.0, 1.22):
+        color_mask = (distance > base_threshold * factor).astype(np.uint8) * 255
+        color_mask[exclusion > 0] = 0
+        color_mask = apply_semantic_constraints(color_mask, semantic_masks)
+        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, close_kernel, iterations=2)
+        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, open_kernel, iterations=1)
+        color_mask = apply_semantic_constraints(color_mask, semantic_masks)
+        color_mask[:2, :] = 0
+        color_mask[-2:, :] = 0
+        color_mask[:, :2] = 0
+        color_mask[:, -2:] = 0
+        selected.append(_candidate_from_mask(color_mask, edge_mask, width, height))
+
+    nominal = selected[1] or selected[0] or selected[2]
+    source = "appearance"
+
+    edge_region = edge_mask.copy()
+    edge_region[exclusion > 0] = 0
+    edge_region = apply_semantic_constraints(edge_region, semantic_masks)
+    edge_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    edge_region = cv2.morphologyEx(edge_region, cv2.MORPH_CLOSE, edge_close, iterations=2)
+    edge_region = apply_semantic_constraints(edge_region, semantic_masks)
+    edge_region[:2, :] = 0
+    edge_region[-2:, :] = 0
+    edge_region[:, :2] = 0
+    edge_region[:, -2:] = 0
+    edge_candidate = _candidate_from_mask(edge_region, edge_mask, width, height)
+
+    if edge_candidate is not None:
+        if nominal is None:
+            nominal = edge_candidate
+            source = "edge"
+        elif nominal.edge_support < 0.12 and edge_candidate.edge_support >= max(0.12, nominal.edge_support * 1.6):
+            nominal = edge_candidate
+            source = "edge"
+        elif edge_candidate.score > nominal.score * 1.35:
+            nominal = edge_candidate
+            source = "edge"
+
+    return _PhysicalContourSelection(
+        nominal,
+        source if nominal is not None else "none",
+        exclusion,
+        exclusion_radius,
+        semantic_masks,
+    )
+
+
 def _geometry_from_contour(contour: np.ndarray) -> tuple[np.ndarray, np.ndarray, float, float, float, float]:
     points = contour[:, 0, :].astype(np.float64)
     center = points.mean(axis=0)
@@ -353,59 +471,81 @@ def _contour_similarity(base: _Candidate, other: _Candidate) -> tuple[float, flo
     return center_shift, length_delta, width_delta
 
 
+def _contour_stability_summary(
+    nominal: _Candidate,
+    candidates: list[_Candidate | None],
+) -> tuple[bool, int]:
+    observations = 0
+    unstable = False
+    for candidate in candidates:
+        if candidate is None or candidate is nominal:
+            continue
+        # A contour too weak to be trusted as the selected object must not be
+        # allowed to invalidate a strong nominal contour.
+        if candidate.edge_support < MIN_CONTOUR_EDGE_SUPPORT:
+            continue
+        observations += 1
+        center_shift, length_delta, width_delta = _contour_similarity(nominal, candidate)
+        if center_shift > 0.12 or length_delta > 0.16 or width_delta > 0.24:
+            unstable = True
+    return unstable, observations
+
+
+def _contour_distance_to_mask(contour: np.ndarray, mask: np.ndarray) -> float | None:
+    if mask.size == 0 or not np.any(mask):
+        return None
+
+    height, width = mask.shape[:2]
+    points = contour[:, 0, :].astype(np.int32)
+    xs = np.clip(points[:, 0], 0, width - 1)
+    ys = np.clip(points[:, 1], 0, height - 1)
+
+    if np.any(mask[ys, xs] > 0):
+        return 0.0
+
+    # distanceTransform measures non-zero pixels to the nearest zero pixel.
+    # Treat the ruler exclusion as zero so this is the actual contour-to-mask
+    # gap rather than a symmetric approximation around the ruler tick line.
+    free_space = (mask == 0).astype(np.uint8)
+    distance = cv2.distanceTransform(free_space, cv2.DIST_L2, 5)
+    return float(np.min(distance[ys, xs]))
+
+
 def extract_object_geometry(
     image_rgb: np.ndarray,
     ruler_mark_points_px: np.ndarray,
     px_per_cm: float,
     ruler_direction: tuple[float, float] | None,
     max_alignment_deg: float = 20.0,
+    semantic_vision: dict | None = None,
 ) -> ObjectGeometry:
     height, width = image_rgb.shape[:2]
-    method = "adaptive_lab+edge_contour+ruler_body"
     if height < 32 or width < 32:
-        return ObjectGeometry(False, False, None, None, None, None, None, None, None, None, None, None, method, ("image_too_small",), ())
+        return ObjectGeometry(
+            False, False, None, None, None, None, None, None, None, None,
+            None, None, "physical_contour_selection", ("image_too_small",), (),
+        )
 
-    distance, base_threshold = _background_distance(image_rgb)
-    edge_mask = _edge_mask(image_rgb)
-    exclusion, exclusion_radius = _ruler_exclusion_mask(image_rgb, ruler_mark_points_px, px_per_cm)
+    selection = _select_physical_object_candidate(
+        image_rgb,
+        ruler_mark_points_px,
+        px_per_cm,
+        semantic_vision=semantic_vision,
+    )
+    semantic_masks = selection.semantic_masks
+    method = "physical_contour_selection:" + selection.source
+    if semantic_masks.target_applied:
+        method += "+semantic_roi"
+    if semantic_masks.reference_applied:
+        method += "+semantic_reference_exclusion"
 
-    close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-    open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    threshold_factors = (0.82, 1.0, 1.22)
-    selected: list[_Candidate | None] = []
-    for factor in threshold_factors:
-        color_mask = (distance > base_threshold * factor).astype(np.uint8) * 255
-        color_mask[exclusion > 0] = 0
-        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, close_kernel, iterations=2)
-        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, open_kernel, iterations=1)
-        color_mask[:2, :] = 0
-        color_mask[-2:, :] = 0
-        color_mask[:, :2] = 0
-        color_mask[:, -2:] = 0
-        selected.append(_candidate_from_mask(color_mask, edge_mask, width, height))
-
-    nominal = selected[1] or selected[0] or selected[2]
-
-    edge_region = edge_mask.copy()
-    edge_region[exclusion > 0] = 0
-    edge_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    edge_region = cv2.morphologyEx(edge_region, cv2.MORPH_CLOSE, edge_close, iterations=2)
-    edge_region[:2, :] = 0
-    edge_region[-2:, :] = 0
-    edge_region[:, :2] = 0
-    edge_region[:, -2:] = 0
-    edge_candidate = _candidate_from_mask(edge_region, edge_mask, width, height)
-
-    if edge_candidate is not None:
-        if nominal is None:
-            nominal = edge_candidate
-        elif nominal.edge_support < 0.12 and edge_candidate.edge_support >= max(0.12, nominal.edge_support * 1.6):
-            nominal = edge_candidate
-        elif edge_candidate.score > nominal.score * 1.35:
-            nominal = edge_candidate
-
+    nominal = selection.candidate
     if nominal is None:
-        return ObjectGeometry(False, False, None, None, None, None, None, None, None, None, None, None, method, ("object_contour_not_found",), ())
+        return ObjectGeometry(
+            False, False, None, None, None, None, None, None, None, None,
+            None, None, method, ("object_contour_not_found",),
+            tuple(dict.fromkeys(semantic_masks.risk_signals)),
+        )
 
     contour = nominal.contour
     center, major_axis, principal_length, principal_width, min_area_length, min_area_width = _geometry_from_contour(contour)
@@ -413,45 +553,34 @@ def extract_object_geometry(
     alignment = _axis_alignment_deg(major_axis, ruler_direction)
 
     reasons: list[str] = []
-    risks: list[str] = []
+    risks: list[str] = list(semantic_masks.risk_signals)
     if nominal.border:
         reasons.append("object_contour_touches_image_border")
     if nominal.solidity < 0.20:
         reasons.append("object_contour_low_solidity")
     if principal_length < 12 or principal_width < 2:
         reasons.append("object_geometry_too_small")
-    if nominal.edge_support < 0.055:
+    if nominal.edge_support < MIN_CONTOUR_EDGE_SUPPORT:
         reasons.append("object_contour_weak_edge_support")
 
-    stability_observations = 0
-    unstable = False
-    for candidate in selected:
-        if candidate is None or candidate is nominal:
-            continue
-        stability_observations += 1
-        center_shift, length_delta, width_delta = _contour_similarity(nominal, candidate)
-        if center_shift > 0.12 or length_delta > 0.16 or width_delta > 0.24:
-            unstable = True
-    if unstable:
-        reasons.append("object_contour_unstable")
-    elif stability_observations == 0:
-        risks.append("object_contour_stability_unknown")
-
+    # Threshold perturbations help propose a contour but are not independent
+    # observations of physical geometry. They therefore cannot invalidate a
+    # contour after edge/shape/semantic selection has chosen the object.
     if alignment is None:
         risks.append("object_ruler_alignment_unknown")
     elif alignment > max_alignment_deg:
         risks.append("object_ruler_alignment_large")
 
-    if len(ruler_mark_points_px) >= 2 and exclusion_radius > 0:
-        p0 = ruler_mark_points_px[0].astype(np.float64)
-        p1 = ruler_mark_points_px[-1].astype(np.float64)
-        line = p1 - p0
-        line_norm = float(np.linalg.norm(line))
-        if line_norm > 1e-6:
-            offset = center - p0
-            distance_to_tick_line = abs(float(line[0] * offset[1] - line[1] * offset[0])) / line_norm
-            if distance_to_tick_line < exclusion_radius * 0.72:
-                reasons.append("selected_contour_too_close_to_ruler")
+    if selection.exclusion_radius > 0:
+        contour_ruler_gap = _contour_distance_to_mask(
+            contour,
+            selection.exclusion_mask,
+        )
+        if (
+            contour_ruler_gap is not None
+            and contour_ruler_gap <= RULER_MASK_CONTACT_TOLERANCE_PX
+        ):
+            reasons.append("selected_contour_too_close_to_ruler")
 
     return ObjectGeometry(
         True,

@@ -1,6 +1,8 @@
 export const GEOMETRY_LANDMARKS = [
   'object_tip',
   'width_transition',
+  'head_underface',
+  'head_top',
 ] as const
 
 export const GEOMETRY_REGIONS = [
@@ -43,7 +45,17 @@ export const GEOMETRY_CAPABILITIES: readonly GeometryCapability[] = [
   {
     name: 'width_transition',
     kind: 'landmark',
-    description: 'Locate a stable transition where object width changes along its principal axis.',
+    description: 'Locate a stable transition where object width changes along its principal axis. This is a candidate geometric event, not a universal fastener-length anchor.',
+  },
+  {
+    name: 'head_underface',
+    kind: 'landmark',
+    description: 'Locate the under-head bearing boundary used as the length origin for protruding-head fasteners.',
+  },
+  {
+    name: 'head_top',
+    kind: 'landmark',
+    description: 'Locate the outermost head endpoint used as the overall-length origin for flat/countersunk fasteners.',
   },
   {
     name: 'threaded_shank',

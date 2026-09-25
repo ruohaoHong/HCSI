@@ -140,3 +140,49 @@ def test_measure_rgb_marks_strong_perspective_unreliable(monkeypatch):
     assert result["length_mm"] is None
     assert result["width_mm"] is None
     assert "perspective_too_strong_for_2d_measurement" in result["reason_codes"]
+
+
+def test_measure_rgb_threads_semantic_vision_into_cv_geometry(monkeypatch):
+    image = _bolt_image()
+    fake_ruler = _fake_ruler()
+    monkeypatch.setattr(service_app, "infer_ruler", lambda _image: fake_ruler)
+    semantic_vision = {
+        "target_region": {
+            "present": True,
+            "confidence": 0.98,
+            "x_min": 240.0,
+            "y_min": 430.0,
+            "x_max": 730.0,
+            "y_max": 740.0,
+        },
+        "reference_region": {
+            "present": True,
+            "confidence": 0.95,
+            "x_min": 80.0,
+            "y_min": 90.0,
+            "x_max": 920.0,
+            "y_max": 230.0,
+        },
+        "head_style": "hex",
+    }
+
+    result = service_app.measure_rgb(
+        image,
+        "abc123",
+        [_axial_step_for_service()],
+        semantic_vision,
+    )
+
+    assert result["measurement_status"] == "valid", result["reason_codes"]
+    assert "semantic_roi" in result["object"]["segmentation_method"]
+    assert result["object"]["semantic_head_style"] == "hex"
+    assert result["object"]["semantic_target_region"]["confidence"] == 0.98
+    assert result["geometry_steps"][0]["status"] == "measured"
+
+
+def _axial_step_for_service():
+    return {
+        "operation": "axial_distance",
+        "inputs": ["object_tip", "width_transition"],
+        "purpose": "量測螺栓頭下有效長度",
+    }

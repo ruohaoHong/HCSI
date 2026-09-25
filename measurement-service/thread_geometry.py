@@ -26,6 +26,15 @@ class ThreadedShankProfile:
 
 
 @dataclass(frozen=True)
+class HeadUnderfaceEstimate:
+    s: float
+    shank_outer_px: float
+    stable_limit_px: float
+    expansion_threshold_px: float
+    persistence_px: int
+
+
+@dataclass(frozen=True)
 class PeriodicityEstimate:
     pitch_px: float | None
     left_pitch_px: float | None
@@ -181,19 +190,242 @@ def detect_threaded_shank(contour: np.ndarray) -> ThreadedShankProfile | None:
     )
 
 
-def measure_outer_width_px(profile: ThreadedShankProfile) -> float | None:
-    """Return a robust major/outer diameter estimate for the shank envelope."""
-    values = profile.widths[profile.sample_mask]
-    values = values[np.isfinite(values)]
-    if len(values) < 12:
+def estimate_head_underface(profile: ThreadedShankProfile) -> HeadUnderfaceEstimate | None:
+    """Locate the physical bearing plane for a protruding fastener head.
+
+    Length semantics are defined by the load-bearing underside of the head, not
+    by the first place the shank begins to widen. Real fasteners commonly have
+    a thread runout, neck or fillet before that plane. Those gradual transitions
+    must not shorten L.
+
+    Starting from the stable threaded shank and walking toward the head, first
+    detect the earliest bilateral shoulder that establishes head ownership.
+    Then continue only through that projected shoulder until its outward growth
+    settles. The settled point is the image-space proxy for the bearing plane.
+    This keeps runout/fillet pixels out of L without letting a later internal
+    chamfer or dome transition steal the landmark.
+    """
+    outer = measure_outer_width_px(profile)
+    if outer is None or outer <= 1.0:
         return None
 
-    median = float(np.percentile(values, 50))
-    outer = float(np.percentile(values, 90))
-    high = float(np.percentile(values, 98))
-    if median <= 1.0 or high / median > 1.35:
+    sample_indices = np.flatnonzero(profile.sample_mask)
+    if len(sample_indices) < 12:
         return None
-    return outer
+
+    toward_head = 1 if profile.transition_s > profile.tip_s else -1
+    shank_edge_index = int(sample_indices[-1] if toward_head > 0 else sample_indices[0])
+    head_edge_index = len(profile.widths) - 1 if toward_head > 0 else 0
+    ordered = np.arange(
+        shank_edge_index,
+        head_edge_index + toward_head,
+        toward_head,
+        dtype=np.int32,
+    )
+    if len(ordered) < 8:
+        return None
+
+    # Keep smoothing narrow. L is sensitive to only a few pixels, so a broad
+    # width filter can move the inferred plane enough to create a systematic
+    # short-length bias.
+    smooth_width = _median_smooth(profile.widths, fraction=0.008)
+    smooth_low = _median_smooth(profile.low, fraction=0.008)
+    smooth_high = _median_smooth(profile.high, fraction=0.008)
+
+    stable_limit = max(outer * 1.08, outer + 2.0)
+    expansion_threshold = max(outer * 1.30, outer + 6.0)
+    persistence = int(np.clip(round(outer * 0.10), 5, 24))
+    probe = int(np.clip(round(outer * 0.04), 2, 8))
+    min_step = max(3.0, outer * 0.12)
+    pre_head_limit = max(outer * 1.45, stable_limit + min_step * 1.5)
+
+    minimum_span = max(persistence + probe + 2, probe * 2 + 3)
+    if len(ordered) < minimum_span:
+        return None
+
+    candidate: tuple[int, float, float] | None = None
+    max_pos = len(ordered) - max(probe, persistence)
+    for pos in range(probe, max_pos + 1):
+        before_indices = ordered[pos - probe : pos]
+        after_indices = ordered[pos : pos + probe]
+        persistence_indices = ordered[pos : pos + persistence]
+
+        before_width = smooth_width[before_indices]
+        after_width = smooth_width[after_indices]
+        persistent_width = smooth_width[persistence_indices]
+        if not (
+            np.all(np.isfinite(before_width))
+            and np.all(np.isfinite(after_width))
+            and np.all(np.isfinite(persistent_width))
+        ):
+            continue
+
+        pre_width = float(np.median(before_width))
+        post_width = float(np.median(after_width))
+        step = post_width - pre_width
+
+        # Internal head geometry can contain an even stronger transition. It is
+        # not the bearing plane if the profile is already clearly head-sized.
+        if pre_width > pre_head_limit:
+            continue
+        if step < min_step or post_width < expansion_threshold:
+            continue
+        if (
+            float(np.median(persistent_width)) < expansion_threshold
+            or float(np.mean(persistent_width >= expansion_threshold)) < 0.75
+        ):
+            continue
+
+        pre_low = float(np.median(smooth_low[before_indices]))
+        post_low = float(np.median(smooth_low[after_indices]))
+        pre_high = float(np.median(smooth_high[before_indices]))
+        post_high = float(np.median(smooth_high[after_indices]))
+        low_outward = pre_low - post_low
+        high_outward = post_high - pre_high
+        minimum_side = max(1.0, step * 0.15)
+
+        # A physical head shoulder expands both silhouette sides. Requiring
+        # bilateral support prevents a one-sided shadow or contour spur from
+        # becoming the L anchor.
+        if low_outward < minimum_side or high_outward < minimum_side:
+            continue
+
+        candidate = (pos, pre_width, post_width)
+        break
+
+    if candidate is None:
+        return None
+
+    candidate_pos, pre_width, post_width = candidate
+
+    # A real bearing face can project as a finite-width shoulder when the
+    # camera is not perfectly side-on. Anchoring L to the first outward pixel
+    # therefore biases length short (Case D). Walk only far enough to find the
+    # first head-sized region whose silhouette expansion has settled.
+    settle_window = int(np.clip(round(outer * 0.06), 4, 12))
+    max_settle_span = int(np.clip(round(outer * 0.60), 24, 60))
+    settle_slope_limit = max(1.0, outer * 0.025)
+
+    settled_pos: int | None = None
+    last_settle_pos = min(
+        len(ordered) - settle_window - 1,
+        candidate_pos + max_settle_span,
+    )
+    for pos in range(candidate_pos, last_settle_pos + 1):
+        settle_indices = ordered[pos : pos + settle_window + 1]
+        settle_width = smooth_width[settle_indices]
+        if not np.all(np.isfinite(settle_width)):
+            continue
+        if float(np.mean(settle_width >= expansion_threshold)) < 0.80:
+            continue
+
+        # Only outward growth matters here. A small local contraction after the
+        # shoulder is compatible with a rounded head, but another outward jump
+        # means the bearing shoulder has not finished yet.
+        outward_slopes = np.maximum(np.diff(settle_width), 0.0)
+        if len(outward_slopes) == 0:
+            continue
+        if float(np.max(outward_slopes)) <= settle_slope_limit:
+            settled_pos = pos
+            break
+
+    # If the first owned head region never settles before another head feature,
+    # the image does not expose a defensible bearing plane. Fail closed rather
+    # than reverting to the known-short first-widening heuristic.
+    if settled_pos is None:
+        return None
+
+    boundary_index = int(ordered[settled_pos])
+    underface_s = float(profile.s_values[boundary_index])
+
+    head_top_s = float(profile.s_values[-1] if toward_head > 0 else profile.s_values[0])
+    if abs(head_top_s - underface_s) < max(3.0, persistence * 0.5):
+        return None
+    if abs(underface_s - profile.tip_s) < 12.0:
+        return None
+
+    return HeadUnderfaceEstimate(
+        s=underface_s,
+        shank_outer_px=float(outer),
+        stable_limit_px=float(stable_limit),
+        expansion_threshold_px=float(expansion_threshold),
+        persistence_px=persistence,
+    )
+
+def _side_crest_envelope(
+    values: np.ndarray,
+    outward_sign: float,
+) -> float | None:
+    """Estimate one side of the thread's outer crest envelope.
+
+    The two silhouette sides are measured independently so their crests do not
+    need to occur at the same axial coordinate.  Repeated local extrema are
+    preferred; a robust one-sided quantile is the fallback for nearly smooth
+    shanks.  This avoids isolated contour spikes without assuming a pitch.
+    """
+    raw = np.asarray(values, dtype=np.float64)
+    raw = raw[np.isfinite(raw)]
+    if len(raw) < 12:
+        return None
+
+    outward = raw * outward_sign
+    smooth = cv2.GaussianBlur(outward.reshape(1, -1), (0, 0), sigmaX=0.8).ravel()
+
+    peaks: list[float] = []
+    for index in range(1, len(smooth) - 1):
+        if smooth[index] >= smooth[index - 1] and smooth[index] >= smooth[index + 1]:
+            peaks.append(float(smooth[index]))
+
+    if len(peaks) >= 4:
+        peak_values = np.asarray(peaks, dtype=np.float64)
+        # Use the upper half of repeated crest candidates, then take its median.
+        # This estimates the recurring outer envelope rather than the single
+        # largest pixel excursion.
+        floor = float(np.percentile(peak_values, 50))
+        crest_values = peak_values[peak_values >= floor]
+        if len(crest_values) >= 2:
+            return float(np.median(crest_values))
+
+    return float(np.percentile(outward, 95))
+
+
+def measure_outer_width_px(profile: ThreadedShankProfile) -> float | None:
+    """Return the physical thread major diameter from independent crest envelopes.
+
+    A threaded silhouette is helical: upper and lower crests can be phase
+    shifted, so same-x width systematically underestimates the true major
+    diameter.  Estimate each side's recurring outer envelope independently and
+    combine them only after the one-sided measurements are resolved.
+    """
+    high = profile.high[profile.sample_mask]
+    low = profile.low[profile.sample_mask]
+    high = high[np.isfinite(high)]
+    low = low[np.isfinite(low)]
+    if len(high) < 12 or len(low) < 12:
+        return None
+
+    upper_envelope = _side_crest_envelope(high, 1.0)
+    lower_envelope_outward = _side_crest_envelope(low, -1.0)
+    if upper_envelope is None or lower_envelope_outward is None:
+        return None
+
+    outer = upper_envelope + lower_envelope_outward
+    same_x_widths = profile.widths[profile.sample_mask]
+    same_x_widths = same_x_widths[np.isfinite(same_x_widths)]
+    if len(same_x_widths) < 12:
+        return None
+
+    median_width = float(np.percentile(same_x_widths, 50))
+    high_width = float(np.percentile(same_x_widths, 98))
+    if median_width <= 1.0:
+        return None
+
+    # The independent crest envelope may exceed any same-x section because the
+    # two thread sides can be phase shifted.  Reject only geometrically
+    # implausible envelopes, not that expected phase difference.
+    if outer < median_width * 0.95 or outer > max(high_width * 1.20, median_width * 1.35):
+        return None
+    return float(outer)
 
 
 def _detrended_envelope(values: np.ndarray, max_period: int) -> np.ndarray:
@@ -444,9 +676,24 @@ def measure_periodicity_px(
     high = profile.high[profile.sample_mask]
     count = len(low)
 
-    min_period = max(3, int(round(outer_width_px * 0.06)))
+    # Pitch is an independent observable.  Use the robust local shank width
+    # only as a broad image-scale prior; do not let the final major-diameter
+    # estimator change the periodicity search window.
+    width_scale_values = profile.widths[profile.sample_mask]
+    width_scale_values = width_scale_values[np.isfinite(width_scale_values)]
+    if len(width_scale_values) < 12:
+        return PeriodicityEstimate(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "threaded_shank_too_short_for_periodicity",
+        )
+    shank_scale_px = float(np.percentile(width_scale_values, 50))
+    min_period = max(3, int(round(shank_scale_px * 0.06)))
     max_period = min(
-        max(min_period + 3, int(round(outer_width_px * 0.75))),
+        max(min_period + 3, int(round(shank_scale_px * 0.75))),
         max(min_period + 3, count // 3),
     )
     if count < max(36, min_period * 5):

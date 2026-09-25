@@ -7,7 +7,14 @@ import numpy as np
 SERVICE = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVICE))
 
-from geometry import _ruler_exclusion_mask, extract_object_geometry  # noqa: E402
+from geometry import (  # noqa: E402
+    _Candidate,
+    _contour_distance_to_mask,
+    _contour_stability_summary,
+    _ruler_exclusion_mask,
+    extract_object_geometry,
+)
+from semantic_regions import build_semantic_masks  # noqa: E402
 
 
 def _draw_ruler(image: np.ndarray, y0: int, y1: int, marks_y: int, x0: int = 80, x1: int = 720, px_per_cm: int = 50) -> np.ndarray:
@@ -128,11 +135,11 @@ def test_soft_shadow_does_not_outscore_dark_hardware():
     assert abs(result.center_xy[1] - 350) < 30
     assert result.principal_length_px is not None
     assert 175 <= result.principal_length_px <= 210
-    # If threshold perturbation makes the shadow merge with the object, the
-    # algorithm is allowed to detect it but must refuse to call the dimensions
-    # reliable.
-    if not result.contour_reliable:
-        assert "object_contour_unstable" in result.gate_reasons or "object_contour_weak_edge_support" in result.gate_reasons
+    # Appearance-threshold perturbations are proposal evidence, not peer
+    # physical measurements. A selected contour with direct boundary support
+    # remains reliable even when a soft shadow changes alternate thresholds.
+    assert result.contour_reliable, result.gate_reasons
+    assert "object_contour_unstable" not in result.gate_reasons
 
 
 def test_hardware_may_be_on_either_side_of_ruler():
@@ -147,3 +154,124 @@ def test_hardware_may_be_on_either_side_of_ruler():
     assert result.center_xy[1] > 380
     assert result.principal_length_px is not None
     assert 155 <= result.principal_length_px <= 185
+
+
+def test_semantic_reference_roi_filters_parallel_hardware_from_ruler_edges():
+    image = np.full((600, 900, 3), 245, dtype=np.uint8)
+    px_per_cm = 120
+    marks = _draw_ruler(
+        image,
+        360,
+        455,
+        362,
+        x0=80,
+        x1=820,
+        px_per_cm=px_per_cm,
+    )
+
+    # Strong hardware edges sit above the ruler and are parallel to its axis.
+    # The semantic reference ROI says the ruler is only in the lower band.
+    cv2.rectangle(image, (90, 210), (825, 340), (25, 25, 25), -1)
+    semantic = {
+        "target_region": {
+            "present": True,
+            "confidence": 0.95,
+            "x_min": 80,
+            "y_min": 300,
+            "x_max": 930,
+            "y_max": 580,
+        },
+        "reference_region": {
+            "present": True,
+            "confidence": 0.95,
+            "x_min": 50,
+            "y_min": 590,
+            "x_max": 980,
+            "y_max": 800,
+        },
+        "head_style": "hex",
+    }
+    masks = build_semantic_masks(image.shape, semantic)
+    exclusion, _ = _ruler_exclusion_mask(
+        image,
+        marks,
+        float(px_per_cm),
+        masks,
+    )
+
+    assert exclusion[405, 450] > 0
+    assert exclusion[275, 450] == 0
+
+
+
+def test_weak_threshold_candidate_cannot_invalidate_strong_nominal_contour():
+    nominal_contour = cv2.boxPoints(((300.0, 250.0), (220.0, 42.0), 0.0)).astype(np.int32).reshape(-1, 1, 2)
+    stable_contour = cv2.boxPoints(((301.0, 250.0), (214.0, 40.0), 0.0)).astype(np.int32).reshape(-1, 1, 2)
+    weak_blob = cv2.boxPoints(((300.0, 250.0), (300.0, 90.0), 0.0)).astype(np.int32).reshape(-1, 1, 2)
+
+    nominal = _Candidate(nominal_contour, 500.0, 0.02, 0.8, False, 0.47)
+    stable = _Candidate(stable_contour, 220.0, 0.02, 0.8, False, 0.27)
+    weak = _Candidate(weak_blob, 5.0, 0.04, 0.7, False, 0.016)
+
+    unstable, observations = _contour_stability_summary(nominal, [weak, nominal, stable])
+
+    assert observations == 1
+    assert not unstable
+
+
+def test_ruler_proximity_gate_uses_actual_exclusion_mask_gap():
+    image = np.full((700, 900, 3), 245, dtype=np.uint8)
+    px_per_cm = 100
+    marks = _draw_ruler(
+        image,
+        400,
+        570,
+        405,
+        x0=70,
+        x1=830,
+        px_per_cm=px_per_cm,
+    )
+    cv2.rectangle(image, (120, 285), (780, 345), (26, 26, 26), -1)
+
+    semantic = {
+        "target_region": {
+            "present": True,
+            "confidence": 0.95,
+            "x_min": 100,
+            "y_min": 380,
+            "x_max": 900,
+            "y_max": 520,
+        },
+        "reference_region": {
+            "present": True,
+            "confidence": 0.95,
+            "x_min": 50,
+            "y_min": 560,
+            "x_max": 950,
+            "y_max": 840,
+        },
+        "head_style": "hex",
+    }
+
+    masks = build_semantic_masks(image.shape, semantic)
+    exclusion, _ = _ruler_exclusion_mask(image, marks, float(px_per_cm), masks)
+
+    result = extract_object_geometry(
+        image,
+        marks,
+        float(px_per_cm),
+        (1.0, 0.0),
+        semantic_vision=semantic,
+    )
+
+    assert result.detected
+    assert result.contour_reliable, result.gate_reasons
+    assert "selected_contour_too_close_to_ruler" not in result.gate_reasons
+
+    target_rect = np.array(
+        [[[120, 285]], [[780, 285]], [[780, 345]], [[120, 345]]],
+        dtype=np.int32,
+    )
+    gap = _contour_distance_to_mask(target_rect, exclusion)
+    assert gap is not None
+    assert gap > 20.0

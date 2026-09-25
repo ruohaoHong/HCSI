@@ -23,8 +23,8 @@ export function buildMeasurementEvidencePrompt(
       scale_source: measurement.ruler.scale_source,
       scale_px_per_cm: measurement.scale_px_per_cm,
       scale_px_per_inch: measurement.scale_px_per_inch,
-      length_mm: measurement.length_mm,
-      width_mm: measurement.width_mm,
+      object_envelope_length_mm: measurement.length_mm,
+      object_envelope_width_mm: measurement.width_mm,
       geometry_steps: measuredGeometrySteps,
       geometry_steps_not_measured: unmeasuredGeometrySteps,
       risk_signals: measurement.object.risk_signals,
@@ -36,10 +36,10 @@ export function buildMeasurementEvidencePrompt(
 ${JSON.stringify(evidence, null, 2)}
 
 規則：
-1. scale_system 可能是 metric / imperial / dual；不論原尺制為何，value_mm 與 length_mm / width_mm 都已由 measurement service 統一換算成 mm。
-2. 可以把 length_mm / width_mm 與 status=measured 的 geometry_steps 當作本次照片的外部實測證據，用來排除尺寸不相容的候選。
+1. scale_system 可能是 metric / imperial / dual；所有 value_mm 與 object_envelope_*_mm 都已由 measurement service 統一換算成 mm。
+2. object_envelope_length_mm / object_envelope_width_mm 只是整體 contour 的主軸包絡尺寸，不等於螺絲規格中的名義 L / D。只可做粗略外形範圍參考；若 geometry_steps 已提供對應語義尺寸，必須以 geometry_steps 為準。
 3. geometry_steps 中 status=not_measured 的項目不是證據，不得補猜其數值。
-4. axial_distance(object_tip,width_transition) 的 value_mm 是指定兩 landmark 的軸向距離；outer_width(threaded_shank) 的 value_mm 是該螺紋桿身區域的實測外徑；periodicity(threaded_shank) 的 value_mm 是實測重複週期／螺距。
+4. axial_distance(object_tip,head_underface) 的 value_mm 是突出頭型螺絲的頭下長度 L；axial_distance(object_tip,head_top) 是沉頭／overall convention 的總長；axial_distance(object_tip,width_transition) 只代表指定 transition landmark 的軸向距離。outer_width(threaded_shank) 的 value_mm 是該螺紋桿身區域的實測外徑；periodicity(threaded_shank) 的 value_mm 是實測重複週期／螺距。
 5. periodicity step 的 derived_tpi 若非 null，是 measurement service 依 TPI = 25.4 / pitch_mm deterministic 換算出的結果，可以視為與 pitch_mm 同一層級的實測衍生證據；不得自行改寫成其他牙數。
 6. diagnostics 只用於解釋量測方法與排錯；它不是額外規格值。尤其 status=not_measured 時，即使 diagnostics 裡有局部估計，也不得當作正式尺寸答案。
 7. 不可自行修改實測值、四捨五入成另一個標準規格後宣稱照片已證明該標準規格；完整標準規格仍需結合外觀與 reference / deterministic spec matcher 判斷。

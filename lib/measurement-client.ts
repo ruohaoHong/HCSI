@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { ResolvedGeometryPlanStep } from '@/lib/geometry-capabilities'
+import type { SemanticVisionContext } from '@/lib/identification'
 import { isMeasurementResult, type MeasurementResult } from '@/lib/measurement'
 
 const MEASUREMENT_TIMEOUT_MS = 25_000
@@ -13,7 +14,8 @@ export class MeasurementServiceError extends Error {
 
 export async function runMeasurementPreflight(
   imageBase64: string,
-  executableSteps: readonly ResolvedGeometryPlanStep[] = []
+  executableSteps: readonly ResolvedGeometryPlanStep[] = [],
+  semanticVision?: SemanticVisionContext
 ): Promise<MeasurementResult> {
   const serviceUrl = process.env.HCSI_MEASUREMENT_SERVICE_URL?.trim()
   if (!serviceUrl) {
@@ -34,6 +36,9 @@ export async function runMeasurementPreflight(
       }))
     )
   )
+  if (semanticVision) {
+    form.append('semantic_vision', JSON.stringify(semanticVision))
+  }
 
   const headers = new Headers()
   const token = process.env.HCSI_MEASUREMENT_TOKEN?.trim()

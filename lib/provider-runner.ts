@@ -36,19 +36,26 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const apiKey = process.env[config.envKey]
     if (!apiKey) return NextResponse.json({ error: `${config.label} 分析服務尚未完成設定。` }, { status: 503 })
 
-    const routingRaw = await runStructuredProvider({ provider, apiKey, model: config.model, image, prompt: buildRoutingPrompt(), schemaName: 'hcsi_semantic_measurement_planner', schema: ROUTING_JSON_SCHEMA as unknown as JsonSchema, maxOutputTokens: 1400 })
+    const routingRaw = await runStructuredProvider({ provider, apiKey, model: config.model, image, prompt: buildRoutingPrompt(), schemaName: 'hcsi_semantic_measurement_planner', schema: ROUTING_JSON_SCHEMA as unknown as JsonSchema, maxOutputTokens: 3200 })
     if (!isRoutingResult(routingRaw)) throw new Error(`${config.label} 語義量測規劃輸出格式不完整`)
 
     // Deterministic capability boundary. The LLM may propose anything useful;
     // only steps the current registry understands become executable.
-    const resolvedMeasurementPlan = resolveMeasurementPlan(routingRaw.measurement_plan)
+    const resolvedMeasurementPlan = resolveMeasurementPlan(routingRaw.measurement_plan, {
+      category: routingRaw.category,
+      head_style: routingRaw.semantic_vision.head_style,
+    })
 
     // The geometry plan now drives deterministic measurement. This is the
     // vertical slice from semantic executable_steps to actual pixel/mm evidence.
     let measurement: MeasurementResult | null = null
     let measurementServiceError: MeasurementServiceFallback = null
     try {
-      measurement = await runMeasurementPreflight(image, resolvedMeasurementPlan.executable_steps)
+      measurement = await runMeasurementPreflight(
+        image,
+        resolvedMeasurementPlan.executable_steps,
+        routingRaw.semantic_vision
+      )
     } catch (error) {
       if (error instanceof MeasurementServiceError) {
         measurementServiceError = { code: error.code, message: error.message }
