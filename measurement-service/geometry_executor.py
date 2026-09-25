@@ -10,6 +10,7 @@ from geometry import (
     _geometry_from_contour,
     _select_physical_object_candidate,
 )
+from edge_observation import measure_thread_major_diameter
 from thread_geometry import (
     HeadUnderfaceEstimate,
     ThreadedShankProfile,
@@ -316,28 +317,67 @@ def execute_geometry_steps(
             results.append(_not_measured(step, "threaded_shank_not_found"))
             continue
 
-        if outer_width_px is None:
-            outer_width_px = measure_outer_width_px(shank_profile)
-        if outer_width_px is None:
-            results.append(_not_measured(step, "outer_width_unreliable"))
-            continue
-
+        # D uses raw-image edge observations with per-side quality. Do not
+        # silently fall back to the mask boundary when one physical edge is
+        # unobservable. P and head-underface still use the unchanged legacy
+        # contour profile in this D-only phase.
         if operation == "outer_width":
-            value_mm = outer_width_px / px_per_cm * 10.0
+            observation = measure_thread_major_diameter(image_rgb, shank_profile)
+            old_width = measure_outer_width_px(shank_profile)
+            diagnostics = {
+                "edge_upper_valid_samples": float(np.count_nonzero(observation.upper.valid)),
+                "edge_lower_valid_samples": float(np.count_nonzero(observation.lower.valid)),
+                "edge_upper_crest_count": float(observation.upper_crest_count),
+                "edge_lower_crest_count": float(observation.lower_crest_count),
+            }
+            for name, track in (("upper", observation.upper), ("lower", observation.lower)):
+                if np.any(track.valid):
+                    diagnostics[f"edge_{name}_median_contrast"] = _round(float(np.median(track.contrast[track.valid])))
+                    diagnostics[f"edge_{name}_median_blur_px"] = _round(float(np.median(track.blur_10_90_px[track.valid])))
+                    diagnostics[f"edge_{name}_median_fit_uncertainty_px"] = _round(
+                        float(np.median(track.uncertainty_px[track.valid]))
+                    )
+                    diagnostics[f"edge_{name}_median_relative_residual"] = _round(
+                        float(np.median(track.relative_residual[track.valid]))
+                    )
+            if old_width is not None:
+                diagnostics["contour_major_diameter_px"] = _round(old_width)
+            if observation.upper_crest_px is not None:
+                diagnostics["edge_upper_crest_px"] = _round(observation.upper_crest_px)
+            if observation.lower_crest_px is not None:
+                diagnostics["edge_lower_crest_px"] = _round(observation.lower_crest_px)
+            if observation.uncertainty_px is not None:
+                diagnostics["edge_diameter_uncertainty_px"] = _round(observation.uncertainty_px)
+            if observation.value_px is None:
+                results.append(_not_measured(
+                    step, observation.reason or "edge_diameter_unreliable", diagnostics,
+                ))
+                continue
+            value_mm = observation.value_px / px_per_cm * 10.0
+            if observation.uncertainty_px is not None:
+                diagnostics["edge_diameter_uncertainty_mm"] = _round(
+                    observation.uncertainty_px / px_per_cm * 10.0,
+                )
             results.append(
                 {
                     "operation": operation,
                     "inputs": inputs,
                     "purpose": str(step.get("purpose", "")),
                     "status": "measured",
-                    "value_px": _round(outer_width_px),
+                    "value_px": _round(observation.value_px),
                     "value_mm": _round(value_mm, 2),
                     "derived_tpi": None,
                     "landmarks": _threaded_shank_landmarks(shank_profile),
-                    "diagnostics": {},
+                    "diagnostics": diagnostics,
                     "reason_codes": [],
                 }
             )
+            continue
+
+        if outer_width_px is None:
+            outer_width_px = measure_outer_width_px(shank_profile)
+        if outer_width_px is None:
+            results.append(_not_measured(step, "outer_width_unreliable"))
             continue
 
         periodicity = measure_periodicity_px(shank_profile, outer_width_px)
