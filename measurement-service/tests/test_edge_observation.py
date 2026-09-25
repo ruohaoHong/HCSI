@@ -68,7 +68,9 @@ def test_missing_lower_raw_edge_fails_closed_instead_of_guessing_diameter():
     upper, lower = observe_thread_edges(obscured, profile)
     result = measure_thread_major_diameter(obscured, profile)
 
-    assert int(np.count_nonzero(upper.valid)) >= 20
-    assert int(np.count_nonzero(lower.valid)) < 20
+    # profile.normal points toward increasing image y for this geometry.
+    # Therefore +normal is the obscured (lower image) side.
+    assert int(np.count_nonzero(lower.valid)) >= 20
+    assert int(np.count_nonzero(upper.valid)) < 20
     assert result.value_px is None
     assert result.reason == "edge_side_support_insufficient"
