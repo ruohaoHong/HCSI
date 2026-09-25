@@ -21,6 +21,7 @@ class PeriodicSilhouetteSide:
     t_score: float | None
     noise_floor: float | None
     peak_radius_px: float | None
+    inflection_radius_px: float | None
     reliable: bool
     reason: str | None
 
@@ -87,6 +88,7 @@ def _outer_candidate(
     scores: np.ndarray,
     side: int,
     coarse_radius: float,
+    pitch_px: float,
 ):
     outside=(q>coarse_radius+2.0) if side>0 else (q<-coarse_radius-2.0)
     noise=amps[outside&np.isfinite(amps)]
@@ -100,6 +102,35 @@ def _outer_candidate(
         floor=0.35
 
     radial=(q>=0) if side>0 else (q<=0)
+
+    # A blurred periodic silhouette has a compact harmonic-support profile.
+    # The latent physical boundary is near the steepest outward decay, not the
+    # farthest statistically significant blur tail. Restrict the search to the
+    # outer thread band so internal helical texture cannot own this diagnostic.
+    ridx=np.flatnonzero(radial)
+    rr=np.abs(q[ridx])
+    aa=amps[ridx]
+    order=np.argsort(rr)
+    rr=rr[order]
+    aa=aa[order]
+    smooth_amp=cv2.GaussianBlur(
+        aa.reshape(1,-1).astype(np.float32),(0,0),sigmaX=1.0
+    ).ravel()
+    band=(
+        (rr>=max(0.0,coarse_radius-0.85*pitch_px))
+        &(rr<=coarse_radius+0.35*pitch_px)
+    )
+    inflection_radius=None
+    band_idx=np.flatnonzero(band)
+    if len(band_idx)>=3:
+        peak_i=int(band_idx[np.argmax(smooth_amp[band_idx])])
+        derivative=np.gradient(smooth_amp,rr)
+        radial_step=float(np.median(np.diff(rr))) if len(rr)>1 else 0.25
+        span=max(3,int(round(1.2*pitch_px/max(radial_step,1e-6))))
+        search=np.arange(peak_i,min(len(rr),peak_i+span))
+        if len(search):
+            inflection_radius=float(rr[int(search[np.argmin(derivative[search])])])
+
     valid=radial&(amps>=floor)&(scores>=3.5)
     # Require radially contiguous support; a single harmonic speck outside the
     # object must not become a physical crest.
@@ -111,7 +142,7 @@ def _outer_candidate(
     if not len(idx):
         peak_idx=np.flatnonzero(radial)
         peak_radius=abs(float(q[peak_idx[int(np.argmax(amps[peak_idx]))]])) if len(peak_idx) else None
-        return PeriodicSilhouetteSide(None,None,None,floor,peak_radius,False,
+        return PeriodicSilhouetteSide(None,None,None,floor,peak_radius,inflection_radius,False,
                                       "periodic_silhouette_not_resolved")
     chosen=int(idx[-1] if side>0 else idx[0])
     radius=abs(float(q[chosen]))
@@ -119,7 +150,7 @@ def _outer_candidate(
     peak_radius=abs(float(q[radial_idx[int(np.argmax(amps[radial_idx]))]]))
     return PeriodicSilhouetteSide(
         radius,float(amps[chosen]),float(scores[chosen]),float(floor),
-        peak_radius,True,None,
+        peak_radius,inflection_radius,True,None,
     )
 
 
@@ -131,18 +162,18 @@ def estimate_periodic_silhouette_diameter(
     radial_step_px: float=0.25,
 ) -> PeriodicSilhouetteDiameter:
     if not np.isfinite(pitch_px) or pitch_px<3.0:
-        empty=PeriodicSilhouetteSide(None,None,None,None,None,False,"invalid_pitch")
+        empty=PeriodicSilhouetteSide(None,None,None,None,None,None,False,"invalid_pitch")
         return PeriodicSilhouetteDiameter(None,None,empty,empty,None,"none","invalid_pitch")
     s=np.asarray(profile.s_values[profile.sample_mask],dtype=np.float64)
     low=np.asarray(profile.low[profile.sample_mask],dtype=np.float64)
     high=np.asarray(profile.high[profile.sample_mask],dtype=np.float64)
     if len(s)<max(48,int(round(6*pitch_px))):
-        empty=PeriodicSilhouetteSide(None,None,None,None,None,False,"thread_span_too_short")
+        empty=PeriodicSilhouetteSide(None,None,None,None,None,None,False,"thread_span_too_short")
         return PeriodicSilhouetteDiameter(None,None,empty,empty,None,"none","thread_span_too_short")
 
     axis=_robust_axis(s,0.5*(low+high))
     if axis is None:
-        empty=PeriodicSilhouetteSide(None,None,None,None,None,False,"axis_fit_failed")
+        empty=PeriodicSilhouetteSide(None,None,None,None,None,None,False,"axis_fit_failed")
         return PeriodicSilhouetteDiameter(None,None,empty,empty,None,"none","axis_fit_failed")
     origin,slope,intercept,axis_rms=axis
     center_n=intercept+slope*(s-origin)
@@ -167,15 +198,15 @@ def estimate_periodic_silhouette_diameter(
         np.min(xx)<1 or np.max(xx)>=gray.shape[1]-1
         or np.min(yy)<1 or np.max(yy)>=gray.shape[0]-1
     ):
-        empty=PeriodicSilhouetteSide(None,None,None,None,None,False,"sample_grid_out_of_bounds")
+        empty=PeriodicSilhouetteSide(None,None,None,None,None,None,False,"sample_grid_out_of_bounds")
         return PeriodicSilhouetteDiameter(None,None,empty,empty,axis_rms,"none",
                                           "sample_grid_out_of_bounds")
     samples=cv2.remap(
         gray,xx,yy,cv2.INTER_LINEAR,borderMode=cv2.BORDER_REFLECT_101,
     ).astype(np.float64)
     amps,scores,_=_harmonic_stats(samples,s,float(pitch_px))
-    positive=_outer_candidate(q,amps,scores,1,coarse_radius)
-    negative=_outer_candidate(q,amps,scores,-1,coarse_radius)
+    positive=_outer_candidate(q,amps,scores,1,coarse_radius,float(pitch_px))
+    negative=_outer_candidate(q,amps,scores,-1,coarse_radius,float(pitch_px))
 
     candidates=[]
     if positive.reliable and positive.radius_px is not None:
