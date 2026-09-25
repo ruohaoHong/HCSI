@@ -185,9 +185,9 @@ jobs:
           gt = {"L": 30.0, "D": 3.0, "P": 0.5}
           print("CASE_E_GT=" + json.dumps(gt))
 
-          # D is not allowed to silently reuse the contour's known-short
-          # ~2.67 mm estimate. Either report a dimension backed by both
-          # observed edges, or explicitly refuse it with image-quality evidence.
+          # Case E is the baseline small-thread measurement case. The known-short
+          # contour (~2.67 mm) is not acceptable: D must be recovered from
+          # image evidence without using GT during estimation.
           diameter = next(
               (step for step in result["geometry_steps"] if step["operation"] == "outer_width"),
               None,
@@ -195,22 +195,14 @@ jobs:
           assert diameter is not None
           print("CASE_E_D_STATUS=" + str(diameter["status"]))
           print("CASE_E_D_DIAGNOSTICS=" + json.dumps(diameter["diagnostics"]))
-          if diameter["status"] == "measured":
-              assert abs(float(diameter["value_mm"]) - gt["D"]) <= 0.15, diameter
-              assert "edge_diameter_uncertainty_mm" in diameter["diagnostics"], diameter
-          else:
-              assert diameter["status"] == "not_measured", diameter
-              assert set(diameter["reason_codes"]) & {
-                  "edge_crest_underresolved",
-                  "edge_side_support_insufficient",
-                  "edge_diameter_uncertain",
-                  "independent_axis_unavailable",
-                  "one_sided_crest_insufficient",
-                  "one_sided_crest_underresolved",
-                  "one_sided_diameter_uncertain",
-              }, diameter
-              assert "edge_upper_valid_samples" in diameter["diagnostics"], diameter
-              assert "edge_lower_valid_samples" in diameter["diagnostics"], diameter
+          assert diameter["status"] == "measured", diameter
+          assert abs(float(diameter["value_mm"]) - gt["D"]) <= 0.15, diameter
+          d_diag = diameter["diagnostics"]
+          assert d_diag.get("edge_diameter_method") == "bilateral_periodic_silhouette", d_diag
+          assert d_diag.get("periodic_silhouette_mode") == "bilateral_periodic_silhouette", d_diag
+          assert float(d_diag["periodic_silhouette_positive_t_score"]) >= 3.5, d_diag
+          assert float(d_diag["periodic_silhouette_negative_t_score"]) >= 3.5, d_diag
+          assert "edge_diameter_uncertainty_mm" in d_diag, d_diag
 
           periodicity = next(
               (step for step in result["geometry_steps"] if step["operation"] == "periodicity"),
