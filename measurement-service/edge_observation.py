@@ -30,8 +30,8 @@ class EdgeTrack:
 class DiameterObservation:
     value_px: float | None
     uncertainty_px: float | None
-    upper: EdgeTrack
-    lower: EdgeTrack
+    upper: EdgeTrack  # +profile.normal (not necessarily image top)
+    lower: EdgeTrack  # -profile.normal (not necessarily image bottom)
     upper_crest_count: int
     lower_crest_count: int
     upper_crest_px: float | None
@@ -258,10 +258,12 @@ def measure_thread_major_diameter(
             if crest_blur > max(3.0, relief * 2.5):
                 reason = "edge_crest_underresolved"
                 value = None
+                uncertainty = None  # Cannot bound model bias from a blurred crest.
                 break
         if value is not None and uncertainty > max(2.5, 0.08 * value):
             reason = "edge_diameter_uncertain"
             value = None
+            uncertainty = None
     return DiameterObservation(
         value, uncertainty, upper, lower, up_n, lo_n, up, lo, reason,
         up_relief, lo_relief,
