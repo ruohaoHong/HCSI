@@ -12,8 +12,10 @@ catalog diameter or the GT of any benchmark case.
 2. **One observed crest + independent centerline**: when only one threaded
    flank is resolved, look for a *different* axial section showing a straight,
    bilaterally observable, constant-width cylindrical surface. Two raw-image
-   edge tracks establish its centerline, which can be extrapolated along the
-   same physical screw axis. Remove that axis segment from the crest candidates;
+   edge tracks establish its centerline, even when highlights make their
+   observable axial samples noncoincident. Independently fit each straight
+   flank and validate parallelism and substantial axial overlap. Then
+   extrapolate that centerline along the same physical screw axis. Remove that axis segment from the crest candidates;
    measure repeated peaks on the separate trusted thread flank after subtracting
    the centerline, and double their radial distance.
 
@@ -22,6 +24,11 @@ need not have an exposed smooth shank, so this route is **optional**, never
 an assumption that one exists. Both trusted crest sides still work on a
 fully threaded screw. More independent axis sources (e.g., validated symmetric
 head features) can be added later, each with its own independent evidence tests.
+
+Axis evidence has a finite observed span. Propagate uncertainty when the
+trusted thread crest lies beyond that span: a short, weak reference cannot
+justify a precise diameter far away. The system may retain a provisional
+candidate in numerical diagnostics, but it is not an official D measurement.
 
 ## Non-negotiable invariants
 
