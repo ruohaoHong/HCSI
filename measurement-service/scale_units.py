@@ -185,7 +185,8 @@ def _infer_tick_pattern(
     imperial_score = max(correlations[2], correlations[4], correlations[8], correlations[16])
     metric_score = max(correlations[5], correlations[10])
 
-    valid_points = lattice_points[np.isfinite(lattice_points[:, 0])]
+    valid_slots = np.flatnonzero(np.isfinite(lattice_points[:, 0]))
+    valid_points = lattice_points[valid_slots]
     if len(valid_points) < 4:
         return None
     centered = valid_points - np.mean(valid_points, axis=0)
@@ -195,11 +196,17 @@ def _infer_tick_pattern(
     scalar = centered @ axis
     if scalar[-1] < scalar[0]:
         scalar = -scalar
-    sample_index = np.arange(len(scalar), dtype=np.float64)
+
+    # Preserve the original lattice slot indices when estimating perspective.
+    # Compressing missing ticks into 0..N-1 makes an ordinary skipped/occluded
+    # tick look like a changing physical interval and can create a large false
+    # perspective signal even on a uniform ruler.
+    sample_index = valid_slots.astype(np.float64)
     if len(scalar) >= 5:
         quadratic, linear, _ = np.polyfit(sample_index, scalar, 2)
         step_start = abs(linear + quadratic)
-        step_end = abs(linear + quadratic * (2.0 * (len(scalar) - 1) + 1.0))
+        last_slot = float(len(lattice_points) - 1)
+        step_end = abs(linear + quadratic * (2.0 * last_slot + 1.0))
         low_step = min(step_start, step_end)
         high_step = max(step_start, step_end)
         perspective_pct = max(0.0, (high_step / max(low_step, 1e-6) - 1.0) * 100.0)
