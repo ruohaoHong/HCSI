@@ -6,7 +6,7 @@ on:
       - feature/semantic-pixel-ownership
     paths:
       - '.github/workflows/case-e-real-image.yml'
-      - 'benchmark/measurement-poc/cases/case-e-m3x30.jpg.b64'
+      - 'benchmark/measurement-poc/cases/case-e-m3x30-q80.part*.b64'
   workflow_dispatch:
 
 jobs:
@@ -22,10 +22,10 @@ jobs:
           cache: pip
           cache-dependency-path: measurement-service/requirements.txt
       - run: pip install -r measurement-service/requirements.txt
-      - name: Decode exact Case E fixture
+      - name: Rebuild Case E fixture
         run: |
-          base64 --decode benchmark/measurement-poc/cases/case-e-m3x30.jpg.b64 > /tmp/case-e.jpg
-          echo "f05a8ab6d3188469a1d16648bb58cc0a7348e57d367266aa836e10b114a202af  /tmp/case-e.jpg" | sha256sum --check -
+          cat benchmark/measurement-poc/cases/case-e-m3x30-q80.part*.b64 | base64 --decode > /tmp/case-e.webp
+          echo "b408b06f7cc0f70558203e90d8702680269c12fc276cf1fadf4d4f0800e3f385  /tmp/case-e.webp" | sha256sum --check -
       - name: Run complete HCSI measurement path
         run: |
           PYTHONPATH=measurement-service python - <<'PY'
@@ -34,7 +34,12 @@ jobs:
           import numpy as np
           from app import measure_rgb
 
-          image = np.asarray(Image.open('/tmp/case-e.jpg').convert('RGB'))
+          # Normalized WebP derivative of the exact user-provided Case E image.
+          # Geometry and dimensions are unchanged (814x594); only storage encoding
+          # differs so the fixture can live in the repository as text chunks.
+          # Exact uploaded JPEG SHA256:
+          # f05a8ab6d3188469a1d16648bb58cc0a7348e57d367266aa836e10b114a202af
+          image = np.asarray(Image.open('/tmp/case-e.webp').convert('RGB'))
           steps = [
               {"operation":"axial_distance","inputs":["object_tip","head_underface"],"purpose":"nominal fastener length L"},
               {"operation":"outer_width","inputs":["threaded_shank"],"purpose":"major diameter D"},
