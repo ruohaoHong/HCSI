@@ -482,8 +482,12 @@ def test_B_reaches_real_periodic_edge_observation_without_crashing():
         image, marks, 50.0, [dict(s) for s in FIXED_FASTENER_STEPS]
     )
     b = next(step for step in results if step["operation"] == "threaded_length")
-    assert b["status"] == "not_measured", b
-    assert b["value_px"] is None and b["value_mm"] is None
-    # Do not turn the trimmed interior periodic track into full physical B.
-    assert b["reason_codes"] == ["full_thread_start_and_end_not_resolved"], b
-    assert b["diagnostics"]["observed_pitch_px"] > 0
+    # The new full-shaft algorithm can now see both physical thread termini
+    # in the synthetic fixture, rather than reporting only a trimmed P ROI.
+    assert b["status"] == "measured", b
+    assert 275 <= b["value_px"] <= 310, b
+    assert 55 <= b["value_mm"] <= 62, b
+    assert b["reason_codes"] == [], b
+    assert set(b["landmarks"]) == {"thread_start", "thread_end"}
+    assert b["diagnostics"]["coverage"] == "head_to_tip_visible_full_thread"
+    assert b["diagnostics"]["pitch_source"] == "reused_P"
