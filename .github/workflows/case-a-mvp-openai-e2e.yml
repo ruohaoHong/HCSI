@@ -59,6 +59,8 @@ jobs:
           test -n "$OPENAI_API_KEY" || { echo "OPENAI_API_KEY unavailable"; exit 1; }
           python -m pip install -r measurement-service/requirements.txt
           pnpm install --frozen-lockfile
+          python -m pip install pytest
+          pytest -q measurement-service/tests
           # Test-only observability; leaves committed application and CV source unchanged.
           python - <<'PY'
           from pathlib import Path
@@ -99,67 +101,99 @@ jobs:
                   raise SystemExit(f'Service did not start: {url}')
           PY
 
-      - name: Actual frozen photo to OpenAI stage 1 to CV to OpenAI stage 2
+      - name: Real frozen Case A CV first, then OpenAI with identical signed CV evidence
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import base64, json, pathlib, urllib.request, urllib.error
-          image = pathlib.Path('case-a-e2e-results/case-a.jpg').read_bytes()
-          data = json.dumps({'image': base64.b64encode(image).decode('ascii')}).encode('utf-8')
-          req = urllib.request.Request('http://127.0.0.1:3000/api/analyze-openai',
-              data=data, headers={'Content-Type':'application/json'}, method='POST')
-          try:
-              with urllib.request.urlopen(req, timeout=900) as response:
-                  code, body = response.status, response.read()
-          except urllib.error.HTTPError as exc:
-              code, body = exc.code, exc.read()
-          pathlib.Path('case-a-e2e-results/response.json').write_bytes(body)
-          print('Actual endpoint HTTP status:', code)
-          if code != 200:
-              print('Endpoint error (no secret):', body.decode('utf-8', errors='replace')[:1200])
-              raise SystemExit('Case A E2E request failed')
-          parsed = json.loads(body)
-          if not all(k in parsed for k in ('routing', 'resolved_measurement_plan', 'measurement', 'result')):
-              raise SystemExit('E2E response missing required evidence fields')
-          print('Stage 1 object:', parsed['routing'].get('object_hint'))
-          print('Stage 1 head style:', parsed['routing'].get('semantic_vision', {}).get('head_style'))
-          print('Stage 1 plan:', json.dumps(parsed['routing'].get('measurement_plan'), ensure_ascii=False))
-          print('Resolved plan:', json.dumps(parsed['resolved_measurement_plan'], ensure_ascii=False))
-          print('CV status:', parsed['measurement'].get('measurement_status') if parsed['measurement'] else 'unavailable')
-          print('CV confidence:', parsed['measurement'].get('measurement_confidence') if parsed['measurement'] else 'unavailable')
-          print('CV geometry steps:', json.dumps(parsed['measurement'].get('geometry_steps') if parsed['measurement'] else None, ensure_ascii=False))
-          print('CV risks:', json.dumps(parsed['measurement'].get('confidence_evaluation') if parsed['measurement'] else parsed.get('measurement_service_error'), ensure_ascii=False))
-          print('Stage 2 purchase description:', parsed['result'].get('purchase_description'))
-          print('Stage 2 specifications:', json.dumps(parsed['result'].get('specifications'), ensure_ascii=False))
-          print('Stage 2 warnings:', json.dumps({'uncertain_fields':parsed['result'].get('uncertain_fields'), 'safety_note':parsed['result'].get('safety_note')}, ensure_ascii=False))
+          root = pathlib.Path('case-a-e2e-results')
+          image = (root / 'case-a.jpg').read_bytes()
+          image64 = base64.b64encode(image).decode('ascii')
+
+          def post(path, payload):
+              req = urllib.request.Request('http://127.0.0.1:3000' + path,
+                  data=json.dumps(payload).encode('utf-8'),
+                  headers={'Content-Type':'application/json'}, method='POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=900) as response:
+                      status, data = response.status, response.read()
+              except urllib.error.HTTPError as exc:
+                  status, data = exc.code, exc.read()
+              if status != 200:
+                  print('HTTP error for', path, status, data.decode('utf-8', errors='replace')[:1000])
+                  raise SystemExit('Real Case A request failed')
+              return json.loads(data)
+
+          # Only raw Case A bytes are available here; no nominal GT before inference.
+          preflight = post('/api/measure', {'image': image64})
+          cv = preflight['measurement']
+          keys = ('D','P','L_underhead','L_overall','B','K','DK')
+          assert set(keys) == set(cv['dimensions']), 'Seven immutable CV dimension slots missing'
+          assert cv['image_sha256'] == '5d6ee9563fd9a2e0d6861d74d581d4bae38a4f9181326d568291c1981e70b988'
+          (root / 'cv.json').write_text(json.dumps(cv, indent=2, ensure_ascii=False))
+          print('Real CV global status:', cv['measurement_status'], cv['measurement_confidence'])
+          for key in keys:
+              d = cv['dimensions'][key]
+              print('Real CV', key, 'px=', d['value_px'], 'mm=', d['value_mm'],
+                    'status=', d['status'], 'confidence=', d['confidence'],
+                    'reason=', d['reason_codes'], 'risks=', d['risk_signals'])
+          proof = preflight.get('measurement_proof')
+          if not isinstance(proof, str) or not proof:
+              raise SystemExit('Signed CV proof unavailable; cannot verify cross-provider reuse')
+
+          # One OpenAI call receives exact original photo AND immutable CV results.
+          result = post('/api/analyze-openai', {
+              'image': image64, 'measurement': cv, 'measurement_proof': proof,
+          })
+          (root / 'response.json').write_text(json.dumps(result, indent=2, ensure_ascii=False))
+          assert result['measurement_source'] == 'signed_preflight_reused', 'CV was executed twice or signed evidence rejected'
+          assert result['measurement'] == cv, 'LLM/API altered signed CV raw measurements'
+          interp = result['result']['fastener_interpretation']
+          print('LLM actual head:', interp['head_style'])
+          print('LLM drive:', interp['drive_form'])
+          print('LLM thread system:', interp['thread_system'])
+          print('LLM nominal estimate:', interp['nominal_specification'])
+          print('Server selected length:', json.dumps(result['selected_length'], ensure_ascii=False))
+          print('LLM final Taiwan purchase description:', result['result']['purchase_description'])
+          print('LLM uncertainty:', result['result']['uncertain_fields'])
+          if interp['head_style'] in ('other', 'unknown'):
+              assert result['selected_length']['convention'] == 'unresolved'
+              assert result['selected_length']['candidates']['under_head'] == cv['dimensions']['L_underhead']
+              assert result['selected_length']['candidates']['overall'] == cv['dimensions']['L_overall']
+          if not any(cv['dimensions'][key]['status'] == 'measured' for key in ('D','P','L_underhead','L_overall')):
+              raise SystemExit('No core CV D/P/L value; investigate generic segmentation, do not use GT to tune Case A')
           PY
 
-      - name: Evaluate against independent GT only AFTER actual inference
+      - name: Independent GT comparison strictly after inference
         if: success()
         shell: bash
         run: |
           python - <<'PY'
           import json, pathlib
-          result = json.loads(pathlib.Path('case-a-e2e-results/response.json').read_text())
-          gt = {'D':4.826, 'P':0.79375, 'L':22.225}
-          dims = {}
-          for step in (result.get('measurement') or {}).get('geometry_steps', []):
-              if step.get('status') != 'measured': continue
-              op, inputs = step.get('operation'), step.get('inputs',[])
-              key = 'D' if op == 'outer_width' and 'threaded_shank' in inputs else 'P' if op == 'periodicity' and 'threaded_shank' in inputs else 'L' if op == 'axial_distance' and 'head_underface' in inputs else None
-              if key is not None: dims[key] = step.get('value_mm')
-          evaluation = {key:{'measured_mm':dims.get(key), 'gt_mm':v, 'absolute_error_mm':abs(dims[key]-v) if isinstance(dims.get(key),(int,float)) else None, 'relative_error_pct':100*abs(dims[key]-v)/v if isinstance(dims.get(key),(int,float)) else None} for key,v in gt.items()}
-          pathlib.Path('case-a-e2e-results/evaluation.json').write_text(json.dumps(evaluation,indent=2))
-          print('Post-inference GT evaluation:',json.dumps(evaluation,ensure_ascii=False))
+          root = pathlib.Path('case-a-e2e-results')
+          result = json.loads((root / 'response.json').read_text())
+          cv = result['measurement']['dimensions']
+          # Independent GT enters ONLY here, after CV and OpenAI finished.
+          gt = {'D':4.826, 'P':0.79375, 'L_underhead':22.225}
+          out = {}
+          for key, known in gt.items():
+              d = cv[key]
+              actual = d['value_mm'] if d['status'] == 'measured' else None
+              out[key] = {'measured_mm': actual, 'gt_mm': known,
+                          'absolute_error_mm': abs(actual-known) if actual is not None else None,
+                          'relative_error_pct': 100*abs(actual-known)/known if actual is not None else None}
+          (root / 'evaluation.json').write_text(json.dumps(out, indent=2, ensure_ascii=False))
+          print('Post-inference GT comparison:', json.dumps(out, ensure_ascii=False))
           PY
 
-      - name: Upload only Case A E2E response and post-inference evaluation
+      - name: Upload real Case A CV, OpenAI response and post-inference evaluation
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: case-a-mvp-openai-e2e
           path: |
+            case-a-e2e-results/cv.json
             case-a-e2e-results/response.json
             case-a-e2e-results/evaluation.json
           if-no-files-found: ignore
