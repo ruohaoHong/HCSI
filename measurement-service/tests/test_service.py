@@ -198,9 +198,15 @@ def _axial_step_for_service():
 def test_fixed_measurements_ignore_unknown_or_other_semantic_head(monkeypatch):
     fake_ruler = _fake_ruler()
     monkeypatch.setattr(service_app, "infer_ruler", lambda _image: fake_ruler)
+    empty_region = {
+        "present": False, "confidence": 0.0,
+        "x_min": 0, "y_min": 0, "x_max": 0, "y_max": 0,
+    }
     for head in ("other", "unknown"):
         result = service_app.measure_rgb(
-            _bolt_image(), "abc123", semantic_vision={"head_style": head},
+            _bolt_image(), "abc123",
+            semantic_vision={"head_style": head, "target_region": empty_region,
+                             "reference_region": empty_region},
         )
         assert set(result["dimensions"]) == {
             "D", "P", "L_underhead", "L_overall", "B", "K", "DK",

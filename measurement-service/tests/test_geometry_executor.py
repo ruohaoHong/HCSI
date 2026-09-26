@@ -453,7 +453,7 @@ def test_fixed_six_dimension_suite_uses_real_synthetic_pixel_geometry():
 
     results = execute_geometry_steps(
         image, marks, 50.0, [dict(step) for step in FIXED_FASTENER_STEPS],
-        semantic_vision={"head_style": "other"},
+        # Fixed algorithmic observation needs no LLM semantic ROI.
     )
     assert len(results) == 7
     by_kind = {(step["operation"], tuple(step["inputs"])): step for step in results}

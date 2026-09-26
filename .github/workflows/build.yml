@@ -37,5 +37,5 @@ jobs:
           pnpm exec tsc lib/cv-length-policy.ts lib/cv-length-policy.test.ts \
             --target ES2022 --module commonjs --moduleResolution node \
             --esModuleInterop --skipLibCheck --outDir /tmp/hcsi-cv-first-policy-test
-          node /tmp/hcsi-cv-first-policy-test/lib/cv-length-policy.test.js
+          node "$(find /tmp/hcsi-cv-first-policy-test -name cv-length-policy.test.js -print -quit)"
       - run: pnpm build
