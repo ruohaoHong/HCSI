@@ -216,7 +216,14 @@ def infer_thread_extent(
         if not len(smooth):
             return ThreadExtent(None, None, None, "thread_head_boundary_unresolved", diagnostics)
         quiet = int(smooth[-1])
-        if quiet != first - 1:
+        # Optical uncertainty at a physical smooth-to-thread change point
+        # can make one or two overlapping windows unclassifiable. Bracket the
+        # boundary between the *observed* last-smooth and first-periodic
+        # windows, but refuse a gap wider than a physical pitch.
+        uncertain_gap = float(centers[first] - centers[quiet])
+        diagnostics["onset_observation_bracket_px"] = round(uncertain_gap, 3)
+        if (uncertain_gap > 1.25 * pitch_px
+                or np.any(observable[quiet + 1:first])):
             return ThreadExtent(None, None, None, "thread_start_transition_occluded", diagnostics)
         if centers[quiet] < guard + 2.0 * pitch_px:
             return ThreadExtent(None, None, None, "near_head_thread_start_ambiguous", diagnostics)
