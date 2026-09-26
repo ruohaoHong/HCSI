@@ -46,10 +46,10 @@ ${JSON.stringify(evidence, null, 2)}
 4. axial_distance(object_tip,head_underface) 的 value_mm 是突出頭型螺絲的頭下長度 L；axial_distance(object_tip,head_top) 是沉頭／overall convention 的總長；axial_distance(object_tip,width_transition) 只代表指定 transition landmark 的軸向距離。outer_width(threaded_shank) 的 value_mm 是該螺紋桿身區域的實測外徑；periodicity(threaded_shank) 的 value_mm 是實測重複週期／螺距。
 5. periodicity step 的 derived_tpi 若非 null，是 measurement service 依 TPI = 25.4 / pitch_mm deterministic 換算出的結果，可以視為與 pitch_mm 同一層級的實測衍生證據；不得自行改寫成其他牙數。
 6. diagnostics 只用於解釋量測方法與排錯；它不是額外規格值。尤其 status=not_measured 時，即使 diagnostics 裡有局部估計，也不得當作正式尺寸答案。
-7. 不可自行修改實測值、四捨五入成另一個標準規格後宣稱照片已證明該標準規格；完整標準規格仍需結合外觀與 reference / deterministic spec matcher 判斷。
+7. 不可自行修改實測值、四捨五入成另一個標準規格後宣稱照片已證明該標準規格；完整標準規格可結合原圖與已成功的實測步驟推論，但標記為 estimated；不要求額外規格匹配器。
 8. 不可由這些量測值推導照片沒有實際量到的孔徑、牙型、強度等級或其他尺寸。
 9. 若你在 specifications 引用量測值，label 請明確寫「系統實測…」，不要把它描述成 AI 目測。
-10. measurement_confidence=verified 才代表所有目前明確定義且可驗證的必要條件均通過。measurement_confidence=measured 或 uncertain 時，保留數值只作「系統估計（未驗證）」；不得把它直接當成購買規格、不得以 measured evidence_level 宣稱精確規格已確認，並須指出 confidence_reason_codes 與重拍建議。
+10. measurement_status=valid 且對應 geometry step status=measured 時，允許將該 step 的 value_mm 作為實測尺寸證據（specifications 中標 measured），並結合原圖、頭型與正確的 L 量法推論最可能的台灣購買規格；推論的標準規格只能標 estimated，絕不可改寫原始實測值或宣稱標準規格已被實測證明。measurement_confidence=verified 表示目前定義的驗證條件通過；measured 或 uncertain 不得單獨否決已成功的 geometry step，但必須揭露 confidence_reason_codes、未知拍攝條件與必要重拍建議。僅有部分 geometry step 成功時，只能使用成功的尺寸；如無合理標準規格，不可硬湊完整名稱。
 11. same_plane check 若為 unknown，表示尺與五金是否共面沒有獨立證據；不可由刻度清楚、透視變化小、方向平行或位置相近推論為共面。
 `
   }
