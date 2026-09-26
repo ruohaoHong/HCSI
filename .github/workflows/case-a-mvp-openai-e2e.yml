@@ -1,5 +1,6 @@
 name: Case A MVP OpenAI E2E
 # CV-first: Case A only; the GT remains isolated until evaluation.
+# Exercising B's real edge-track tuple contract before the OpenAI call.
 
 on:
   push:

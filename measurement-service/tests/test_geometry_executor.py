@@ -469,3 +469,21 @@ def test_fixed_six_dimension_suite_uses_real_synthetic_pixel_geometry():
     assert all(
         step["reason_codes"] != ["operation_not_implemented"] for step in results
     )
+
+
+def test_B_reaches_real_periodic_edge_observation_without_crashing():
+    """Synthetic threaded profile exercises B's edge-track integration contract."""
+    from geometry_executor import FIXED_FASTENER_STEPS
+
+    image = np.full((520, 820, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image)
+    _draw_threaded_bolt(image, period_px=20.0)
+    results = execute_geometry_steps(
+        image, marks, 50.0, [dict(s) for s in FIXED_FASTENER_STEPS]
+    )
+    b = next(step for step in results if step["operation"] == "threaded_length")
+    assert b["status"] == "not_measured", b
+    assert b["value_px"] is None and b["value_mm"] is None
+    # Do not turn the trimmed interior periodic track into full physical B.
+    assert b["reason_codes"] == ["full_thread_start_and_end_not_resolved"], b
+    assert b["diagnostics"]["observed_pitch_px"] > 0

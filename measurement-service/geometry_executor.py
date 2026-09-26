@@ -331,9 +331,10 @@ def execute_geometry_steps(
             if shank_width_px is None:
                 results.append(_not_measured(step, "thread_profile_unreliable"))
                 continue
-            tracks = observe_thread_edges(image_rgb, shank_profile)
+            upper_track, lower_track = observe_thread_edges(image_rgb, shank_profile)
             observed = measure_periodicity_px(
-                shank_profile, shank_width_px, edge_tracks=tracks,
+                shank_profile, shank_width_px,
+                edge_tracks=(upper_track, lower_track),
             )
             if observed.pitch_px is None:
                 results.append(_not_measured(
@@ -346,7 +347,7 @@ def execute_geometry_steps(
             # thread termini. Never mislabel that observable span as B.
             valid_spans = [
                 float(np.ptp(track.s_px[track.valid]))
-                for track in (tracks.upper, tracks.lower)
+                for track in (upper_track, lower_track)
                 if np.count_nonzero(track.valid) > 1
             ]
             results.append(_not_measured(
