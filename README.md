@@ -166,3 +166,17 @@ pnpm dev
 ```
 
 Open `http://localhost:3000`.
+
+
+### CV-first 六項通用螺絲量測（L 為雙候選，合計七個槽位）
+
+照片上傳後先由 CV 校準尺並固定執行 D、P、L_underhead、L_overall、B、K、DK。
+LLM 不規劃基本量測，也不能因頭型 other/unknown 取消 CV 的成功數值。
+前端在三個 provider 按鈕之間共用與影像 SHA-256 綁定的 server-side HMAC 簽章量測證據；未通過簽章驗證的瀏覽器資料不被信任，改由伺服器重新量測。
+
+- D 以原圖的螺紋牙峰邊緣分析；P 以實際週期偵測；兩種 L 同時保存，頭型確定後僅選擇相應候選，不改寫原始數字。
+- K 取頭下承壓面到頭頂的軸向距離；DK 取可分離頭部輪廓的高百分位寬度。每個步驟獨立保留 px、mm、狀態、質性信心、風險及診斷資訊。
+- B 已執行影像螺紋週期探索，但現階段尚無法可靠找到**完整實體牙段的起訖端點**；固定回報 `not_measured / full_thread_start_and_end_not_resolved` 並保留局部觀察診斷，不冒充已測得 B。
+- 未提供 LLM semantic ROI 是 CV-first 的正常狀態，不列為尺度或輪廓失敗；但尺與物件共面、俯拍角度等若沒有獨立證據仍屬未知。
+- 回應的 `specification_evidence` 清楚分開 `cv_raw_measurements`、`llm_inferred_nominal`、`standard_table_derived`（v1 無已驗證標準表，必須空陣列）、`not_obtained` 與 `not_implemented`。S 只能在標準型號與適用標準表雙重確認後衍生；T 暫不做。
+- 凍結 Case A E2E 以原圖 SHA-256 驗證；CV 和 LLM 跑完後才載入 GT，避免測試答案影響辨識。

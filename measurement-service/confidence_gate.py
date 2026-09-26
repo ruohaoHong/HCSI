@@ -324,8 +324,12 @@ def evaluate_measurement_confidence(
     target_applied = "+semantic_roi" in str(
         object_evidence.get("segmentation_method", "")
     )
-    if not target_present:
-        target_status: CheckStatus = "unknown"
+    semantic_optional = object_evidence.get("semantic_routing_supplied") is False
+    if semantic_optional:
+        target_status: CheckStatus = "not_applicable"
+        target_reason = None
+    elif not target_present:
+        target_status = "unknown"
         target_reason = "semantic_target_unconfirmed"
     elif target_applied:
         target_status = "passed"
@@ -337,7 +341,7 @@ def evaluate_measurement_confidence(
         _check(
             "semantic_target_consistency",
             target_status,
-            required=True,
+            required=not semantic_optional,
             reason_code=target_reason,
             evidence={
                 "present": target_present,
@@ -352,8 +356,11 @@ def evaluate_measurement_confidence(
     reference_applied = "+semantic_reference_exclusion" in str(
         object_evidence.get("segmentation_method", "")
     )
-    if not reference_present:
-        reference_status: CheckStatus = "unknown"
+    if semantic_optional:
+        reference_status: CheckStatus = "not_applicable"
+        reference_reason = None
+    elif not reference_present:
+        reference_status = "unknown"
         reference_reason = "semantic_reference_unconfirmed"
     elif reference_applied:
         reference_status = "passed"
@@ -365,7 +372,7 @@ def evaluate_measurement_confidence(
         _check(
             "semantic_reference_consistency",
             reference_status,
-            required=True,
+            required=not semantic_optional,
             reason_code=reference_reason,
             evidence={
                 "present": reference_present,

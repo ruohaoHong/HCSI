@@ -194,3 +194,18 @@ def test_capture_claim_requires_supported_evidence_source():
         assert "source is unsupported" in str(exc)
     else:
         raise AssertionError("unsupported co-planarity claim was accepted")
+
+
+def test_cv_first_absent_llm_semantic_roi_is_not_a_capture_failure():
+    obj = _object(
+        semantic_routing_supplied=False,
+        semantic_target_region={"present": False, "confidence": 0.0},
+        semantic_reference_region={"present": False, "confidence": 0.0},
+        segmentation_method="physical_contour_selection:appearance",
+    )
+    result = _evaluate(object_evidence=obj)
+    assert _check(result, "semantic_target_consistency")["status"] == "not_applicable"
+    assert _check(result, "semantic_reference_consistency")["status"] == "not_applicable"
+    assert "semantic_target_unconfirmed" not in result["reason_codes"]
+    assert "semantic_reference_unconfirmed" not in result["reason_codes"]
+    assert result["status"] == "verified", result["reason_codes"]

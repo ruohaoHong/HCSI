@@ -170,9 +170,20 @@ def _result(
         # A failure in one dimension never erases another dimension's raw
         # pixel/mm result. Confidence describes provenance, not a veto.
         measured = step.get("status") == "measured"
+        # Local dimension risks must not inherit an unrelated B failure.
+        # Shared capture/scale/contour uncertainty still affects every mm.
+        independent_failure_codes = {
+            "geometry_steps_incomplete", "geometry_steps_not_requested",
+            *[
+                failure
+                for other in step_results if other is not step
+                for failure in other.get("reason_codes", [])
+            ],
+        }
         risks = (
             list(object_json.get("risk_signals", []))
-            + list(confidence["reason_codes"])
+            + [reason for reason in confidence["reason_codes"]
+               if reason not in independent_failure_codes]
             if measured else list(step.get("reason_codes", []))
         )
         dimensions[dimension] = {
@@ -321,6 +332,7 @@ def measure_rgb(
         "ruler_alignment_deg": _round(geometry.ruler_alignment_deg),
         "segmentation_method": geometry.segmentation_method,
         "risk_signals": list(geometry.risk_signals),
+        "semantic_routing_supplied": semantic_vision is not None,
         "semantic_head_style": semantic_context["head_style"],
         "semantic_target_region": semantic_context["target_region"],
         "semantic_reference_region": semantic_context["reference_region"],

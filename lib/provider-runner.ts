@@ -85,8 +85,19 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       value: '待確認：目前沒有已核實的標準型號與相應標準規格表，不是照片實測。',
       evidence_level: 'unconfirmed',
     })
+    const dimensions = measurement?.dimensions ?? {}
     const response = {
       provider, model: config.model, result: identificationRaw, measurement,
+      specification_evidence: {
+        cv_raw_measurements: dimensions,
+        llm_inferred_nominal: identificationRaw.fastener_interpretation.nominal_specification,
+        standard_table_derived: [], // No verified standards table is wired in v1.
+        not_obtained: [
+          ...REQUIRED_DIMENSIONS.filter(key => dimensions[key]?.status !== 'measured'),
+          'S',
+        ],
+        not_implemented: ['T'],
+      },
       selected_length: selectedLength,
       measurement_source: proofValid ? 'signed_preflight_reused' : measurement ? 'server_cv_executed' : 'service_unavailable',
       measurement_service_error: measurementServiceError,
