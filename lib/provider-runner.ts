@@ -1,19 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import {
-  buildIdentificationPrompt,
-  buildRoutingPrompt,
-  IDENTIFICATION_JSON_SCHEMA,
-  isIdentificationResult,
-  isRoutingResult,
-  ROUTING_JSON_SCHEMA,
-  type IdentificationResult,
-  type Provider,
-} from '@/lib/identification'
-import { resolveMeasurementPlan } from '@/lib/measurement-plan-resolver'
+import type { Provider, IdentificationResult } from '@/lib/identification'
+import { isIdentificationResult } from '@/lib/identification'
+import { CV_FIRST_IDENTIFICATION_JSON_SCHEMA, buildCvFirstIdentificationPrompt } from '@/lib/cv-first-identification'
 import { runMeasurementPreflight, MeasurementServiceError } from '@/lib/measurement-client'
-import { buildMeasurementEvidencePrompt } from '@/lib/measurement-prompt'
-import type { MeasurementResult } from '@/lib/measurement'
+import { verifyMeasurementProof } from '@/lib/measurement-proof'
+import { selectLengthFromCv } from '@/lib/cv-length-policy'
+import type { MeasurementResult, FixedDimension } from '@/lib/measurement'
 import { loadReferencePack } from '@/lib/reference-loader'
 
 const MAX_IMAGE_LENGTH = 7_000_000
@@ -22,73 +15,100 @@ const PROVIDER_CONFIG = {
   openai: { envKey: 'OPENAI_API_KEY', model: 'gpt-5.6-sol', label: 'OpenAI' },
   grok: { envKey: 'XAI_API_KEY', model: 'grok-4.6', label: 'Grok' },
 } as const
-
 type JsonSchema = Record<string, unknown>
 type MeasurementServiceFallback = { code: string; message: string } | null
+
+const REQUIRED_DIMENSIONS: FixedDimension[] = ['D','P','L_underhead','L_overall','B','K','DK']
 
 export async function handleIdentificationRequest(request: Request, provider: Provider) {
   try {
     const body = await request.json()
     const image = typeof body.image === 'string' ? body.image : ''
-    if (!image || image.length > MAX_IMAGE_LENGTH || !/^[A-Za-z0-9+/=]+$/.test(image)) return NextResponse.json({ error: '影像格式不正確或檔案過大。' }, { status: 400 })
-
+    if (!image || image.length > MAX_IMAGE_LENGTH || !/^[A-Za-z0-9+/=]+$/.test(image)) {
+      return NextResponse.json({ error: '影像格式不正確或檔案過大。' }, { status: 400 })
+    }
     const config = PROVIDER_CONFIG[provider]
     const apiKey = process.env[config.envKey]
     if (!apiKey) return NextResponse.json({ error: `${config.label} 分析服務尚未完成設定。` }, { status: 503 })
 
-    const routingRaw = await runStructuredProvider({ provider, apiKey, model: config.model, image, prompt: buildRoutingPrompt(), schemaName: 'hcsi_semantic_measurement_planner', schema: ROUTING_JSON_SCHEMA as unknown as JsonSchema, maxOutputTokens: 3200 })
-    if (!isRoutingResult(routingRaw)) throw new Error(`${config.label} 語義量測規劃輸出格式不完整`)
-
-    // Deterministic capability boundary. The LLM may propose anything useful;
-    // only steps the current registry understands become executable.
-    const resolvedMeasurementPlan = resolveMeasurementPlan(routingRaw.measurement_plan, {
-      category: routingRaw.category,
-      head_style: routingRaw.semantic_vision.head_style,
-    })
-
-    // The geometry plan now drives deterministic measurement. This is the
-    // vertical slice from semantic executable_steps to actual pixel/mm evidence.
     let measurement: MeasurementResult | null = null
     let measurementServiceError: MeasurementServiceFallback = null
-    try {
-      measurement = await runMeasurementPreflight(
-        image,
-        resolvedMeasurementPlan.executable_steps,
-        routingRaw.semantic_vision
-      )
-    } catch (error) {
-      if (error instanceof MeasurementServiceError) {
-        measurementServiceError = { code: error.code, message: error.message }
-        console.warn(`[HCSI] ${provider} continuing without deterministic measurement:`, error.code)
-      } else {
-        measurementServiceError = { code: 'measurement_unexpected_error', message: '量測服務目前無法使用。' }
-        console.warn(`[HCSI] ${provider} continuing without deterministic measurement: unexpected error`)
+    const proofValid = verifyMeasurementProof(body.measurement, body.measurement_proof, image)
+    if (proofValid) {
+      measurement = body.measurement as MeasurementResult
+    } else {
+      try {
+        // CV executes its fixed acquisition BEFORE the single vision LLM call.
+        // Old planner output or client-supplied untrusted evidence has no veto.
+        measurement = await runMeasurementPreflight(image)
+      } catch (error) {
+        if (error instanceof MeasurementServiceError) {
+          measurementServiceError = { code: error.code, message: error.message }
+        } else {
+          measurementServiceError = { code: 'measurement_unexpected_error', message: '量測服務無法使用。' }
+        }
       }
     }
+    const cvComplete = !!measurement?.dimensions && REQUIRED_DIMENSIONS.every(key => !!measurement?.dimensions?.[key])
+    if (measurement && !cvComplete) throw new Error('CV-first 回傳缺少固定六項測量槽位')
 
-    const reference = await loadReferencePack(routingRaw.category)
-    const measurementPrompt = buildMeasurementEvidencePrompt(measurement, measurementServiceError?.code)
-    const resolverPrompt = buildResolverEvidencePrompt(resolvedMeasurementPlan)
-
+    const reference = await loadReferencePack('fasteners')
     const identificationRaw = await runStructuredProvider({
       provider, apiKey, model: config.model, image,
-      prompt: `${buildIdentificationPrompt(routingRaw, reference.core, reference.category)}\n${resolverPrompt}\n${measurementPrompt}`,
-      schemaName: 'hcsi_hardware_identification', schema: IDENTIFICATION_JSON_SCHEMA as unknown as JsonSchema, maxOutputTokens: 2400,
+      prompt: buildCvFirstIdentificationPrompt(measurement, measurementServiceError?.code ?? null,
+        reference.core, reference.category),
+      schemaName: 'hcsi_cv_first_identification',
+      schema: CV_FIRST_IDENTIFICATION_JSON_SCHEMA as unknown as JsonSchema,
+      maxOutputTokens: 4600,
     })
-    if (!isIdentificationResult(identificationRaw)) throw new Error(`${config.label} 最終辨識輸出格式不完整`)
-
-    await logResult(provider, config.model, routingRaw.category, identificationRaw, measurement)
-    return NextResponse.json({ provider, model: config.model, routing: routingRaw, resolved_measurement_plan: resolvedMeasurementPlan, result: identificationRaw, measurement, measurement_service_error: measurementServiceError })
+    if (!isIdentificationResult(identificationRaw) ||
+        !identificationRaw.fastener_interpretation ||
+        typeof identificationRaw.fastener_interpretation.head_style !== 'string') {
+      throw new Error(`${config.label} CV-first 語義辨識結果格式不完整`)
+    }
+    // Nominal identification never edits the signed raw CV observations.
+    const selectedLength = selectLengthFromCv(identificationRaw.fastener_interpretation.head_style, measurement)
+    identificationRaw.fastener_interpretation.length_convention = selectedLength.convention
+    const haveMetricEvidence = !!measurement?.dimensions &&
+      ['D', 'P', 'L_underhead', 'L_overall'].some(
+        key => measurement?.dimensions?.[key as FixedDimension]?.status === 'measured'
+      )
+    if (!haveMetricEvidence) {
+      identificationRaw.fastener_interpretation.nominal_specification = ''
+      identificationRaw.purchase_description = `${identificationRaw.item_name}（尺寸未經可信尺度驗證；請補拍含尺照片或持實物至五金行核對）`
+    }
+    identificationRaw.specifications = identificationRaw.specifications.filter(
+      spec => !/^S\s*[:：／]?|驅動槽尺寸|槽孔尺寸/i.test(spec.label)
+    )
+    identificationRaw.specifications.push({
+      label: 'S 驅動槽尺寸',
+      value: '待確認：目前沒有已核實的標準型號與相應標準規格表，不是照片實測。',
+      evidence_level: 'unconfirmed',
+    })
+    const dimensions = measurement?.dimensions ?? {}
+    const response = {
+      provider, model: config.model, result: identificationRaw, measurement,
+      specification_evidence: {
+        cv_raw_measurements: dimensions,
+        llm_inferred_nominal: identificationRaw.fastener_interpretation.nominal_specification,
+        standard_table_derived: [], // No verified standards table is wired in v1.
+        not_obtained: [
+          ...REQUIRED_DIMENSIONS.filter(key => dimensions[key]?.status !== 'measured'),
+          'S',
+        ],
+        not_implemented: ['T'],
+      },
+      selected_length: selectedLength,
+      measurement_source: proofValid ? 'signed_preflight_reused' : measurement ? 'server_cv_executed' : 'service_unavailable',
+      measurement_service_error: measurementServiceError,
+      schema_version: 'hcsi.cv-first.v1',
+    }
+    await logResult(provider, config.model, identificationRaw.category, identificationRaw, measurement)
+    return NextResponse.json(response)
   } catch (error) {
     console.error(`[HCSI] ${provider} analyze failed:`, error)
-    return NextResponse.json({ error: error instanceof Error ? error.message : '辨識時發生未預期錯誤。' }, { status: 502 })
+    return NextResponse.json({ error: error instanceof Error ? error.message : '辨識失敗' }, { status: 502 })
   }
-}
-
-function buildResolverEvidencePrompt(plan: ReturnType<typeof resolveMeasurementPlan>) {
-  const executable = plan.executable_steps.map((s) => `${s.operation}(${s.inputs.join(', ')})`).join(', ') || '無'
-  const unsupported = plan.unsupported_steps.map((s) => `${s.operation} [${s.unsupported_terms.join(', ')}]`).join(', ') || '無'
-  return `===== Geometry Plan Resolver =====\n目前 Engine 可執行：${executable}\n目前 unsupported / proposed：${unsupported}\nfully_supported=${plan.fully_supported}\n注意：可執行只代表 Engine 具備該 geometry vocabulary；是否真的量到數值，必須以下方 deterministic measurement 的 geometry_steps status 為準。unsupported 更不得當成 measured evidence。`
 }
 
 async function runStructuredProvider(args: { provider: Provider; apiKey: string; model: string; image: string; prompt: string; schemaName: string; schema: JsonSchema; maxOutputTokens: number }) {

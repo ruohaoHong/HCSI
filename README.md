@@ -41,6 +41,17 @@ Measurement 與 LLM 辨識刻意分離。Vision LLM 不得只靠 pixel 大小或
 
 `measurement_valid=false` 時所有絕對尺寸欄位保持 `null`。量測服務本身不可用屬於 infrastructure error，與 `no_reference` 分開處理，避免錯怪使用者照片。
 
+### Measurement Confidence Gate
+
+`measurement_status` 與 geometry step `status` 繼續表示演算法是否產生數值；新增的 `measurement_confidence` 則獨立判斷證據是否足以把數值當成已驗證規格：
+
+- `measured`：已有數值，但尚未執行驗證政策。
+- `verified`：所有明確定義且可驗證的必要條件均通過。
+- `uncertain`：保留量測估計，但有必要條件失敗或仍為 unknown；不得直接作為購買規格。
+- `not_measured`：沒有產生量測值，仍可走 appearance-only 辨識。
+
+Gate 輸出逐項 checks、reason codes 與可操作的重拍建議，不產生沒有校準依據的百分比信心分數。單張照片目前無法獨立證明尺與五金共面，因此預設 `same_plane_status=unknown`；不能以刻度清楚、透視變化小、方向平行或兩者靠近替代共面證據。完整欄位與 reason codes 見 [`measurement-service/CONFIDENCE_GATE.md`](measurement-service/CONFIDENCE_GATE.md)。
+
 ### 第一版拍攝條件
 
 - 五金與尺應放在同一平面。
@@ -155,3 +166,23 @@ pnpm dev
 ```
 
 Open `http://localhost:3000`.
+
+
+### CV-first 六項通用螺絲量測（L 為雙候選，合計七個槽位）
+
+照片上傳後先由 CV 校準尺並固定執行 D、P、L_underhead、L_overall、B、K、DK。
+LLM 不規劃基本量測，也不能因頭型 other/unknown 取消 CV 的成功數值。
+前端在三個 provider 按鈕之間共用與影像 SHA-256 綁定的 server-side HMAC 簽章量測證據；未通過簽章驗證的瀏覽器資料不被信任，改由伺服器重新量測。
+
+- D 以原圖的螺紋牙峰邊緣分析；P 以實際週期偵測；兩種 L 同時保存，頭型確定後僅選擇相應候選，不改寫原始數字。
+- K 取頭下承壓面到頭頂的軸向距離；DK 取可分離頭部輪廓的高百分位寬度。每個步驟獨立保留 px、mm、狀態、質性信心、風險及診斷資訊。
+- B 現已獨立分析**整段可見桿身**（不再沿用 P 對頭尾 8%/12% 的裁切）：根據實際影像邊緣的局部週期、光學可靠性與變點，判定全牙延伸到承壓面或半牙的光桿→牙段轉折，並驗證螺紋在可見尖端附近仍持續。只有頭側及尾側邊界均有證據時才回傳 px/mm；其餘回傳具體原因及像素診斷。單張照片的邊界仍通常存在約一個可見牙距的定位不確定性，不能代替牙規／卡尺。
+- 未提供 LLM semantic ROI 是 CV-first 的正常狀態，不列為尺度或輪廓失敗；但尺與物件共面、俯拍角度等若沒有獨立證據仍屬未知。
+- 回應的 `specification_evidence` 清楚分開 `cv_raw_measurements`、`llm_inferred_nominal`、`standard_table_derived`（v1 無已驗證標準表，必須空陣列）、`not_obtained` 與 `not_implemented`。S 只能在標準型號與適用標準表雙重確認後衍生；T 暫不做。
+- 凍結 Case A E2E 以原圖 SHA-256 驗證；CV 和 LLM 跑完後才載入 GT，避免測試答案影響辨識。
+
+#### B 的可驗證界線
+
+B 不等於頭下 L，除非頭側直接看到螺紋連續至承壓面，且尖端附近也有直接的週期性邊緣證據。半牙必須另看到可信的光桿→牙紋變點；不能用固定的 `L−光桿估計` 補猜。如果靠頭牙端被遮擋、尺碰到螺紋、局部模糊、成像解析度不足或兩側觀測衝突，B 必須獨立回報 `not_measured` 與具體原因，不得刪掉 D/P/L/K/DK 的成功值。
+
+測試層次：`test_thread_extent.py` 用幾何生成的**單元測試**驗證全牙、半牙、鏡像、純光桿與遮擋，並非真實照片；`thread-extent-b-smoke.yml` 只使用先前封存且 SHA-256 已鎖定的原始 Case A 照片執行 CV-only 真實影像煙霧測試，不載入 Case A GT，也不呼叫任何 LLM、不藉 Case A 調演算法。

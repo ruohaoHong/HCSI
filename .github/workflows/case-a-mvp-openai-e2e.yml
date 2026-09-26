@@ -1,0 +1,214 @@
+name: Case A MVP OpenAI E2E
+# CV-first: Case A only; the GT remains isolated until evaluation.
+# Exercising B's real edge-track tuple contract before the OpenAI call.
+# CV-first semantic-ROI absence is not a failure of capture evidence.
+# The HTTP entry point preserves None to keep the two semantic checks optional.
+
+on:
+  push:
+    branches: [feature/measurement-confidence-gate]
+    paths: ['.github/workflows/case-a-mvp-openai-e2e.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  case-a-openai:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      HCSI_MEASUREMENT_SERVICE_URL: http://127.0.0.1:8000
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: measurement-service/requirements.txt
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Retrieve exact frozen Case A from prior GitHub Actions artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/hcsi-fixtures case-a-e2e-results
+          gh run download 35753143674 --repo "${{ github.repository }}" --name real-acceptance-ab --dir /tmp/hcsi-fixtures
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          expected = '5d6ee9563fd9a2e0d6861d74d581d4bae38a4f9181326d568291c1981e70b988'
+          matches = [p for p in Path('/tmp/hcsi-fixtures').rglob('*') if p.is_file() and hashlib.sha256(p.read_bytes()).hexdigest() == expected]
+          if len(matches) != 1:
+              raise SystemExit(f'Case A frozen image not uniquely present in archived artifact: matches={len(matches)}. Do not substitute images.')
+          Path('case-a-e2e-results/case-a.jpg').write_bytes(matches[0].read_bytes())
+          print('Case A original JPEG SHA-256 verified:', expected)
+          PY
+
+      - name: Install existing HCSI dependencies and verify OpenAI secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENAI_API_KEY" || { echo "OPENAI_API_KEY unavailable"; exit 1; }
+          python -m pip install -r measurement-service/requirements.txt
+          pnpm install --frozen-lockfile
+          python -m pip install pytest
+          pytest -q measurement-service/tests
+          # Test-only observability; leaves committed application and CV source unchanged.
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('lib/provider-runner.ts')
+          s = p.read_text()
+          target = "  const text = data?.output?.flatMap((item: any) => item?.content ?? []).find((item: any) => item?.type === 'output_text')?.text"
+          if target not in s: raise SystemExit('Diagnostic instrumentation anchor not found')
+          replacement = target + """
+            console.warn('[CASE_A_TEST_DIAGNOSTICS] provider:', label,
+              'response_status:', data?.status,
+              'incomplete_details:', JSON.stringify(data?.incomplete_details ?? null),
+              'output_types:', JSON.stringify(data?.output?.map((item: any) => item?.type) ?? []),
+              'output_text_length:', typeof text === 'string' ? text.length : null,
+              'output_text_excerpt:', typeof text === 'string' ? text.slice(0, 1600) : null)
+          """
+          p.write_text(s.replace(target, replacement))
+          PY
+          pnpm build
+
+      - name: Start unmodified measurement service and current MVP frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup python -m uvicorn app:app --app-dir measurement-service --host 127.0.0.1 --port 8000 > /tmp/hcsi-measure.log 2>&1 < /dev/null &
+          nohup pnpm start --hostname 127.0.0.1 --port 3000 > /tmp/hcsi-next.log 2>&1 < /dev/null &
+          python - <<'PY'
+          import time, urllib.request
+          for url in ['http://127.0.0.1:8000/openapi.json', 'http://127.0.0.1:3000']:
+              for _ in range(120):
+                  try:
+                      with urllib.request.urlopen(url, timeout=3) as r:
+                          if r.status == 200:
+                              print('Ready:', url)
+                              break
+                  except Exception:
+                      time.sleep(2)
+              else:
+                  raise SystemExit(f'Service did not start: {url}')
+          PY
+
+      - name: Real frozen Case A CV first, then OpenAI with identical signed CV evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, json, pathlib, urllib.request, urllib.error
+          root = pathlib.Path('case-a-e2e-results')
+          image = (root / 'case-a.jpg').read_bytes()
+          image64 = base64.b64encode(image).decode('ascii')
+
+          def post(path, payload):
+              req = urllib.request.Request('http://127.0.0.1:3000' + path,
+                  data=json.dumps(payload).encode('utf-8'),
+                  headers={'Content-Type':'application/json'}, method='POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=900) as response:
+                      status, data = response.status, response.read()
+              except urllib.error.HTTPError as exc:
+                  status, data = exc.code, exc.read()
+              if status != 200:
+                  print('HTTP error for', path, status, data.decode('utf-8', errors='replace')[:1000])
+                  raise SystemExit('Real Case A request failed')
+              return json.loads(data)
+
+          # Only raw Case A bytes are available here; no nominal GT before inference.
+          preflight = post('/api/measure', {'image': image64})
+          cv = preflight['measurement']
+          keys = ('D','P','L_underhead','L_overall','B','K','DK')
+          print('CV response keys before validation:', list(cv.get('dimensions', {})))
+          (root / 'cv.json').write_text(json.dumps(cv, indent=2, ensure_ascii=False))
+          assert set(keys) == set(cv['dimensions']), 'Seven immutable CV dimension slots missing'
+          assert cv['image_sha256'] == '5d6ee9563fd9a2e0d6861d74d581d4bae38a4f9181326d568291c1981e70b988'
+          (root / 'cv.json').write_text(json.dumps(cv, indent=2, ensure_ascii=False))
+          print('Real CV global status:', cv['measurement_status'], cv['measurement_confidence'])
+          for key in keys:
+              d = cv['dimensions'][key]
+              print('Real CV', key, 'px=', d['value_px'], 'mm=', d['value_mm'],
+                    'status=', d['status'], 'confidence=', d['confidence'],
+                    'reason=', d['reason_codes'], 'risks=', d['risk_signals'])
+          proof = preflight.get('measurement_proof')
+          if not isinstance(proof, str) or not proof:
+              raise SystemExit('Signed CV proof unavailable; cannot verify cross-provider reuse')
+
+          # One OpenAI call receives exact original photo AND immutable CV results.
+          result = post('/api/analyze-openai', {
+              'image': image64, 'measurement': cv, 'measurement_proof': proof,
+          })
+          (root / 'response.json').write_text(json.dumps(result, indent=2, ensure_ascii=False))
+          assert result['measurement_source'] == 'signed_preflight_reused', 'CV was executed twice or signed evidence rejected'
+          assert result['measurement'] == cv, 'LLM/API altered signed CV raw measurements'
+          interp = result['result']['fastener_interpretation']
+          print('LLM actual head:', interp['head_style'])
+          print('LLM drive:', interp['drive_form'])
+          print('LLM thread system:', interp['thread_system'])
+          print('LLM nominal estimate:', interp['nominal_specification'])
+          print('Server selected length:', json.dumps(result['selected_length'], ensure_ascii=False))
+          print('LLM final Taiwan purchase description:', result['result']['purchase_description'])
+          print('LLM uncertainty:', result['result']['uncertain_fields'])
+          if interp['head_style'] in ('other', 'unknown'):
+              assert result['selected_length']['convention'] == 'unresolved'
+              assert result['selected_length']['candidates']['under_head'] == cv['dimensions']['L_underhead']
+              assert result['selected_length']['candidates']['overall'] == cv['dimensions']['L_overall']
+          if not any(cv['dimensions'][key]['status'] == 'measured' for key in ('D','P','L_underhead','L_overall')):
+              raise SystemExit('No core CV D/P/L value; investigate generic segmentation, do not use GT to tune Case A')
+          PY
+
+      - name: Independent GT comparison strictly after inference
+        if: success()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          root = pathlib.Path('case-a-e2e-results')
+          result = json.loads((root / 'response.json').read_text())
+          cv = result['measurement']['dimensions']
+          # Independent GT enters ONLY here, after CV and OpenAI finished.
+          gt = {'D':4.826, 'P':0.79375, 'L_underhead':22.225}
+          out = {}
+          for key, known in gt.items():
+              d = cv[key]
+              actual = d['value_mm'] if d['status'] == 'measured' else None
+              out[key] = {'measured_mm': actual, 'gt_mm': known,
+                          'absolute_error_mm': abs(actual-known) if actual is not None else None,
+                          'relative_error_pct': 100*abs(actual-known)/known if actual is not None else None}
+          (root / 'evaluation.json').write_text(json.dumps(out, indent=2, ensure_ascii=False))
+          print('Post-inference GT comparison:', json.dumps(out, ensure_ascii=False))
+          PY
+
+      - name: Upload real Case A CV, OpenAI response and post-inference evaluation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: case-a-mvp-openai-e2e
+          path: |
+            case-a-e2e-results/cv.json
+            case-a-e2e-results/response.json
+            case-a-e2e-results/evaluation.json
+          if-no-files-found: ignore
+
+      - name: Print sanitized service errors if unsuccessful
+        if: failure()
+        shell: bash
+        run: |
+          echo 'Measurement service log:'
+          tail -n 65 /tmp/hcsi-measure.log 2>/dev/null || true
+          echo 'Next app log:'
+          tail -n 65 /tmp/hcsi-next.log 2>/dev/null || true

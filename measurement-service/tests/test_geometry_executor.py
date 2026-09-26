@@ -440,3 +440,83 @@ def test_phase_shifted_major_diameter_does_not_change_pitch_search():
     assert 38.0 <= width["value_px"] <= 41.5, width
     assert periodicity["status"] == "measured", periodicity
     assert 23.0 <= periodicity["value_px"] <= 25.0, periodicity
+
+
+def test_fixed_six_dimension_suite_uses_real_synthetic_pixel_geometry():
+    """Synthetic images are ONLY algorithm unit fixtures, never a real-case claim."""
+    from geometry_executor import FIXED_FASTENER_STEPS
+
+    image = np.full((520, 820, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image)
+    cv2.rectangle(image, (220, 300), (270, 400), (25, 25, 25), -1)
+    cv2.rectangle(image, (270, 335), (560, 365), (25, 25, 25), -1)
+
+    results = execute_geometry_steps(
+        image, marks, 50.0, [dict(step) for step in FIXED_FASTENER_STEPS],
+        # Fixed algorithmic observation needs no LLM semantic ROI.
+    )
+    assert len(results) == 7
+    by_kind = {(step["operation"], tuple(step["inputs"])): step for step in results}
+    assert by_kind[("axial_distance", ("object_tip", "head_underface"))]["status"] == "measured"
+    assert by_kind[("axial_distance", ("object_tip", "head_top"))]["status"] == "measured"
+    k = by_kind[("axial_distance", ("head_underface", "head_top"))]
+    dk = by_kind[("outer_width", ("head",))]
+    assert k["status"] == "measured", k
+    assert 35.0 <= k["value_px"] <= 70.0
+    assert dk["status"] == "measured", dk
+    assert 85.0 <= dk["value_px"] <= 125.0
+    assert by_kind[("threaded_length", ("threaded_shank",))]["status"] == "not_measured"
+    assert all(
+        step["reason_codes"] != ["operation_not_implemented"] for step in results
+    )
+
+
+def test_B_reaches_real_periodic_edge_observation_without_crashing():
+    """Synthetic threaded profile exercises B's edge-track integration contract."""
+    from geometry_executor import FIXED_FASTENER_STEPS
+
+    image = np.full((520, 820, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image)
+    _draw_threaded_bolt(image, period_px=20.0)
+    results = execute_geometry_steps(
+        image, marks, 50.0, [dict(s) for s in FIXED_FASTENER_STEPS]
+    )
+    b = next(step for step in results if step["operation"] == "threaded_length")
+    # The new full-shaft algorithm can now see both physical thread termini
+    # in the synthetic fixture, rather than reporting only a trimmed P ROI.
+    assert b["status"] == "measured", b
+    assert 275 <= b["value_px"] <= 310, b
+    assert 55 <= b["value_mm"] <= 62, b
+    assert b["reason_codes"] == [], b
+    assert set(b["landmarks"]) == {"thread_start", "thread_end"}
+    assert b["diagnostics"]["coverage"] == "head_to_tip_visible_full_thread"
+    assert b["diagnostics"]["pitch_source"] == "reused_P"
+
+
+def test_B_partial_thread_does_not_require_P_in_the_measurement_plan():
+    """No provider/LLM P step: B finds a local image-space pitch itself."""
+    from geometry_executor import FIXED_FASTENER_STEPS
+
+    image = np.full((520, 820, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image)
+    cv2.rectangle(image, (220, 290), (270, 410), (25, 25, 25), -1)
+    xs = np.arange(270, 561)
+    for pitch, start in ((16.0, 382), (20.0, 370)):
+        image[270:420, 270:580] = 245
+        cv2.rectangle(image, (220, 290), (270, 410), (25, 25, 25), -1)
+        r = np.full(len(xs), 16.0, dtype=float)
+        active = xs >= start
+        r[active] = 14.0 + 2.0 * np.cos(2 * np.pi * (xs[active] - start) / pitch)
+        poly = np.vstack([
+            np.column_stack([xs, (350 - r).astype(np.int32)]),
+            np.column_stack([xs[::-1], (350 + r[::-1]).astype(np.int32)]),
+        ]).astype(np.int32)
+        cv2.fillPoly(image, [poly], (25, 25, 25))
+        B_ONLY = [dict(next(step for step in FIXED_FASTENER_STEPS if step["operation"] == "threaded_length"))]
+        result = execute_geometry_steps(image, marks, 50.0, B_ONLY)[0]
+        print("B partial fixture", pitch, start, "reason", result["reason_codes"],
+              "diagnostics", result["diagnostics"])
+        assert result["status"] == "measured", (pitch, start, result)
+        assert abs(result["value_px"] - (560 - start)) <= 1.5 * pitch, result
+        assert result["diagnostics"]["pitch_source"] == "local_image_periodicity"
+        assert result["diagnostics"]["coverage"] == "observed_smooth_to_thread_transition"

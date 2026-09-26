@@ -12,6 +12,7 @@ from geometry import (
 )
 from edge_observation import measure_thread_major_diameter, observe_thread_edges
 from periodic_silhouette_diameter import estimate_periodic_silhouette_diameter
+from thread_extent import infer_thread_extent
 from thread_geometry import (
     HeadUnderfaceEstimate,
     ThreadedShankProfile,
@@ -23,6 +24,18 @@ from thread_geometry import (
 
 
 GeometryStep = dict[str, Any]
+
+# CV owns this stable acquisition plan. Neither provider nor head-style routing may
+# remove one of these independent observations. L always has TWO raw candidates.
+FIXED_FASTENER_STEPS: tuple[GeometryStep, ...] = (
+    {"operation": "outer_width", "inputs": ["threaded_shank"], "purpose": "D thread major diameter"},
+    {"operation": "periodicity", "inputs": ["threaded_shank"], "purpose": "P observed thread pitch"},
+    {"operation": "axial_distance", "inputs": ["object_tip", "head_underface"], "purpose": "L under-head candidate"},
+    {"operation": "axial_distance", "inputs": ["object_tip", "head_top"], "purpose": "L overall candidate"},
+    {"operation": "threaded_length", "inputs": ["threaded_shank"], "purpose": "B full physical threaded extent"},
+    {"operation": "axial_distance", "inputs": ["head_underface", "head_top"], "purpose": "K head height"},
+    {"operation": "outer_width", "inputs": ["head"], "purpose": "DK head outside diameter"},
+)
 
 
 def _round(value: float | None, digits: int = 3) -> float | None:
@@ -234,6 +247,7 @@ def execute_geometry_steps(
                 frozenset(("object_tip", "width_transition")),
                 frozenset(("object_tip", "head_underface")),
                 frozenset(("object_tip", "head_top")),
+                frozenset(("head_underface", "head_top")),
             }
             if len(inputs) != 2 or frozenset(inputs) not in supported_pairs:
                 results.append(_not_measured(step, "unsupported_landmark_combination"))
@@ -303,6 +317,141 @@ def execute_geometry_steps(
                     "reason_codes": [],
                 }
             )
+            continue
+
+        if operation == "threaded_length":
+            if inputs != ["threaded_shank"]:
+                results.append(_not_measured(step, "unsupported_region_combination"))
+                continue
+            if shank_profile is None:
+                shank_profile = detect_threaded_shank(contour)
+            if shank_profile is None:
+                results.append(_not_measured(step, "threaded_shank_not_found"))
+                continue
+            if underface_estimate is None:
+                underface_estimate = estimate_head_underface(shank_profile)
+            if underface_estimate is None:
+                results.append(_not_measured(step, "head_bearing_plane_unresolved"))
+                continue
+
+            # Reuse P if it was already measured. If P's globally trimmed ROI
+            # misses a short partially threaded region, independently scan
+            # physical tip-side windows; use image periodicity, never nominal P.
+            pitch_px = next((
+                float(prior["value_px"]) for prior in results
+                if prior["operation"] == "periodicity"
+                and prior["inputs"] == ["threaded_shank"]
+                and prior["status"] == "measured"
+            ), None)
+            pitch_source = "reused_P" if pitch_px is not None else "local_image_periodicity"
+            if pitch_px is None:
+                from dataclasses import replace
+                width_px = measure_outer_width_px(shank_profile)
+                if width_px is not None:
+                    toward_tip = 1 if shank_profile.tip_s > shank_profile.transition_s else -1
+                    shank_span = abs(shank_profile.tip_s - shank_profile.transition_s)
+                    remaining = (
+                        (shank_profile.s_values - shank_profile.transition_s) * toward_tip
+                    )
+                    for portion in (0.55, 0.40, 0.70):
+                        # Geometry-derived search: farthest portion from the
+                        # head, not a hardcoded image coordinate or Case ROI.
+                        submask = shank_profile.sample_mask & (
+                            remaining >= shank_span * (1.0 - portion)
+                        )
+                        if np.count_nonzero(submask) < 36:
+                            continue
+                        cropped = replace(shank_profile, sample_mask=submask)
+                        track_pair = observe_thread_edges(image_rgb, cropped)
+                        local_pitch = measure_periodicity_px(
+                            cropped, width_px, edge_tracks=track_pair,
+                        )
+                        if local_pitch.pitch_px is not None:
+                            pitch_px = float(local_pitch.pitch_px)
+                            break
+            if pitch_px is None:
+                results.append(_not_measured(
+                    step, "thread_periodicity_unreliable_for_extent",
+                ))
+                continue
+
+            extent = infer_thread_extent(
+                image_rgb, shank_profile, underface_estimate, pitch_px,
+            )
+            diagnostic = dict(extent.diagnostics)
+            diagnostic["pitch_source"] = pitch_source
+            if extent.value_px is None:
+                results.append(_not_measured(
+                    step, extent.reason or "thread_endpoints_unresolved", diagnostic,
+                ))
+                continue
+            assert extent.start_s is not None and extent.end_s is not None
+            start_xy = shank_profile.center + shank_profile.axis * extent.start_s
+            end_xy = shank_profile.center + shank_profile.axis * extent.end_s
+            results.append({
+                "operation": operation,
+                "inputs": inputs,
+                "purpose": str(step.get("purpose", "")),
+                "status": "measured",
+                "value_px": _round(extent.value_px),
+                "value_mm": _round(extent.value_px / px_per_cm * 10.0, 3),
+                "derived_tpi": None,
+                "landmarks": {
+                    "thread_start": {"x_px": _round(start_xy[0]), "y_px": _round(start_xy[1])},
+                    "thread_end": {"x_px": _round(end_xy[0]), "y_px": _round(end_xy[1])},
+                },
+                "diagnostics": diagnostic,
+                "reason_codes": [],
+            })
+            continue
+
+        if operation == "outer_width" and inputs == ["head"]:
+            if shank_profile is None:
+                shank_profile = detect_threaded_shank(contour)
+            if shank_profile is None:
+                results.append(_not_measured(step, "head_profile_not_found"))
+                continue
+            if underface_estimate is None:
+                underface_estimate = estimate_head_underface(shank_profile)
+            if underface_estimate is None:
+                results.append(_not_measured(step, "head_underface_not_found"))
+                continue
+            toward_head = 1 if shank_profile.transition_s > shank_profile.tip_s else -1
+            head_mask = (
+                (shank_profile.s_values >= underface_estimate.s)
+                if toward_head > 0
+                else (shank_profile.s_values <= underface_estimate.s)
+            )
+            head_widths = shank_profile.widths[head_mask]
+            if len(head_widths) < 6 or not np.all(np.isfinite(head_widths)):
+                results.append(_not_measured(step, "head_width_profile_insufficient"))
+                continue
+            # Robust high percentile of *observed* head silhouette widths,
+            # not an inferred ISO/ANSI catalogue dimension.
+            head_width_px = float(np.percentile(head_widths, 90))
+            if head_width_px < 1.18 * underface_estimate.shank_outer_px:
+                results.append(_not_measured(
+                    step, "head_not_separable_from_shank",
+                    {"candidate_head_width_px": _round(head_width_px)},
+                ))
+                continue
+            results.append({
+                "operation": operation,
+                "inputs": inputs,
+                "purpose": str(step.get("purpose", "")),
+                "status": "measured",
+                "value_px": _round(head_width_px),
+                "value_mm": _round(head_width_px / px_per_cm * 10, 3),
+                "derived_tpi": None,
+                "landmarks": {},
+                "diagnostics": {
+                    "method": "head_silhouette_width_p90",
+                    "head_profile_samples": int(len(head_widths)),
+                    "head_width_p50_px": _round(float(np.median(head_widths))),
+                    "shank_reference_width_px": _round(underface_estimate.shank_outer_px),
+                },
+                "reason_codes": [],
+            })
             continue
 
         if operation not in {"outer_width", "periodicity"}:

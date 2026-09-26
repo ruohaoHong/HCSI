@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { runMeasurementPreflight, MeasurementServiceError } from '@/lib/measurement-client'
+import { createMeasurementProof } from '@/lib/measurement-proof'
 
 export const runtime = 'nodejs'
 
@@ -14,7 +15,7 @@ export async function POST(request: Request) {
     }
 
     const measurement = await runMeasurementPreflight(image)
-    return NextResponse.json({ measurement })
+    return NextResponse.json({ measurement, measurement_proof: createMeasurementProof(measurement) })
   } catch (error) {
     if (error instanceof MeasurementServiceError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: 503 })

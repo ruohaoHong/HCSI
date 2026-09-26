@@ -47,6 +47,7 @@ export default function Page() {
   const [results, setResults] = useState<Partial<Record<Provider, AnalysisResponse>>>({})
   const [errors, setErrors] = useState<Partial<Record<Provider, string>>>({})
   const [measurement, setMeasurement] = useState<MeasurementResult | null>(null)
+  const [measurementProof, setMeasurementProof] = useState('')
   const [preflightState, setPreflightState] = useState<PreflightState>('idle')
   const [preflightError, setPreflightError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -63,6 +64,7 @@ export default function Page() {
     setErrors({})
     setProcessingProvider(null)
     setMeasurement(null)
+    setMeasurementProof('')
     setPreflightState('checking')
     setPreflightError('')
 
@@ -101,6 +103,7 @@ export default function Page() {
       }
       if (!isMeasurementResult(data.measurement)) throw new Error('量測預檢結果格式不完整')
       setMeasurement(data.measurement)
+      setMeasurementProof(typeof data.measurement_proof === 'string' ? data.measurement_proof : '')
       setPreflightState('ready')
     } catch (error) {
       setMeasurement(null)
@@ -116,6 +119,7 @@ export default function Page() {
     setResults({})
     setErrors({})
     setMeasurement(null)
+    setMeasurementProof('')
     setPreflightState('idle')
     setPreflightError('')
     setProcessingProvider(null)
@@ -134,7 +138,7 @@ export default function Page() {
       const response = await fetch(config.endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: imageData }),
+        body: JSON.stringify({ image: imageData, measurement, measurement_proof: measurementProof }),
       })
       const data = await response.json() as ProviderResponse & { error?: string }
       if (!response.ok) throw new Error(data.error || `${config.label} 辨識服務暫時無法使用`)
@@ -219,6 +223,7 @@ export default function Page() {
               {imageUrl && (
                 <div className="border-t border-border p-4">
                   <MeasurementPreflight measurement={measurement} state={preflightState} error={preflightError} />
+                  <CvDimensionSummary measurement={measurement} />
                   <button type="button" onClick={() => inputRef.current?.click()} className="mb-3 mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted"><RotateCcw size={15} /> 重新拍攝</button>
                   <div className="grid gap-2 sm:grid-cols-3">
                     {PROVIDERS.map((item) => {
@@ -261,7 +266,8 @@ function MeasurementPreflight({ measurement, state, error }: { measurement: Meas
   if (state === 'checking') return <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm"><Loader2 size={16} className="animate-spin" /><div><p className="font-medium">正在確認影像尺度</p><p className="text-xs text-muted-foreground">先找公制尺與可用幾何證據，再決定辨識模式。</p></div></div>
   if (state === 'unavailable') return <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm"><AlertCircle size={16} className="mt-0.5 shrink-0" /><div><p className="font-medium">量測服務目前不可用</p><p className="text-xs leading-5 text-muted-foreground">{error || '仍可使用外觀辨識，但本次不會有 deterministic 尺寸證據。'}</p></div></div>
   if (!measurement) return null
-  if (measurement.measurement_status === 'valid') return <div className="flex items-start gap-3 rounded-lg border border-accent/30 bg-accent/5 p-3 text-sm"><Ruler size={16} className="mt-0.5 shrink-0 text-accent" /><div><p className="font-medium">尺度已建立 · 實測約 {measurement.length_mm} × {measurement.width_mm} mm</p><p className="text-xs leading-5 text-muted-foreground">將以同一張照片的 deterministic 尺寸證據輔助三家 Vision LLM 判讀。</p></div></div>
+  if (measurement.measurement_status === 'valid' && measurement.measurement_confidence === 'verified') return <div className="flex items-start gap-3 rounded-lg border border-accent/30 bg-accent/5 p-3 text-sm"><Ruler size={16} className="mt-0.5 shrink-0 text-accent" /><div><p className="font-medium">量測證據已驗證 · 約 {measurement.length_mm} × {measurement.width_mm} mm</p><p className="text-xs leading-5 text-muted-foreground">目前明確定義且可驗證的必要條件均已通過。</p></div></div>
+  if (measurement.measurement_status === 'valid') return <div className="flex items-start gap-3 rounded-lg border border-amber-500/35 bg-amber-500/5 p-3 text-sm"><AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-600" /><div><p className="font-medium">已取得可用量測，部分拍攝條件仍待確認</p><p className="text-xs leading-5 text-muted-foreground">約 {measurement.length_mm} × {measurement.width_mm} mm；成功的個別量測可供推論購買規格，仍須核對風險。{measurement.confidence_evaluation.recommendations[0]?.message ?? '請確認拍攝條件。'}</p></div></div>
   if (measurement.measurement_status === 'no_reference') return <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm"><CircleHelp size={16} className="mt-0.5 shrink-0" /><div><p className="font-medium">未建立可確認的尺度參考</p><p className="text-xs leading-5 text-muted-foreground">仍可辨識五金種類與可見結構，但精確尺寸／規格可能無法確認。之後可補拍含尺度參考的照片再辨識。</p></div></div>
   return <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm"><AlertCircle size={16} className="mt-0.5 shrink-0" /><div><p className="font-medium">目前無法可靠量測，建議重新拍攝</p><p className="text-xs leading-5 text-muted-foreground">偵測到尺度或幾何線索，但不足以安全輸出實際尺寸。仍可只做外觀辨識；本次不會把失敗量測交給 LLM 當尺寸證據。</p></div></div>
 }
@@ -269,14 +275,15 @@ function MeasurementPreflight({ measurement, state, error }: { measurement: Meas
 function ResultCard({ response }: { response: AnalysisResponse }) {
   const result = response.result
   return <article className="rounded-xl border border-accent/25 bg-card p-5">
-    <div className="mb-5 flex items-start justify-between gap-3 border-b border-border pb-4"><div><p className="font-mono text-[10px] uppercase tracking-widest text-accent">{providerLabel(response.provider)} / {response.model}</p><h2 className="mt-1 text-lg font-semibold">{result.item_name}</h2><p className="mt-1 text-xs text-muted-foreground">路由：{CATEGORY_LABELS[response.routing.category]} → 最終：{CATEGORY_LABELS[result.category]}</p></div><ShieldCheck size={18} className="shrink-0 text-muted-foreground" /></div>
+    <div className="mb-5 flex items-start justify-between gap-3 border-b border-border pb-4"><div><p className="font-mono text-[10px] uppercase tracking-widest text-accent">{providerLabel(response.provider)} / {response.model}</p><h2 className="mt-1 text-lg font-semibold">{result.item_name}</h2><p className="mt-1 text-xs text-muted-foreground">路由：{CATEGORY_LABELS[response.routing?.category ?? result.category]} → 最終：{CATEGORY_LABELS[result.category]}</p></div><ShieldCheck size={18} className="shrink-0 text-muted-foreground" /></div>
     <div className="space-y-5 text-sm leading-6">
+      <Section title="去材料行可以這樣說"><p className="rounded-md border border-accent/25 bg-accent/5 px-3 py-2.5 font-medium">{result.purchase_description}</p></Section>
       <Section title="最可能是"><p className="font-medium">{result.most_likely_identification}</p>{result.common_names.length > 0 && <p className="mt-1 text-xs text-muted-foreground">常見叫法：{result.common_names.join('／')}</p>}</Section>
       <Section title="可見特徵"><ul className="space-y-1 text-muted-foreground">{result.visible_features.map((item, index) => <li key={`${item}-${index}`}>• {item}</li>)}</ul></Section>
       {result.specifications.length > 0 && <Section title="規格判讀"><div className="space-y-2">{result.specifications.map((spec, index) => <div key={`${spec.label}-${index}`} className="rounded-md bg-muted/55 px-3 py-2"><div className="flex items-start justify-between gap-2"><span className="font-medium">{spec.label}</span><EvidenceBadge level={spec.evidence_level} /></div><p className="mt-1 text-muted-foreground">{spec.value}</p></div>)}</div></Section>}
       <Section title="最容易混淆"><p>{result.confusable_candidate}</p><p className="mt-1 text-muted-foreground">{result.key_differentiator}</p></Section>
       <Section title="通常用途"><p className="text-muted-foreground">{result.typical_use}</p></Section>
-      <Section title="去材料行可以這樣說"><p className="rounded-md border border-accent/25 bg-accent/5 px-3 py-2.5 font-medium">{result.purchase_description}</p></Section>
+      
       {result.uncertain_fields.length > 0 && <Section title="仍需確認"><ul className="space-y-1 text-muted-foreground">{result.uncertain_fields.map((item, index) => <li key={`${item}-${index}`}>• {item}</li>)}</ul></Section>}
       <p className="border-t border-border pt-4 text-xs leading-5 text-muted-foreground">{result.safety_note}</p>
     </div>
@@ -328,4 +335,33 @@ function compressImage(file: File): Promise<string> {
     }
     image.src = sourceUrl
   })
+}
+
+
+const CV_DIMENSION_LABELS = [
+  ['D', '螺紋外徑'], ['P', '牙距'], ['L_underhead', '頭下至尖端'],
+  ['L_overall', '頭頂至尖端'], ['B', '實際螺紋段長'],
+  ['K', '頭部高度'], ['DK', '頭部外徑'],
+] as const
+
+function CvDimensionSummary({ measurement }: { measurement: MeasurementResult | null }) {
+  if (!measurement?.dimensions) return null
+  return <section className="mt-3 rounded-xl border border-border bg-card p-4 text-sm">
+    <h3 className="mb-2 font-semibold">CV 固定量測（不依賴 LLM 頭型）</h3>
+    <div className="grid gap-2 sm:grid-cols-2">
+      {CV_DIMENSION_LABELS.map(([key, label]) => {
+        const dim = measurement.dimensions?.[key]
+        if (!dim) return null
+        return <div key={key} className="rounded-md border border-border/70 p-2.5">
+          <p className="font-medium">{key} · {label}</p>
+          <p className="font-mono text-xs">
+            {dim.status === 'measured' ? `${dim.value_px} px / ${dim.value_mm} mm` : '未測得'}
+          </p>
+          <p className="text-xs text-muted-foreground">信心：{dim.confidence}</p>
+          {dim.reason_codes.length > 0 && <p className="mt-1 break-words text-xs text-amber-700">原因：{dim.reason_codes.join('、')}</p>}
+          {dim.risk_signals.length > 0 && <p className="mt-1 break-words text-xs text-muted-foreground">風險：{dim.risk_signals.join('、')}</p>}
+        </div>
+      })}
+    </div>
+  </section>
 }
