@@ -1,0 +1,157 @@
+name: Case A MVP OpenAI E2E
+
+on:
+  push:
+    branches: [feature/measurement-confidence-gate]
+    paths: ['.github/workflows/case-a-mvp-openai-e2e.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  case-a-openai:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      HCSI_MEASUREMENT_SERVICE_URL: http://127.0.0.1:8000
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: measurement-service/requirements.txt
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Retrieve exact frozen Case A from prior GitHub Actions artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/hcsi-fixtures case-a-e2e-results
+          gh run download 35753143674 --repo "${{ github.repository }}" --name real-acceptance-ab --dir /tmp/hcsi-fixtures
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          expected = '5d6ee9563fd9a2e0d6861d74d581d4bae38a4f9181326d568291c1981e70b988'
+          matches = [p for p in Path('/tmp/hcsi-fixtures').rglob('*') if p.is_file() and hashlib.sha256(p.read_bytes()).hexdigest() == expected]
+          if len(matches) != 1:
+              raise SystemExit(f'Case A frozen image not uniquely present in archived artifact: matches={len(matches)}. Do not substitute images.')
+          Path('case-a-e2e-results/case-a.jpg').write_bytes(matches[0].read_bytes())
+          print('Case A original JPEG SHA-256 verified:', expected)
+          PY
+
+      - name: Install existing HCSI dependencies and verify OpenAI secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENAI_API_KEY" || { echo "OPENAI_API_KEY unavailable"; exit 1; }
+          python -m pip install -r measurement-service/requirements.txt
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Start unmodified measurement service and current MVP frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup python -m uvicorn app:app --app-dir measurement-service --host 127.0.0.1 --port 8000 > /tmp/hcsi-measure.log 2>&1 < /dev/null &
+          nohup pnpm start --hostname 127.0.0.1 --port 3000 > /tmp/hcsi-next.log 2>&1 < /dev/null &
+          python - <<'PY'
+          import time, urllib.request
+          for url in ['http://127.0.0.1:8000/openapi.json', 'http://127.0.0.1:3000']:
+              for _ in range(120):
+                  try:
+                      with urllib.request.urlopen(url, timeout=3) as r:
+                          if r.status == 200:
+                              print('Ready:', url)
+                              break
+                  except Exception:
+                      time.sleep(2)
+              else:
+                  raise SystemExit(f'Service did not start: {url}')
+          PY
+
+      - name: Actual frozen photo to OpenAI stage 1 to CV to OpenAI stage 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, json, pathlib, urllib.request, urllib.error
+          image = pathlib.Path('case-a-e2e-results/case-a.jpg').read_bytes()
+          data = json.dumps({'image': base64.b64encode(image).decode('ascii')}).encode('utf-8')
+          req = urllib.request.Request('http://127.0.0.1:3000/api/analyze-openai',
+              data=data, headers={'Content-Type':'application/json'}, method='POST')
+          try:
+              with urllib.request.urlopen(req, timeout=900) as response:
+                  code, body = response.status, response.read()
+          except urllib.error.HTTPError as exc:
+              code, body = exc.code, exc.read()
+          pathlib.Path('case-a-e2e-results/response.json').write_bytes(body)
+          print('Actual endpoint HTTP status:', code)
+          if code != 200:
+              print('Endpoint error (no secret):', body.decode('utf-8', errors='replace')[:1200])
+              raise SystemExit('Case A E2E request failed')
+          parsed = json.loads(body)
+          if not all(k in parsed for k in ('routing', 'resolved_measurement_plan', 'measurement', 'result')):
+              raise SystemExit('E2E response missing required evidence fields')
+          print('Stage 1 object:', parsed['routing'].get('object_hint'))
+          print('Stage 1 head style:', parsed['routing'].get('semantic_vision', {}).get('head_style'))
+          print('Stage 1 plan:', json.dumps(parsed['routing'].get('measurement_plan'), ensure_ascii=False))
+          print('Resolved plan:', json.dumps(parsed['resolved_measurement_plan'], ensure_ascii=False))
+          print('CV status:', parsed['measurement'].get('measurement_status') if parsed['measurement'] else 'unavailable')
+          print('CV confidence:', parsed['measurement'].get('measurement_confidence') if parsed['measurement'] else 'unavailable')
+          print('CV geometry steps:', json.dumps(parsed['measurement'].get('geometry_steps') if parsed['measurement'] else None, ensure_ascii=False))
+          print('CV risks:', json.dumps(parsed['measurement'].get('confidence_evaluation') if parsed['measurement'] else parsed.get('measurement_service_error'), ensure_ascii=False))
+          print('Stage 2 purchase description:', parsed['result'].get('purchase_description'))
+          print('Stage 2 specifications:', json.dumps(parsed['result'].get('specifications'), ensure_ascii=False))
+          print('Stage 2 warnings:', json.dumps({'uncertain_fields':parsed['result'].get('uncertain_fields'), 'safety_note':parsed['result'].get('safety_note')}, ensure_ascii=False))
+          PY
+
+      - name: Evaluate against independent GT only AFTER actual inference
+        if: success()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          result = json.loads(pathlib.Path('case-a-e2e-results/response.json').read_text())
+          gt = {'D':4.826, 'P':0.79375, 'L':22.225}
+          dims = {}
+          for step in (result.get('measurement') or {}).get('geometry_steps', []):
+              if step.get('status') != 'measured': continue
+              op, inputs = step.get('operation'), step.get('inputs',[])
+              key = 'D' if op == 'outer_width' and 'threaded_shank' in inputs else 'P' if op == 'periodicity' and 'threaded_shank' in inputs else 'L' if op == 'axial_distance' and 'head_underface' in inputs else None
+              if key is not None: dims[key] = step.get('value_mm')
+          evaluation = {key:{'measured_mm':dims.get(key), 'gt_mm':v, 'absolute_error_mm':abs(dims[key]-v) if isinstance(dims.get(key),(int,float)) else None, 'relative_error_pct':100*abs(dims[key]-v)/v if isinstance(dims.get(key),(int,float)) else None} for key,v in gt.items()}
+          pathlib.Path('case-a-e2e-results/evaluation.json').write_text(json.dumps(evaluation,indent=2))
+          print('Post-inference GT evaluation:',json.dumps(evaluation,ensure_ascii=False))
+          PY
+
+      - name: Upload only Case A E2E response and post-inference evaluation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: case-a-mvp-openai-e2e
+          path: |
+            case-a-e2e-results/response.json
+            case-a-e2e-results/evaluation.json
+          if-no-files-found: ignore
+
+      - name: Print sanitized service errors if unsuccessful
+        if: failure()
+        shell: bash
+        run: |
+          echo 'Measurement service log:'
+          tail -n 65 /tmp/hcsi-measure.log 2>/dev/null || true
+          echo 'Next app log:'
+          tail -n 65 /tmp/hcsi-next.log 2>/dev/null || true
