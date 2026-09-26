@@ -55,6 +55,10 @@ def test_measure_rgb_combines_ruler_scale_and_opencv_geometry(monkeypatch):
     monkeypatch.setattr(service_app, "infer_ruler", lambda _image: fake_ruler)
     result = service_app.measure_rgb(image, "abc123")
     assert result["measurement_status"] == "valid"
+    assert result["measurement_confidence"] == "uncertain"
+    assert result["confidence_evaluation"]["measurement_state"] == "measured"
+    assert result["capture_assumptions"]["same_plane_status"] == "unknown"
+    assert "same_plane_unverified" in result["confidence_evaluation"]["reason_codes"]
     assert result["analysis_mode"] == "measurement_assisted"
     assert result["measurement_valid"] is True
     assert result["retry_recommended"] is False
@@ -119,6 +123,7 @@ def test_measure_rgb_returns_no_reference_without_blocking_identification(monkey
         [{"operation": "axial_distance", "inputs": ["object_tip", "width_transition"], "purpose": "test"}],
     )
     assert result["measurement_status"] == "no_reference"
+    assert result["measurement_confidence"] == "not_measured"
     assert result["analysis_mode"] == "appearance_only"
     assert result["measurement_valid"] is False
     assert result["retry_recommended"] is False

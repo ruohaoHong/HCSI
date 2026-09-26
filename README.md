@@ -41,6 +41,17 @@ Measurement 與 LLM 辨識刻意分離。Vision LLM 不得只靠 pixel 大小或
 
 `measurement_valid=false` 時所有絕對尺寸欄位保持 `null`。量測服務本身不可用屬於 infrastructure error，與 `no_reference` 分開處理，避免錯怪使用者照片。
 
+### Measurement Confidence Gate
+
+`measurement_status` 與 geometry step `status` 繼續表示演算法是否產生數值；新增的 `measurement_confidence` 則獨立判斷證據是否足以把數值當成已驗證規格：
+
+- `measured`：已有數值，但尚未執行驗證政策。
+- `verified`：所有明確定義且可驗證的必要條件均通過。
+- `uncertain`：保留量測估計，但有必要條件失敗或仍為 unknown；不得直接作為購買規格。
+- `not_measured`：沒有產生量測值，仍可走 appearance-only 辨識。
+
+Gate 輸出逐項 checks、reason codes 與可操作的重拍建議，不產生沒有校準依據的百分比信心分數。單張照片目前無法獨立證明尺與五金共面，因此預設 `same_plane_status=unknown`；不能以刻度清楚、透視變化小、方向平行或兩者靠近替代共面證據。完整欄位與 reason codes 見 [`measurement-service/CONFIDENCE_GATE.md`](measurement-service/CONFIDENCE_GATE.md)。
+
 ### 第一版拍攝條件
 
 - 五金與尺應放在同一平面。

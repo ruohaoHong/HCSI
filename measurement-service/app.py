@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 
+from confidence_gate import evaluate_measurement_confidence
 from geometry import extract_object_geometry
 from geometry_executor import execute_geometry_steps, unmeasured_geometry_steps
 from rulernet import infer_ruler, local_px_per_cm, perspective_step_pct
@@ -125,12 +126,37 @@ def _result(
     scale_px_per_cm: float | None = None,
     scale_px_per_inch: float | None = None,
     geometry_steps: list[dict[str, Any]] | None = None,
+    capture_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     valid = status == "valid"
+    ruler_json = ruler or _empty_ruler()
+    object_json = obj or _empty_object()
+    step_results = geometry_steps or []
+    has_measurement = bool(
+        valid
+        and (
+            length_mm is not None
+            or width_mm is not None
+            or any(step.get("status") == "measured" for step in step_results)
+        )
+    )
+    confidence = evaluate_measurement_confidence(
+        measurement_status=status,
+        has_measurement=has_measurement,
+        ruler=ruler_json,
+        object_evidence=object_json,
+        geometry_steps=step_results,
+        capture_evidence=capture_evidence,
+    )
+    check_status = {
+        check["id"]: check["status"] for check in confidence["checks"]
+    }
     return {
         "schema_version": "hcsi.measurement.v1",
         "image_sha256": image_sha256,
         "measurement_status": status,
+        "measurement_confidence": confidence["status"],
+        "confidence_evaluation": confidence,
         "analysis_mode": "measurement_assisted" if valid else "appearance_only",
         "measurement_valid": valid,
         "retry_recommended": status == "unreliable",
@@ -139,15 +165,29 @@ def _result(
         "scale_system": scale_system,
         "scale_px_per_cm": _round(scale_px_per_cm) if valid else None,
         "scale_px_per_inch": _round(scale_px_per_inch) if valid else None,
-        "geometry_steps": geometry_steps or [],
+        "geometry_steps": step_results,
         "image": {"width_px": width, "height_px": height},
-        "ruler": ruler or _empty_ruler(),
-        "object": obj or _empty_object(),
+        "ruler": ruler_json,
+        "object": object_json,
         "reason_codes": sorted(set(reasons)),
         "capture_assumptions": {
             "same_plane_required": True,
-            "same_plane_verified": False,
+            "same_plane_verified": check_status.get("same_plane") == "passed",
+            "same_plane_status": (
+                "verified"
+                if check_status.get("same_plane") == "passed"
+                else "rejected"
+                if check_status.get("same_plane") == "failed"
+                else "unknown"
+            ),
             "near_overhead_required": True,
+            "near_overhead_status": (
+                "verified"
+                if check_status.get("near_overhead_capture") == "passed"
+                else "rejected"
+                if check_status.get("near_overhead_capture") == "failed"
+                else "unknown"
+            ),
             "ruler_parallel_required": False,
             "ruler_parallel_preferred": True,
         },
@@ -159,6 +199,7 @@ def measure_rgb(
     image_sha256: str = "synthetic",
     geometry_steps: list[dict[str, Any]] | None = None,
     semantic_vision: dict[str, Any] | None = None,
+    capture_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     requested_steps = _normalize_geometry_steps(geometry_steps)
     semantic_context = normalize_semantic_vision(semantic_vision)
@@ -199,6 +240,7 @@ def measure_rgb(
             ruler=ruler_json,
             scale_system="unknown",
             geometry_steps=unmeasured_geometry_steps(requested_steps, "scale_reference_not_confirmed"),
+            capture_evidence=capture_evidence,
         )
 
     reasons: list[str] = []
@@ -262,6 +304,7 @@ def measure_rgb(
             obj=object_json,
             scale_system=scale_ref.system,
             geometry_steps=unmeasured_geometry_steps(requested_steps, failure_reason),
+            capture_evidence=capture_evidence,
         )
 
     length_mm = geometry.principal_length_px / effective_scale * 10.0
@@ -287,6 +330,7 @@ def measure_rgb(
         scale_px_per_cm=effective_scale,
         scale_px_per_inch=effective_scale * 2.54,
         geometry_steps=executed_steps,
+        capture_evidence=capture_evidence,
     )
 
 

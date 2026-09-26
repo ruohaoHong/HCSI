@@ -1,8 +1,32 @@
 export type MeasurementStatus = 'valid' | 'no_reference' | 'unreliable'
+export type MeasurementConfidence = 'measured' | 'verified' | 'uncertain' | 'not_measured'
+export type ConfidenceCheckStatus = 'passed' | 'failed' | 'unknown' | 'not_applicable'
 export type AnalysisMode = 'measurement_assisted' | 'appearance_only'
 export type GeometryStepMeasurementStatus = 'measured' | 'not_measured'
 export type RulerScaleSystem = 'metric' | 'imperial' | 'dual' | 'unknown'
-export type RulerScaleSource = 'rulernet_cm' | 'imperial_ticks' | 'rulernet_cm+imperial_ticks' | 'visual_dual' | 'none'
+export type RulerScaleSource = 'rulernet_cm' | 'imperial_ticks' | 'rulernet_cm+imperial_ticks' | 'metric_ticks' | 'visual_dual' | 'none'
+
+export interface ConfidenceCheck {
+  id: string
+  status: ConfidenceCheckStatus
+  required: boolean
+  reason_code: string | null
+  evidence: Record<string, unknown>
+}
+
+export interface ConfidenceRecommendation {
+  code: string
+  message: string
+}
+
+export interface ConfidenceEvaluation {
+  status: MeasurementConfidence
+  measurement_state: 'measured' | 'not_measured'
+  reason_codes: string[]
+  checks: ConfidenceCheck[]
+  recommendations: ConfidenceRecommendation[]
+  verified_for_purchase_spec: boolean
+}
 
 export interface MeasurementRulerDiagnostics {
   detected: boolean
@@ -50,7 +74,7 @@ export interface GeometryStepMeasurement {
   value_mm: number | null
   derived_tpi: number | null
   landmarks: Record<string, GeometryStepLandmark>
-  diagnostics: Record<string, number>
+  diagnostics: Record<string, number | string | boolean>
   reason_codes: string[]
 }
 
@@ -58,6 +82,8 @@ export interface MeasurementResult {
   schema_version: 'hcsi.measurement.v1'
   image_sha256: string
   measurement_status: MeasurementStatus
+  measurement_confidence: MeasurementConfidence
+  confidence_evaluation: ConfidenceEvaluation
   analysis_mode: AnalysisMode
   measurement_valid: boolean
   retry_recommended: boolean
@@ -74,7 +100,9 @@ export interface MeasurementResult {
   capture_assumptions: {
     same_plane_required: boolean
     same_plane_verified: boolean
+    same_plane_status: 'verified' | 'rejected' | 'unknown'
     near_overhead_required: boolean
+    near_overhead_status: 'verified' | 'rejected' | 'unknown'
     ruler_parallel_required: boolean
     ruler_parallel_preferred: boolean
   }
@@ -103,7 +131,9 @@ function isGeometryStepMeasurement(value: unknown): value is GeometryStepMeasure
     if (typeof point.y_px !== 'number' || !Number.isFinite(point.y_px)) return false
   }
   for (const diagnostic of Object.values(candidate.diagnostics as Record<string, unknown>)) {
-    if (typeof diagnostic !== 'number' || !Number.isFinite(diagnostic)) return false
+    if (typeof diagnostic === 'number' && Number.isFinite(diagnostic)) continue
+    if (typeof diagnostic === 'string' || typeof diagnostic === 'boolean') continue
+    return false
   }
 
   if (candidate.status === 'measured') {
@@ -120,7 +150,7 @@ function isRulerDiagnostics(value: unknown): value is MeasurementRulerDiagnostic
   const candidate = value as Record<string, unknown>
   if (typeof candidate.detected !== 'boolean' || typeof candidate.mark_count !== 'number') return false
   if (!['metric', 'imperial', 'dual', 'unknown'].includes(String(candidate.scale_system))) return false
-  if (!['rulernet_cm', 'imperial_ticks', 'rulernet_cm+imperial_ticks', 'visual_dual', 'none'].includes(String(candidate.scale_source))) return false
+  if (!['rulernet_cm', 'imperial_ticks', 'rulernet_cm+imperial_ticks', 'metric_ticks', 'visual_dual', 'none'].includes(String(candidate.scale_source))) return false
   if (typeof candidate.scale_confidence !== 'number' || !Number.isFinite(candidate.scale_confidence)) return false
   for (const key of ['px_per_cm', 'px_per_inch', 'reference_interval_cm', 'median_px_per_cm', 'local_px_per_cm', 'perspective_ratio', 'perspective_step_pct']) {
     if (!isFiniteNumberOrNull(candidate[key])) return false
@@ -129,12 +159,42 @@ function isRulerDiagnostics(value: unknown): value is MeasurementRulerDiagnostic
   return true
 }
 
+function isConfidenceEvaluation(value: unknown): value is ConfidenceEvaluation {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  const statuses = ['measured', 'verified', 'uncertain', 'not_measured']
+  if (!statuses.includes(String(candidate.status))) return false
+  if (!['measured', 'not_measured'].includes(String(candidate.measurement_state))) return false
+  if (typeof candidate.verified_for_purchase_spec !== 'boolean') return false
+  if (!Array.isArray(candidate.reason_codes) || !candidate.reason_codes.every((item) => typeof item === 'string')) return false
+  if (!Array.isArray(candidate.recommendations) || !candidate.recommendations.every((item) => {
+    if (!item || typeof item !== 'object') return false
+    const recommendation = item as Record<string, unknown>
+    return typeof recommendation.code === 'string' && typeof recommendation.message === 'string'
+  })) return false
+  if (!Array.isArray(candidate.checks) || !candidate.checks.every((item) => {
+    if (!item || typeof item !== 'object') return false
+    const check = item as Record<string, unknown>
+    return typeof check.id === 'string'
+      && ['passed', 'failed', 'unknown', 'not_applicable'].includes(String(check.status))
+      && typeof check.required === 'boolean'
+      && (check.reason_code === null || typeof check.reason_code === 'string')
+      && !!check.evidence
+      && typeof check.evidence === 'object'
+      && !Array.isArray(check.evidence)
+  })) return false
+  return candidate.verified_for_purchase_spec === (candidate.status === 'verified')
+}
+
 export function isMeasurementResult(value: unknown): value is MeasurementResult {
   if (!value || typeof value !== 'object') return false
   const candidate = value as Record<string, unknown>
   if (candidate.schema_version !== 'hcsi.measurement.v1') return false
   if (typeof candidate.image_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(candidate.image_sha256)) return false
   if (!['valid', 'no_reference', 'unreliable'].includes(String(candidate.measurement_status))) return false
+  if (!['measured', 'verified', 'uncertain', 'not_measured'].includes(String(candidate.measurement_confidence))) return false
+  if (!isConfidenceEvaluation(candidate.confidence_evaluation)) return false
+  if (candidate.measurement_confidence !== (candidate.confidence_evaluation as ConfidenceEvaluation).status) return false
   if (!['measurement_assisted', 'appearance_only'].includes(String(candidate.analysis_mode))) return false
   if (!['metric', 'imperial', 'dual', 'unknown'].includes(String(candidate.scale_system))) return false
   if (typeof candidate.measurement_valid !== 'boolean' || typeof candidate.retry_recommended !== 'boolean') return false
@@ -148,6 +208,9 @@ export function isMeasurementResult(value: unknown): value is MeasurementResult 
   const assumptions = candidate.capture_assumptions
   if (!isRulerDiagnostics(ruler) || !object || typeof object !== 'object') return false
   if (!image || typeof image !== 'object' || !assumptions || typeof assumptions !== 'object') return false
+  const capture = assumptions as Record<string, unknown>
+  if (!['verified', 'rejected', 'unknown'].includes(String(capture.same_plane_status))) return false
+  if (!['verified', 'rejected', 'unknown'].includes(String(capture.near_overhead_status))) return false
 
   const status = candidate.measurement_status as MeasurementStatus
   const expectedValid = status === 'valid'

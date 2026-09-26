@@ -19,6 +19,10 @@ export function buildMeasurementEvidencePrompt(
   if (measurement.measurement_status === 'valid') {
     const evidence = {
       measurement_status: measurement.measurement_status,
+      measurement_confidence: measurement.measurement_confidence,
+      confidence_reason_codes: measurement.confidence_evaluation.reason_codes,
+      confidence_checks: measurement.confidence_evaluation.checks,
+      capture_recommendations: measurement.confidence_evaluation.recommendations,
       scale_system: measurement.scale_system,
       scale_source: measurement.ruler.scale_source,
       scale_px_per_cm: measurement.scale_px_per_cm,
@@ -45,6 +49,8 @@ ${JSON.stringify(evidence, null, 2)}
 7. 不可自行修改實測值、四捨五入成另一個標準規格後宣稱照片已證明該標準規格；完整標準規格仍需結合外觀與 reference / deterministic spec matcher 判斷。
 8. 不可由這些量測值推導照片沒有實際量到的孔徑、牙型、強度等級或其他尺寸。
 9. 若你在 specifications 引用量測值，label 請明確寫「系統實測…」，不要把它描述成 AI 目測。
+10. measurement_confidence=verified 才代表所有目前明確定義且可驗證的必要條件均通過。measurement_confidence=measured 或 uncertain 時，保留數值只作「系統估計（未驗證）」；不得把它直接當成購買規格、不得以 measured evidence_level 宣稱精確規格已確認，並須指出 confidence_reason_codes 與重拍建議。
+11. same_plane check 若為 unknown，表示尺與五金是否共面沒有獨立證據；不可由刻度清楚、透視變化小、方向平行或位置相近推論為共面。
 `
   }
 
@@ -56,8 +62,11 @@ ${JSON.stringify(evidence, null, 2)}
 ===== HCSI 尺寸證據層 =====
 ${message}
 measurement_status: ${measurement.measurement_status}
+measurement_confidence: ${measurement.measurement_confidence}
 scale_system: ${measurement.scale_system}
 reason_codes: ${measurement.reason_codes.join(', ') || 'none'}
+confidence_reason_codes: ${measurement.confidence_evaluation.reason_codes.join(', ') || 'none'}
+recommendations: ${JSON.stringify(measurement.confidence_evaluation.recommendations)}
 geometry_steps: ${JSON.stringify(measurement.geometry_steps)}
 
 你仍可辨識五金種類、結構與用途，但不得只靠照片中的 pixel 大小、視覺比例或主觀目測自行產生任何數值 mm / cm / inch 規格。
