@@ -59,6 +59,23 @@ jobs:
           test -n "$OPENAI_API_KEY" || { echo "OPENAI_API_KEY unavailable"; exit 1; }
           python -m pip install -r measurement-service/requirements.txt
           pnpm install --frozen-lockfile
+          # Test-only observability; leaves committed application and CV source unchanged.
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('lib/provider-runner.ts')
+          s = p.read_text()
+          target = "  const text = data?.output?.flatMap((item: any) => item?.content ?? []).find((item: any) => item?.type === 'output_text')?.text"
+          if target not in s: raise SystemExit('Diagnostic instrumentation anchor not found')
+          replacement = target + """
+  console.warn('[CASE_A_TEST_DIAGNOSTICS] provider:', label,
+    'response_status:', data?.status,
+    'incomplete_details:', JSON.stringify(data?.incomplete_details ?? null),
+    'output_types:', JSON.stringify(data?.output?.map((item: any) => item?.type) ?? []),
+    'output_text_length:', typeof text === 'string' ? text.length : null,
+    'output_text_excerpt:', typeof text === 'string' ? text.slice(0, 1600) : null)
+"""
+          p.write_text(s.replace(target, replacement))
+          PY
           pnpm build
 
       - name: Start unmodified measurement service and current MVP frontend
