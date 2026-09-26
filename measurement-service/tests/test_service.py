@@ -237,6 +237,10 @@ def test_real_http_handler_omitted_steps_runs_fixed_cv_plan(monkeypatch):
         authorization=None,
     ))
     assert len(result["geometry_steps"]) == 7
+    assert result["object"]["semantic_routing_supplied"] is False
+    checks = {c["id"]: c for c in result["confidence_evaluation"]["checks"]}
+    assert checks["semantic_target_consistency"]["status"] == "not_applicable"
+    assert checks["semantic_reference_consistency"]["status"] == "not_applicable"
     assert set(result["dimensions"]) == {
         "D", "P", "L_underhead", "L_overall", "B", "K", "DK",
     }

@@ -411,7 +411,10 @@ async def measure(
         requested_steps = (
             None if geometry_steps is None else _parse_geometry_steps(geometry_steps)
         )
-        semantic_context = parse_semantic_vision(semantic_vision)
+        # Absence of LLM-provided semantic ROIs is NORMAL for CV-first.
+        semantic_context = (
+            None if semantic_vision is None else parse_semantic_vision(semantic_vision)
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
