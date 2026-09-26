@@ -1,0 +1,138 @@
+name: Frozen C and D CV-first B real-photo check
+
+on:
+  push:
+    branches: [feature/measurement-confidence-gate]
+    paths: ['.github/workflows/real-case-cd-b-cv-only.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  frozen-cd-cv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: measurement-service/requirements.txt
+      - name: Install CV stack and run regression tests
+        run: |
+          python -m pip install -r measurement-service/requirements.txt pytest
+          pytest -q measurement-service/tests
+
+      - name: Restore independently frozen C and D originals by immutable hashes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/hcsi-case-c /tmp/hcsi-case-d cd-b-results
+          gh run download 35898262179 --repo "${{ github.repository }}" \
+            --name real-case-c --dir /tmp/hcsi-case-c
+          gh run download 36009560609 --repo "${{ github.repository }}" \
+            --name real-case-d --dir /tmp/hcsi-case-d
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          cases = {
+            'C': ('/tmp/hcsi-case-c',
+                  '3c52044724df828c971fee66c6b8f8dd4a684407d4b3c6b2ed2a75114a2fafa4',
+                  'webp'),
+            'D': ('/tmp/hcsi-case-d',
+                  'c0c0929f03eb6b3b053b92e0b6fcee12f20e921360d4cfe31bfef44cdc721d10',
+                  'jpg'),
+          }
+          for key, (directory, expected, extension) in cases.items():
+              matches = [p for p in Path(directory).rglob('*') if p.is_file()
+                         and hashlib.sha256(p.read_bytes()).hexdigest() == expected]
+              if len(matches) != 1:
+                  raise SystemExit(f'Case {key} immutable original missing or nonunique; matches={len(matches)}')
+              target = Path('cd-b-results') / f'case-{key.lower()}.{extension}'
+              target.write_bytes(matches[0].read_bytes())
+              print(f'Case {key} exact original SHA-256 VERIFIED: {expected}')
+
+      - name: Execute current CV-first seven-slot measurement on frozen C and D
+        run: |
+          set -euo pipefail
+          PYTHONPATH=measurement-service python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          import cv2
+          import numpy as np
+          from app import measure_rgb
+          out = Path('cd-b-results')
+          files = {'C':'case-c.webp', 'D':'case-d.jpg'}
+          expected = {
+              'C':'3c52044724df828c971fee66c6b8f8dd4a684407d4b3c6b2ed2a75114a2fafa4',
+              'D':'c0c0929f03eb6b3b053b92e0b6fcee12f20e921360d4cfe31bfef44cdc721d10',
+          }
+          for case, name in files.items():
+              raw = (out / name).read_bytes()
+              sha = hashlib.sha256(raw).hexdigest()
+              assert sha == expected[case], 'Fixture mismatch'
+              original = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
+              assert original is not None, 'Cannot decode real original photo'
+              result = measure_rgb(cv2.cvtColor(original, cv2.COLOR_BGR2RGB), sha)
+              assert set(result['dimensions']) == {
+                  'D','P','L_underhead','L_overall','B','K','DK',
+              }, 'CV-first missing dimensions'
+              assert result['image_sha256'] == sha
+              (out / f'{case}-cv.json').write_text(
+                  json.dumps(result, ensure_ascii=False, indent=2)
+              )
+              print(f'CASE {case}: original_sha={sha}, global_status={result["measurement_status"]}, '
+                    f'global_confidence={result["measurement_confidence"]}')
+              for k, d in result['dimensions'].items():
+                  print(f'CASE {case} {k}: status={d["status"]}; px={d["value_px"]}; '
+                        f'mm={d["value_mm"]}; confidence={d["confidence"]}; '
+                        f'reason_codes={d["reason_codes"]}; risks={d["risk_signals"]}; '
+                        f'diagnostics={json.dumps(d["diagnostics"],ensure_ascii=False)}')
+              print(f'CASE {case} B pure CV attempt complete')
+          PY
+
+      - name: Independent GT comparison after inference (no B GT is defined)
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          out=Path('cd-b-results')
+          expected={
+            'C': {'D':14.,'P':2.,'L_underhead':45.},
+            'D': {'D':4.1656,'P':0.79375,'L_underhead':10.31875},
+          }
+          for case, values in expected.items():
+            actual=json.loads((out/f'{case}-cv.json').read_text())['dimensions']
+            comparison={}
+            for k, gt in values.items():
+              measured=actual[k]['value_mm'] if actual[k]['status']=='measured' else None
+              comparison[k]={
+                'measured_mm':measured,'ground_truth_mm':gt,
+                'absolute_error_mm':abs(measured-gt) if measured is not None else None,
+                'relative_error_pct':100*abs(measured-gt)/gt if measured is not None else None,
+              }
+            comparison['B']={'ground_truth_mm':None,
+              'status':actual['B']['status'],
+              'value_px':actual['B']['value_px'],
+              'measured_mm':actual['B']['value_mm'],
+              'reason_codes':actual['B']['reason_codes'],
+              'evaluation':'no independent B GT; no accuracy/pass claim'}
+            (out/f'{case}-evaluation.json').write_text(json.dumps(comparison,ensure_ascii=False,indent=2))
+            print('POST-INFERENCE GT CASE',case,json.dumps(comparison,ensure_ascii=False))
+          PY
+
+      - name: Upload only CV output and post-inference comparison (not original photos)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frozen-cd-cv-first-b-results
+          path: |
+            cd-b-results/*-cv.json
+            cd-b-results/*-evaluation.json
+          if-no-files-found: ignore
