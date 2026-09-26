@@ -47,6 +47,7 @@ export default function Page() {
   const [results, setResults] = useState<Partial<Record<Provider, AnalysisResponse>>>({})
   const [errors, setErrors] = useState<Partial<Record<Provider, string>>>({})
   const [measurement, setMeasurement] = useState<MeasurementResult | null>(null)
+  const [measurementProof, setMeasurementProof] = useState('')
   const [preflightState, setPreflightState] = useState<PreflightState>('idle')
   const [preflightError, setPreflightError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -63,6 +64,7 @@ export default function Page() {
     setErrors({})
     setProcessingProvider(null)
     setMeasurement(null)
+    setMeasurementProof('')
     setPreflightState('checking')
     setPreflightError('')
 
@@ -101,6 +103,7 @@ export default function Page() {
       }
       if (!isMeasurementResult(data.measurement)) throw new Error('量測預檢結果格式不完整')
       setMeasurement(data.measurement)
+      setMeasurementProof(typeof data.measurement_proof === 'string' ? data.measurement_proof : '')
       setPreflightState('ready')
     } catch (error) {
       setMeasurement(null)
@@ -116,6 +119,7 @@ export default function Page() {
     setResults({})
     setErrors({})
     setMeasurement(null)
+    setMeasurementProof('')
     setPreflightState('idle')
     setPreflightError('')
     setProcessingProvider(null)
@@ -134,7 +138,7 @@ export default function Page() {
       const response = await fetch(config.endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: imageData }),
+        body: JSON.stringify({ image: imageData, measurement, measurement_proof: measurementProof }),
       })
       const data = await response.json() as ProviderResponse & { error?: string }
       if (!response.ok) throw new Error(data.error || `${config.label} 辨識服務暫時無法使用`)
@@ -270,7 +274,7 @@ function MeasurementPreflight({ measurement, state, error }: { measurement: Meas
 function ResultCard({ response }: { response: AnalysisResponse }) {
   const result = response.result
   return <article className="rounded-xl border border-accent/25 bg-card p-5">
-    <div className="mb-5 flex items-start justify-between gap-3 border-b border-border pb-4"><div><p className="font-mono text-[10px] uppercase tracking-widest text-accent">{providerLabel(response.provider)} / {response.model}</p><h2 className="mt-1 text-lg font-semibold">{result.item_name}</h2><p className="mt-1 text-xs text-muted-foreground">路由：{CATEGORY_LABELS[response.routing.category]} → 最終：{CATEGORY_LABELS[result.category]}</p></div><ShieldCheck size={18} className="shrink-0 text-muted-foreground" /></div>
+    <div className="mb-5 flex items-start justify-between gap-3 border-b border-border pb-4"><div><p className="font-mono text-[10px] uppercase tracking-widest text-accent">{providerLabel(response.provider)} / {response.model}</p><h2 className="mt-1 text-lg font-semibold">{result.item_name}</h2><p className="mt-1 text-xs text-muted-foreground">路由：{CATEGORY_LABELS[response.routing?.category ?? result.category]} → 最終：{CATEGORY_LABELS[result.category]}</p></div><ShieldCheck size={18} className="shrink-0 text-muted-foreground" /></div>
     <div className="space-y-5 text-sm leading-6">
       <Section title="去材料行可以這樣說"><p className="rounded-md border border-accent/25 bg-accent/5 px-3 py-2.5 font-medium">{result.purchase_description}</p></Section>
       <Section title="最可能是"><p className="font-medium">{result.most_likely_identification}</p>{result.common_names.length > 0 && <p className="mt-1 text-xs text-muted-foreground">常見叫法：{result.common_names.join('／')}</p>}</Section>

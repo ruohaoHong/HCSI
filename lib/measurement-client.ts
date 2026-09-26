@@ -3,7 +3,7 @@ import type { ResolvedGeometryPlanStep } from '@/lib/geometry-capabilities'
 import type { SemanticVisionContext } from '@/lib/identification'
 import { isMeasurementResult, type MeasurementResult } from '@/lib/measurement'
 
-const MEASUREMENT_TIMEOUT_MS = 25_000
+const MEASUREMENT_TIMEOUT_MS = 90_000
 
 export class MeasurementServiceError extends Error {
   constructor(message: string, public readonly code: string) {
@@ -26,16 +26,13 @@ export async function runMeasurementPreflight(
   const expectedSha256 = createHash('sha256').update(bytes).digest('hex')
   const form = new FormData()
   form.append('file', new Blob([bytes], { type: 'image/jpeg' }), 'capture.jpg')
-  form.append(
-    'geometry_steps',
-    JSON.stringify(
-      executableSteps.map(({ operation, inputs, purpose }) => ({
-        operation,
-        inputs,
-        purpose,
-      }))
-    )
-  )
+  // Absence of a planner payload activates the service's fixed six-dimension
+  // acquisition. Keep explicit steps only for legacy diagnostics/tests.
+  if (executableSteps.length > 0) {
+    form.append('geometry_steps', JSON.stringify(
+      executableSteps.map(({ operation, inputs, purpose }) => ({ operation, inputs, purpose }))
+    ))
+  }
   if (semanticVision) {
     form.append('semantic_vision', JSON.stringify(semanticVision))
   }

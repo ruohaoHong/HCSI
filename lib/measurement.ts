@@ -78,7 +78,19 @@ export interface GeometryStepMeasurement {
   reason_codes: string[]
 }
 
+export type FixedDimension = 'D' | 'P' | 'L_underhead' | 'L_overall' | 'B' | 'K' | 'DK'
+export interface CvDimensionEvidence {
+  status: GeometryStepMeasurementStatus
+  value_px: number | null
+  value_mm: number | null
+  confidence: 'verified' | 'measured_with_risk' | 'not_measured'
+  risk_signals: string[]
+  reason_codes: string[]
+  diagnostics: Record<string, number | string | boolean>
+}
+
 export interface MeasurementResult {
+  dimensions?: Partial<Record<FixedDimension, CvDimensionEvidence>>
   schema_version: 'hcsi.measurement.v1'
   image_sha256: string
   measurement_status: MeasurementStatus
@@ -201,6 +213,19 @@ export function isMeasurementResult(value: unknown): value is MeasurementResult 
   if (!isFiniteNumberOrNull(candidate.length_mm) || !isFiniteNumberOrNull(candidate.width_mm)) return false
   if (!isFiniteNumberOrNull(candidate.scale_px_per_cm) || !isFiniteNumberOrNull(candidate.scale_px_per_inch)) return false
   if (!Array.isArray(candidate.geometry_steps) || !candidate.geometry_steps.every(isGeometryStepMeasurement)) return false
+  if (candidate.dimensions !== undefined) {
+    if (!candidate.dimensions || typeof candidate.dimensions !== 'object' || Array.isArray(candidate.dimensions)) return false
+    for (const item of Object.values(candidate.dimensions as Record<string, unknown>)) {
+      if (!item || typeof item !== 'object') return false
+      const dim = item as Record<string, unknown>
+      if (!['measured', 'not_measured'].includes(String(dim.status))) return false
+      if (!isFiniteNumberOrNull(dim.value_px) || !isFiniteNumberOrNull(dim.value_mm)) return false
+      if (!['verified', 'measured_with_risk', 'not_measured'].includes(String(dim.confidence))) return false
+      if (!Array.isArray(dim.risk_signals) || !Array.isArray(dim.reason_codes)) return false
+      if (dim.status === 'measured' && (dim.value_px === null || dim.value_mm === null)) return false
+      if (dim.status === 'not_measured' && (dim.value_px !== null || dim.value_mm !== null)) return false
+    }
+  }
   if (!Array.isArray(candidate.reason_codes) || !candidate.reason_codes.every((item) => typeof item === 'string')) return false
   const ruler = candidate.ruler
   const object = candidate.object

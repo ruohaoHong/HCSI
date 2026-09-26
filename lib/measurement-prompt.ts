@@ -1,3 +1,5 @@
+// The CV-first route uses buildCvFirstIdentificationPrompt and passes the entire
+// immutable dimensions object. Keep this legacy module for old regression tests.
 import type { MeasurementResult } from '@/lib/measurement'
 
 export function buildMeasurementEvidencePrompt(

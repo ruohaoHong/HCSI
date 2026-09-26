@@ -13,7 +13,7 @@ export const HARDWARE_CATEGORIES = [
 export type HardwareCategory = (typeof HARDWARE_CATEGORIES)[number]
 export type Provider = 'gemini' | 'openai' | 'grok'
 export type EvidenceLevel = 'measured' | 'observed' | 'estimated' | 'unconfirmed'
-export type HeadStyle = 'hex' | 'flat_countersunk' | 'pan' | 'button' | 'socket_cap' | 'round' | 'other' | 'unknown'
+export type HeadStyle = 'hex' | 'flat_countersunk' | 'pan' | 'truss' | 'button' | 'socket_cap' | 'round' | 'other' | 'unknown'
 
 export interface SemanticVisionRegion {
   present: boolean
@@ -61,12 +61,19 @@ export interface IdentificationResult {
   typical_use: string
   purchase_description: string
   safety_note: string
+  fastener_interpretation?: {
+    head_style: HeadStyle
+    drive_form: string
+    thread_system: 'metric' | 'imperial' | 'unknown'
+    length_convention: 'under_head' | 'overall' | 'unresolved'
+    nominal_specification: string
+  }
 }
 
 export interface AnalysisResponse {
   provider: Provider
   model: string
-  routing: CategoryRoutingResult
+  routing?: CategoryRoutingResult
   result: IdentificationResult
 }
 
