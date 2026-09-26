@@ -186,12 +186,18 @@ def _result(
                if reason not in independent_failure_codes]
             if measured else list(step.get("reason_codes", []))
         )
+        # An observed endpoint may be positioned only to about one visible
+        # pitch. Explicitly mark this *local* B limitation even if external
+        # capture checks happen to be independently confirmed.
+        if measured and dimension == "B":
+            risks.append("thread_boundary_resolution_limited_by_visible_pitch")
         dimensions[dimension] = {
             "status": step["status"],
             "value_px": step.get("value_px"),
             "value_mm": step.get("value_mm"),
             "confidence": (
                 "verified" if measured and confidence["status"] == "verified"
+                and dimension != "B"
                 else "measured_with_risk" if measured
                 else "not_measured"
             ),
