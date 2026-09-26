@@ -209,10 +209,8 @@ def infer_thread_extent(
         # the first cluster is missing optical evidence, not physical proof
         # of separated thread sections.
         runnerup = runs[1]
-        lo, hi = sorted((int(run[-1]), int(runnerup[0])))
-        if hi <= lo:
-            lo, hi = min(int(run[0]), int(runnerup[-1])), max(int(run[0]), int(runnerup[-1]))
-        separator = decisions[lo + 1:hi]
+        earlier, later = sorted((run, runnerup), key=lambda group: int(group[0]))
+        separator = decisions[int(earlier[-1]) + 1:int(later[0])]
         reason = (
             "thread_interval_disconnected_by_unobservable_edges"
             if separator and all(item is None for item in separator)

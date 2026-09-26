@@ -1,4 +1,5 @@
 name: B Thread Extent Real Photo Smoke
+# Re-run on the generic three-state observation-gap model, with no LLM or GT.
 
 on:
   push:
