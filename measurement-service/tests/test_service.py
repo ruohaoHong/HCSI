@@ -217,3 +217,26 @@ def test_fixed_measurements_ignore_unknown_or_other_semantic_head(monkeypatch):
             step["reason_codes"] != ["operation_not_implemented"]
             for step in result["geometry_steps"]
         )
+
+
+def test_real_http_handler_omitted_steps_runs_fixed_cv_plan(monkeypatch):
+    """Exercise the actual FastAPI endpoint handler; no LLM plan/form sent."""
+    import asyncio
+    from io import BytesIO
+    from fastapi import UploadFile
+
+    monkeypatch.setattr(service_app, "infer_ruler", lambda _img: _fake_ruler())
+    # Synthetic pixels are unit-test geometry only, never a Case A fixture.
+    ok, jpeg = cv2.imencode(
+        ".jpg", cv2.cvtColor(_bolt_image(), cv2.COLOR_RGB2BGR)
+    )
+    assert ok
+    uploaded = UploadFile(file=BytesIO(jpeg.tobytes()), filename="unit-bolt.jpg")
+    result = asyncio.run(service_app.measure(
+        file=uploaded, geometry_steps=None, semantic_vision=None,
+        authorization=None,
+    ))
+    assert len(result["geometry_steps"]) == 7
+    assert set(result["dimensions"]) == {
+        "D", "P", "L_underhead", "L_overall", "B", "K", "DK",
+    }

@@ -130,6 +130,8 @@ jobs:
           preflight = post('/api/measure', {'image': image64})
           cv = preflight['measurement']
           keys = ('D','P','L_underhead','L_overall','B','K','DK')
+          print('CV response keys before validation:', list(cv.get('dimensions', {})))
+          (root / 'cv.json').write_text(json.dumps(cv, indent=2, ensure_ascii=False))
           assert set(keys) == set(cv['dimensions']), 'Seven immutable CV dimension slots missing'
           assert cv['image_sha256'] == '5d6ee9563fd9a2e0d6861d74d581d4bae38a4f9181326d568291c1981e70b988'
           (root / 'cv.json').write_text(json.dumps(cv, indent=2, ensure_ascii=False))

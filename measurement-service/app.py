@@ -394,7 +394,11 @@ async def measure(
     if expected_token and authorization != f"Bearer {expected_token}":
         raise HTTPException(status_code=401, detail="unauthorized")
     try:
-        requested_steps = _parse_geometry_steps(geometry_steps)
+        # Omitted form field means fixed CV-first seven-slot acquisition.
+        # An explicit [] is reserved for legacy envelope-only diagnostics.
+        requested_steps = (
+            None if geometry_steps is None else _parse_geometry_steps(geometry_steps)
+        )
         semantic_context = parse_semantic_vision(semantic_vision)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
