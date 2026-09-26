@@ -491,3 +491,30 @@ def test_B_reaches_real_periodic_edge_observation_without_crashing():
     assert set(b["landmarks"]) == {"thread_start", "thread_end"}
     assert b["diagnostics"]["coverage"] == "head_to_tip_visible_full_thread"
     assert b["diagnostics"]["pitch_source"] == "reused_P"
+
+
+def test_B_partial_thread_does_not_require_P_in_the_measurement_plan():
+    """No provider/LLM P step: B finds a local image-space pitch itself."""
+    from geometry_executor import FIXED_FASTENER_STEPS
+
+    image = np.full((520, 820, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image)
+    cv2.rectangle(image, (220, 290), (270, 410), (25, 25, 25), -1)
+    xs = np.arange(270, 561)
+    for pitch, start in ((16.0, 382), (20.0, 370)):
+        image[270:420, 270:580] = 245
+        cv2.rectangle(image, (220, 290), (270, 410), (25, 25, 25), -1)
+        r = np.full(len(xs), 16.0, dtype=float)
+        active = xs >= start
+        r[active] = 14.0 + 2.0 * np.cos(2 * np.pi * (xs[active] - start) / pitch)
+        poly = np.vstack([
+            np.column_stack([xs, (350 - r).astype(np.int32)]),
+            np.column_stack([xs[::-1], (350 + r[::-1]).astype(np.int32)]),
+        ]).astype(np.int32)
+        cv2.fillPoly(image, [poly], (25, 25, 25))
+        B_ONLY = [dict(next(step for step in FIXED_FASTENER_STEPS if step["operation"] == "threaded_length"))]
+        result = execute_geometry_steps(image, marks, 50.0, B_ONLY)[0]
+        assert result["status"] == "measured", (pitch, start, result)
+        assert abs(result["value_px"] - (560 - start)) <= 1.5 * pitch, result
+        assert result["diagnostics"]["pitch_source"] == "local_image_periodicity"
+        assert result["diagnostics"]["coverage"] == "observed_smooth_to_thread_transition"
