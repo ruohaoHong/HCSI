@@ -514,6 +514,8 @@ def test_B_partial_thread_does_not_require_P_in_the_measurement_plan():
         cv2.fillPoly(image, [poly], (25, 25, 25))
         B_ONLY = [dict(next(step for step in FIXED_FASTENER_STEPS if step["operation"] == "threaded_length"))]
         result = execute_geometry_steps(image, marks, 50.0, B_ONLY)[0]
+        print("B partial fixture", pitch, start, "reason", result["reason_codes"],
+              "diagnostics", result["diagnostics"])
         assert result["status"] == "measured", (pitch, start, result)
         assert abs(result["value_px"] - (560 - start)) <= 1.5 * pitch, result
         assert result["diagnostics"]["pitch_source"] == "local_image_periodicity"
