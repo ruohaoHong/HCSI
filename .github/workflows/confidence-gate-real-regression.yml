@@ -104,6 +104,7 @@ jobs:
           lines.extend(['', '```json', json.dumps(payload, indent=2), '```'])
           summary.write_text('\n'.join(lines), encoding='utf-8')
           print(json.dumps(payload, indent=2))
+          print('::notice title=Confidence gate real regression::' + json.dumps(payload, separators=(',', ':')))
           PY
       - uses: actions/upload-artifact@v4
         with:
