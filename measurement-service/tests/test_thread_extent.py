@@ -97,3 +97,29 @@ def test_underresolved_pitch_refuses_B():
     extent = infer_thread_extent(image, profile, bearing, 2.0)
     assert extent.value_px is None
     assert extent.reason == "thread_pitch_unreliable_for_extent"
+
+
+def test_local_thread_runs_bridge_unknown_not_observed_smooth():
+    from thread_extent import _evidence_runs
+
+    centers = np.arange(10, dtype=float) * 6.0
+    # P=12 px: two unknown centres span 18 px (1.5 P) and are too far.
+    one_blind = [False, True, True, None, True, True, False, False, False, False]
+    runs = _evidence_runs(centers, one_blind, 12.0)
+    assert [list(group) for group in runs] == [[1, 2, 4, 5]]
+    observed_smooth = [False, True, True, False, True, True, False, False, False, False]
+    runs = _evidence_runs(centers, observed_smooth, 12.0)
+    assert [list(group) for group in runs] == [[1, 2], [4, 5]]
+    long_blind = [True, True, None, None, None, None, True, True, False, False]
+    runs = _evidence_runs(centers, long_blind, 12.0)
+    assert [list(group) for group in runs] == [[0, 1], [6, 7]]
+
+
+def test_short_raw_image_occlusion_does_not_invent_smooth_shank():
+    image = _bolt(pitch=20.0)
+    profile, bearing = _profile(image)
+    with_missing_strip = image.copy()
+    with_missing_strip[325:375, 430:435] = 245
+    result = infer_thread_extent(with_missing_strip, profile, bearing, 20.0)
+    assert result.value_px is not None, result
+    assert abs(result.value_px - 340.0) <= 10.0

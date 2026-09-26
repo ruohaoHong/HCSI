@@ -110,6 +110,30 @@ def _measure_window(
     return supported[0], max(score for _, score in decisions)
 
 
+def _evidence_runs(
+    centers: np.ndarray, decisions: list[bool | None], pitch: float
+) -> list[np.ndarray]:
+    """Bridge brief unobservable optical gaps, NEVER observed smooth shaft.
+
+    Missing edge observations cannot be treated as a measured interruption of
+    physical thread. A long blind gap remains unresolvable, however, even when
+    the sections on either side share the same pitch.
+    """
+    active = np.flatnonzero(np.asarray([value is True for value in decisions]))
+    if not len(active):
+        return []
+    groups: list[list[int]] = [[int(active[0])]]
+    for next_idx in active[1:]:
+        prev_idx = groups[-1][-1]
+        gap = float(centers[next_idx] - centers[prev_idx])
+        between = decisions[prev_idx + 1:int(next_idx)]
+        if gap <= 1.45 * pitch and all(item is None for item in between):
+            groups[-1].append(int(next_idx))
+        else:
+            groups.append([int(next_idx)])
+    return [np.asarray(group, dtype=np.int32) for group in groups]
+
+
 def infer_thread_extent(
     image_rgb: np.ndarray,
     profile: ThreadedShankProfile,
@@ -172,16 +196,29 @@ def infer_thread_extent(
 
     # A disjoint periodic island is not a unique B; do not choose the longest
     # island when another sufficiently long run is visible.
-    runs = []
-    for group in np.split(np.flatnonzero(state), np.where(np.diff(np.flatnonzero(state)) > 1)[0] + 1):
-        if len(group) >= 2:
-            runs.append(group)
+    decisions = [item[0] for item in window]
+    diagnostics["windows_unknown"] = int(sum(v is None for v in decisions))
+    runs = [group for group in _evidence_runs(centers, decisions, pitch_px)
+            if len(group) >= 2]
     if not runs:
         return ThreadExtent(None, None, None, "thread_interval_not_continuous", diagnostics)
     runs.sort(key=len, reverse=True)
     run = runs[0]
     if len(runs) > 1 and len(runs[1]) >= max(3, int(0.40 * len(run))):
-        return ThreadExtent(None, None, None, "multiple_disjoint_thread_intervals", diagnostics)
+        # A second cluster without *observed smooth shaft* between it and
+        # the first cluster is missing optical evidence, not physical proof
+        # of separated thread sections.
+        runnerup = runs[1]
+        lo, hi = sorted((int(run[-1]), int(runnerup[0])))
+        if hi <= lo:
+            lo, hi = min(int(run[0]), int(runnerup[-1])), max(int(run[0]), int(runnerup[-1]))
+        separator = decisions[lo + 1:hi]
+        reason = (
+            "thread_interval_disconnected_by_unobservable_edges"
+            if separator and all(item is None for item in separator)
+            else "multiple_disjoint_thread_intervals"
+        )
+        return ThreadExtent(None, None, None, reason, diagnostics)
     first, last = int(run[0]), int(run[-1])
     if (centers[last] - centers[first]) < 3.0 * pitch_px:
         return ThreadExtent(None, None, None, "insufficient_continuous_thread_cycles", diagnostics)
