@@ -67,14 +67,14 @@ jobs:
           target = "  const text = data?.output?.flatMap((item: any) => item?.content ?? []).find((item: any) => item?.type === 'output_text')?.text"
           if target not in s: raise SystemExit('Diagnostic instrumentation anchor not found')
           replacement = target + """
-  console.warn('[CASE_A_TEST_DIAGNOSTICS] provider:', label,
-    'response_status:', data?.status,
-    'incomplete_details:', JSON.stringify(data?.incomplete_details ?? null),
-    'output_types:', JSON.stringify(data?.output?.map((item: any) => item?.type) ?? []),
-    'output_text_length:', typeof text === 'string' ? text.length : null,
-    'output_text_excerpt:', typeof text === 'string' ? text.slice(0, 1600) : null)
-"""
-          p.write_text(s.replace(target, replacement))
+            console.warn('[CASE_A_TEST_DIAGNOSTICS] provider:', label,
+              'response_status:', data?.status,
+              'incomplete_details:', JSON.stringify(data?.incomplete_details ?? null),
+              'output_types:', JSON.stringify(data?.output?.map((item: any) => item?.type) ?? []),
+              'output_text_length:', typeof text === 'string' ? text.length : null,
+              'output_text_excerpt:', typeof text === 'string' ? text.slice(0, 1600) : null)
+          """
+                    p.write_text(s.replace(target, replacement))
           PY
           pnpm build
 
