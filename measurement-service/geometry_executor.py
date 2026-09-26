@@ -12,6 +12,7 @@ from geometry import (
 )
 from edge_observation import measure_thread_major_diameter, observe_thread_edges
 from periodic_silhouette_diameter import estimate_periodic_silhouette_diameter
+from thread_extent import infer_thread_extent
 from thread_geometry import (
     HeadUnderfaceEstimate,
     ThreadedShankProfile,
@@ -327,37 +328,81 @@ def execute_geometry_steps(
             if shank_profile is None:
                 results.append(_not_measured(step, "threaded_shank_not_found"))
                 continue
-            shank_width_px = measure_outer_width_px(shank_profile)
-            if shank_width_px is None:
-                results.append(_not_measured(step, "thread_profile_unreliable"))
+            if underface_estimate is None:
+                underface_estimate = estimate_head_underface(shank_profile)
+            if underface_estimate is None:
+                results.append(_not_measured(step, "head_bearing_plane_unresolved"))
                 continue
-            upper_track, lower_track = observe_thread_edges(image_rgb, shank_profile)
-            observed = measure_periodicity_px(
-                shank_profile, shank_width_px,
-                edge_tracks=(upper_track, lower_track),
-            )
-            if observed.pitch_px is None:
+
+            # Reuse P if it was already measured. If P's globally trimmed ROI
+            # misses a short partially threaded region, independently scan
+            # physical tip-side windows; use image periodicity, never nominal P.
+            pitch_px = next((
+                float(prior["value_px"]) for prior in results
+                if prior["operation"] == "periodicity"
+                and prior["inputs"] == ["threaded_shank"]
+                and prior["status"] == "measured"
+            ), None)
+            pitch_source = "reused_P" if pitch_px is not None else "local_image_periodicity"
+            if pitch_px is None:
+                from dataclasses import replace
+                width_px = measure_outer_width_px(shank_profile)
+                if width_px is not None:
+                    toward_tip = 1 if shank_profile.tip_s > shank_profile.transition_s else -1
+                    shank_span = abs(shank_profile.tip_s - shank_profile.transition_s)
+                    remaining = (
+                        (shank_profile.s_values - shank_profile.transition_s) * toward_tip
+                    )
+                    for portion in (0.55, 0.40, 0.70):
+                        # Geometry-derived search: farthest portion from the
+                        # head, not a hardcoded image coordinate or Case ROI.
+                        submask = shank_profile.sample_mask & (
+                            remaining >= shank_span * (1.0 - portion)
+                        )
+                        if np.count_nonzero(submask) < 36:
+                            continue
+                        cropped = replace(shank_profile, sample_mask=submask)
+                        track_pair = observe_thread_edges(image_rgb, cropped)
+                        local_pitch = measure_periodicity_px(
+                            cropped, width_px, edge_tracks=track_pair,
+                        )
+                        if local_pitch.pitch_px is not None:
+                            pitch_px = float(local_pitch.pitch_px)
+                            break
+            if pitch_px is None:
                 results.append(_not_measured(
-                    step, observed.reason_code or "thread_periodicity_unreliable",
+                    step, "thread_periodicity_unreliable_for_extent",
                 ))
                 continue
-            # The present detector deliberately trims the ends of the shank
-            # (8% at the tip, 12% at the head). Its periodic track confirms
-            # local thread presence but cannot establish BOTH full physical
-            # thread termini. Never mislabel that observable span as B.
-            valid_spans = [
-                float(np.ptp(track.s_px[track.valid]))
-                for track in (upper_track, lower_track)
-                if np.count_nonzero(track.valid) > 1
-            ]
-            results.append(_not_measured(
-                step, "full_thread_start_and_end_not_resolved",
-                {
-                    "observed_pitch_px": _round(observed.pitch_px),
-                    "interior_observed_thread_span_px": _round(max(valid_spans)) if valid_spans else 0.0,
-                    "shank_end_trimmed_for_pitch": True,
+
+            extent = infer_thread_extent(
+                image_rgb, shank_profile, underface_estimate, pitch_px,
+            )
+            diagnostic = dict(extent.diagnostics)
+            diagnostic["pitch_source"] = pitch_source
+            if extent.value_px is None:
+                results.append(_not_measured(
+                    step, extent.reason or "thread_endpoints_unresolved", diagnostic,
+                ))
+                continue
+            assert extent.start_s is not None and extent.end_s is not None
+            start_xy = shank_profile.center + shank_profile.axis * extent.start_s
+            end_xy = shank_profile.center + shank_profile.axis * extent.end_s
+            results.append({
+                "operation": operation,
+                "inputs": inputs,
+                "purpose": str(step.get("purpose", "")),
+                "status": "measured",
+                "value_px": _round(extent.value_px),
+                "value_mm": _round(extent.value_px / px_per_cm * 10.0, 3),
+                "derived_tpi": None,
+                "landmarks": {
+                    "thread_start": {"x_px": _round(start_xy[0]), "y_px": _round(start_xy[1])},
+                    "thread_end": {"x_px": _round(end_xy[0]), "y_px": _round(end_xy[1])},
                 },
-            ))
+                "diagnostics": diagnostic,
+                "reason_codes": [],
+            })
             continue
 
         if operation == "outer_width" and inputs == ["head"]:
