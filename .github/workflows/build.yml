@@ -31,4 +31,11 @@ jobs:
             --skipLibCheck \
             --outDir /tmp/hcsi-resolver-test
           node /tmp/hcsi-resolver-test/benchmark/measurement-poc/test_measurement_plan_resolver.js
+      - name: CV-first length policy regression (including LLM head=other)
+        run: |
+          rm -rf /tmp/hcsi-cv-first-policy-test
+          pnpm exec tsc lib/cv-length-policy.ts lib/cv-length-policy.test.ts \
+            --target ES2022 --module commonjs --moduleResolution node \
+            --esModuleInterop --skipLibCheck --outDir /tmp/hcsi-cv-first-policy-test
+          node /tmp/hcsi-cv-first-policy-test/lib/cv-length-policy.test.js
       - run: pnpm build

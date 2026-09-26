@@ -440,3 +440,32 @@ def test_phase_shifted_major_diameter_does_not_change_pitch_search():
     assert 38.0 <= width["value_px"] <= 41.5, width
     assert periodicity["status"] == "measured", periodicity
     assert 23.0 <= periodicity["value_px"] <= 25.0, periodicity
+
+
+def test_fixed_six_dimension_suite_uses_real_synthetic_pixel_geometry():
+    """Synthetic images are ONLY algorithm unit fixtures, never a real-case claim."""
+    from geometry_executor import FIXED_FASTENER_STEPS
+
+    image = np.full((520, 820, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image)
+    cv2.rectangle(image, (220, 300), (270, 400), (25, 25, 25), -1)
+    cv2.rectangle(image, (270, 335), (560, 365), (25, 25, 25), -1)
+
+    results = execute_geometry_steps(
+        image, marks, 50.0, [dict(step) for step in FIXED_FASTENER_STEPS],
+        semantic_vision={"head_style": "other"},
+    )
+    assert len(results) == 7
+    by_kind = {(step["operation"], tuple(step["inputs"])): step for step in results}
+    assert by_kind[("axial_distance", ("object_tip", "head_underface"))]["status"] == "measured"
+    assert by_kind[("axial_distance", ("object_tip", "head_top"))]["status"] == "measured"
+    k = by_kind[("axial_distance", ("head_underface", "head_top"))]
+    dk = by_kind[("outer_width", ("head",))]
+    assert k["status"] == "measured", k
+    assert 35.0 <= k["value_px"] <= 70.0
+    assert dk["status"] == "measured", dk
+    assert 85.0 <= dk["value_px"] <= 125.0
+    assert by_kind[("threaded_length", ("threaded_shank",))]["status"] == "not_measured"
+    assert all(
+        step["reason_codes"] != ["operation_not_implemented"] for step in results
+    )

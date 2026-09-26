@@ -193,3 +193,21 @@ def _axial_step_for_service():
         "inputs": ["object_tip", "width_transition"],
         "purpose": "量測螺栓頭下有效長度",
     }
+
+
+def test_fixed_measurements_ignore_unknown_or_other_semantic_head(monkeypatch):
+    fake_ruler = _fake_ruler()
+    monkeypatch.setattr(service_app, "infer_ruler", lambda _image: fake_ruler)
+    for head in ("other", "unknown"):
+        result = service_app.measure_rgb(
+            _bolt_image(), "abc123", semantic_vision={"head_style": head},
+        )
+        assert set(result["dimensions"]) == {
+            "D", "P", "L_underhead", "L_overall", "B", "K", "DK",
+        }
+        assert len(result["geometry_steps"]) == 7
+        assert result["dimensions"]["B"]["status"] == "not_measured"
+        assert all(
+            step["reason_codes"] != ["operation_not_implemented"]
+            for step in result["geometry_steps"]
+        )

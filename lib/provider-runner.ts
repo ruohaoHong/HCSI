@@ -5,6 +5,7 @@ import { isIdentificationResult } from '@/lib/identification'
 import { CV_FIRST_IDENTIFICATION_JSON_SCHEMA, buildCvFirstIdentificationPrompt } from '@/lib/cv-first-identification'
 import { runMeasurementPreflight, MeasurementServiceError } from '@/lib/measurement-client'
 import { verifyMeasurementProof } from '@/lib/measurement-proof'
+import { selectLengthFromCv } from '@/lib/cv-length-policy'
 import type { MeasurementResult, FixedDimension } from '@/lib/measurement'
 import { loadReferencePack } from '@/lib/reference-loader'
 
@@ -18,25 +19,6 @@ type JsonSchema = Record<string, unknown>
 type MeasurementServiceFallback = { code: string; message: string } | null
 
 const REQUIRED_DIMENSIONS: FixedDimension[] = ['D','P','L_underhead','L_overall','B','K','DK']
-
-function chooseRawLength(result: IdentificationResult, measurement: MeasurementResult | null) {
-  const head = result.fastener_interpretation?.head_style ?? 'unknown'
-  const convention: 'under_head' | 'overall' | 'unresolved' =
-    head === 'flat_countersunk' ? 'overall'
-    : ['pan','truss','hex','button','socket_cap','round'].includes(head) ? 'under_head'
-    : 'unresolved'
-  const dim = convention === 'under_head' ? 'L_underhead' : convention === 'overall' ? 'L_overall' : null
-  if (result.fastener_interpretation) result.fastener_interpretation.length_convention = convention
-  const evidence = dim && measurement?.dimensions?.[dim]
-  return { convention, dimension: dim, value_px: evidence?.status === 'measured' ? evidence.value_px : null,
-    value_mm: evidence?.status === 'measured' ? evidence.value_mm : null,
-    source: evidence?.status === 'measured' ? 'cv_raw_measurement' : 'not_obtained',
-    candidates: {
-      under_head: measurement?.dimensions?.L_underhead ?? null,
-      overall: measurement?.dimensions?.L_overall ?? null,
-    },
-  }
-}
 
 export async function handleIdentificationRequest(request: Request, provider: Provider) {
   try {
@@ -85,7 +67,8 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       throw new Error(`${config.label} CV-first 語義辨識結果格式不完整`)
     }
     // Nominal identification never edits the signed raw CV observations.
-    const selectedLength = chooseRawLength(identificationRaw, measurement)
+    const selectedLength = selectLengthFromCv(identificationRaw.fastener_interpretation.head_style, measurement)
+    identificationRaw.fastener_interpretation.length_convention = selectedLength.convention
     const haveMetricEvidence = !!measurement?.dimensions &&
       ['D', 'P', 'L_underhead', 'L_overall'].some(
         key => measurement?.dimensions?.[key as FixedDimension]?.status === 'measured'
