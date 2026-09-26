@@ -1,4 +1,5 @@
 name: Case A MVP OpenAI E2E
+# CV-first: Case A only; the GT remains isolated until evaluation.
 
 on:
   push:

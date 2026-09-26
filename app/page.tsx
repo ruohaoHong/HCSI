@@ -223,6 +223,7 @@ export default function Page() {
               {imageUrl && (
                 <div className="border-t border-border p-4">
                   <MeasurementPreflight measurement={measurement} state={preflightState} error={preflightError} />
+                  <CvDimensionSummary measurement={measurement} />
                   <button type="button" onClick={() => inputRef.current?.click()} className="mb-3 mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted"><RotateCcw size={15} /> 重新拍攝</button>
                   <div className="grid gap-2 sm:grid-cols-3">
                     {PROVIDERS.map((item) => {
@@ -334,4 +335,33 @@ function compressImage(file: File): Promise<string> {
     }
     image.src = sourceUrl
   })
+}
+
+
+const CV_DIMENSION_LABELS = [
+  ['D', '螺紋外徑'], ['P', '牙距'], ['L_underhead', '頭下至尖端'],
+  ['L_overall', '頭頂至尖端'], ['B', '實際螺紋段長'],
+  ['K', '頭部高度'], ['DK', '頭部外徑'],
+] as const
+
+function CvDimensionSummary({ measurement }: { measurement: MeasurementResult | null }) {
+  if (!measurement?.dimensions) return null
+  return <section className="mt-3 rounded-xl border border-border bg-card p-4 text-sm">
+    <h3 className="mb-2 font-semibold">CV 固定量測（不依賴 LLM 頭型）</h3>
+    <div className="grid gap-2 sm:grid-cols-2">
+      {CV_DIMENSION_LABELS.map(([key, label]) => {
+        const dim = measurement.dimensions?.[key]
+        if (!dim) return null
+        return <div key={key} className="rounded-md border border-border/70 p-2.5">
+          <p className="font-medium">{key} · {label}</p>
+          <p className="font-mono text-xs">
+            {dim.status === 'measured' ? `${dim.value_px} px / ${dim.value_mm} mm` : '未測得'}
+          </p>
+          <p className="text-xs text-muted-foreground">信心：{dim.confidence}</p>
+          {dim.reason_codes.length > 0 && <p className="mt-1 break-words text-xs text-amber-700">原因：{dim.reason_codes.join('、')}</p>}
+          {dim.risk_signals.length > 0 && <p className="mt-1 break-words text-xs text-muted-foreground">風險：{dim.risk_signals.join('、')}</p>}
+        </div>
+      })}
+    </div>
+  </section>
 }

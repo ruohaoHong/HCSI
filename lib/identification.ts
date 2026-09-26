@@ -71,6 +71,13 @@ export interface IdentificationResult {
 }
 
 export interface AnalysisResponse {
+  selected_length?: {
+    convention: 'under_head' | 'overall' | 'unresolved'
+    dimension: 'L_underhead' | 'L_overall' | null
+    value_px: number | null
+    value_mm: number | null
+    source: string
+  }
   provider: Provider
   model: string
   routing?: CategoryRoutingResult

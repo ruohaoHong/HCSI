@@ -16,7 +16,7 @@ const cv = { dimensions: {
   D: measured(48, 4.7), P: measured(8, 0.78),
   L_underhead: measured(224, 21.9), L_overall: measured(249, 24.3),
   B: unavailable, K: measured(25, 2.4), DK: measured(98, 9.6),
-} } as MeasurementResult
+} } as unknown as MeasurementResult
 const frozen = JSON.stringify(cv)
 
 const other = selectLengthFromCv('other', cv)
