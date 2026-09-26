@@ -67,7 +67,9 @@ def test_measure_rgb_combines_ruler_scale_and_opencv_geometry(monkeypatch):
     assert 6.0 <= result["width_mm"] <= 11.0
     assert result["scale_px_per_cm"] == 50.0
     assert result["scale_px_per_inch"] == 127.0
-    assert result["geometry_steps"] == []
+    assert len(result["geometry_steps"]) == 7
+    assert set(result["dimensions"]) == {"D", "P", "L_underhead", "L_overall", "B", "K", "DK"}
+    assert result["dimensions"]["B"]["status"] == "not_measured"
     assert result["image_sha256"] == "abc123"
 
 

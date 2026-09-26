@@ -11,7 +11,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 
 from confidence_gate import evaluate_measurement_confidence
 from geometry import extract_object_geometry
-from geometry_executor import execute_geometry_steps, unmeasured_geometry_steps
+from geometry_executor import FIXED_FASTENER_STEPS, execute_geometry_steps, unmeasured_geometry_steps
 from rulernet import infer_ruler, local_px_per_cm, perspective_step_pct
 from scale_reference import resolve_scale_reference
 from semantic_regions import normalize_semantic_vision, parse_semantic_vision
@@ -151,8 +151,46 @@ def _result(
     check_status = {
         check["id"]: check["status"] for check in confidence["checks"]
     }
+    dimension_keys = {
+        ("outer_width", ("threaded_shank",)): "D",
+        ("periodicity", ("threaded_shank",)): "P",
+        ("axial_distance", ("object_tip", "head_underface")): "L_underhead",
+        ("axial_distance", ("object_tip", "head_top")): "L_overall",
+        ("threaded_length", ("threaded_shank",)): "B",
+        ("axial_distance", ("head_underface", "head_top")): "K",
+        ("outer_width", ("head",)): "DK",
+    }
+    dimensions = {}
+    for step in step_results:
+        dimension = dimension_keys.get(
+            (step.get("operation"), tuple(step.get("inputs", [])))
+        )
+        if dimension is None:
+            continue
+        # A failure in one dimension never erases another dimension's raw
+        # pixel/mm result. Confidence describes provenance, not a veto.
+        measured = step.get("status") == "measured"
+        risks = (
+            list(object_json.get("risk_signals", []))
+            + list(confidence["reason_codes"])
+            if measured else list(step.get("reason_codes", []))
+        )
+        dimensions[dimension] = {
+            "status": step["status"],
+            "value_px": step.get("value_px"),
+            "value_mm": step.get("value_mm"),
+            "confidence": (
+                "verified" if measured and confidence["status"] == "verified"
+                else "measured_with_risk" if measured
+                else "not_measured"
+            ),
+            "risk_signals": sorted(set(risks)),
+            "reason_codes": step.get("reason_codes", []),
+            "diagnostics": step.get("diagnostics", {}),
+        }
     return {
         "schema_version": "hcsi.measurement.v1",
+        "dimensions": dimensions,
         "image_sha256": image_sha256,
         "measurement_status": status,
         "measurement_confidence": confidence["status"],
@@ -201,7 +239,13 @@ def measure_rgb(
     semantic_vision: dict[str, Any] | None = None,
     capture_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    requested_steps = _normalize_geometry_steps(geometry_steps)
+    # None means the fixed CV-first acquisition plan. Explicit diagnostic
+    # plans remain possible for existing geometry tests and investigation.
+    requested_steps = (
+        [dict(step) for step in FIXED_FASTENER_STEPS]
+        if geometry_steps is None
+        else _normalize_geometry_steps(geometry_steps)
+    )
     semantic_context = normalize_semantic_vision(semantic_vision)
     height, width = image_rgb.shape[:2]
     ruler_obs = infer_ruler(image_rgb)

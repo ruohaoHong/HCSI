@@ -24,6 +24,18 @@ from thread_geometry import (
 
 GeometryStep = dict[str, Any]
 
+# CV owns this stable acquisition plan. Neither provider nor head-style routing may
+# remove one of these independent observations. L always has TWO raw candidates.
+FIXED_FASTENER_STEPS: tuple[GeometryStep, ...] = (
+    {"operation": "outer_width", "inputs": ["threaded_shank"], "purpose": "D thread major diameter"},
+    {"operation": "periodicity", "inputs": ["threaded_shank"], "purpose": "P observed thread pitch"},
+    {"operation": "axial_distance", "inputs": ["object_tip", "head_underface"], "purpose": "L under-head candidate"},
+    {"operation": "axial_distance", "inputs": ["object_tip", "head_top"], "purpose": "L overall candidate"},
+    {"operation": "threaded_length", "inputs": ["threaded_shank"], "purpose": "B full physical threaded extent"},
+    {"operation": "axial_distance", "inputs": ["head_underface", "head_top"], "purpose": "K head height"},
+    {"operation": "outer_width", "inputs": ["head"], "purpose": "DK head outside diameter"},
+)
+
 
 def _round(value: float | None, digits: int = 3) -> float | None:
     return None if value is None else round(float(value), digits)
@@ -234,6 +246,7 @@ def execute_geometry_steps(
                 frozenset(("object_tip", "width_transition")),
                 frozenset(("object_tip", "head_underface")),
                 frozenset(("object_tip", "head_top")),
+                frozenset(("head_underface", "head_top")),
             }
             if len(inputs) != 2 or frozenset(inputs) not in supported_pairs:
                 results.append(_not_measured(step, "unsupported_landmark_combination"))
@@ -303,6 +316,96 @@ def execute_geometry_steps(
                     "reason_codes": [],
                 }
             )
+            continue
+
+        if operation == "threaded_length":
+            if inputs != ["threaded_shank"]:
+                results.append(_not_measured(step, "unsupported_region_combination"))
+                continue
+            if shank_profile is None:
+                shank_profile = detect_threaded_shank(contour)
+            if shank_profile is None:
+                results.append(_not_measured(step, "threaded_shank_not_found"))
+                continue
+            shank_width_px = measure_outer_width_px(shank_profile)
+            if shank_width_px is None:
+                results.append(_not_measured(step, "thread_profile_unreliable"))
+                continue
+            tracks = observe_thread_edges(image_rgb, shank_profile)
+            observed = measure_periodicity_px(
+                shank_profile, shank_width_px, edge_tracks=tracks,
+            )
+            if observed.pitch_px is None:
+                results.append(_not_measured(
+                    step, observed.reason_code or "thread_periodicity_unreliable",
+                ))
+                continue
+            # The present detector deliberately trims the ends of the shank
+            # (8% at the tip, 12% at the head). Its periodic track confirms
+            # local thread presence but cannot establish BOTH full physical
+            # thread termini. Never mislabel that observable span as B.
+            valid_spans = [
+                float(np.ptp(track.s_px[track.valid]))
+                for track in (tracks.upper, tracks.lower)
+                if np.count_nonzero(track.valid) > 1
+            ]
+            results.append(_not_measured(
+                step, "full_thread_start_and_end_not_resolved",
+                {
+                    "observed_pitch_px": _round(observed.pitch_px),
+                    "interior_observed_thread_span_px": _round(max(valid_spans)) if valid_spans else 0.0,
+                    "shank_end_trimmed_for_pitch": True,
+                },
+            ))
+            continue
+
+        if operation == "outer_width" and inputs == ["head"]:
+            if shank_profile is None:
+                shank_profile = detect_threaded_shank(contour)
+            if shank_profile is None:
+                results.append(_not_measured(step, "head_profile_not_found"))
+                continue
+            if underface_estimate is None:
+                underface_estimate = estimate_head_underface(shank_profile)
+            if underface_estimate is None:
+                results.append(_not_measured(step, "head_underface_not_found"))
+                continue
+            toward_head = 1 if shank_profile.transition_s > shank_profile.tip_s else -1
+            head_mask = (
+                (shank_profile.s_values >= underface_estimate.s)
+                if toward_head > 0
+                else (shank_profile.s_values <= underface_estimate.s)
+            )
+            head_widths = shank_profile.widths[head_mask]
+            if len(head_widths) < 6 or not np.all(np.isfinite(head_widths)):
+                results.append(_not_measured(step, "head_width_profile_insufficient"))
+                continue
+            # Robust high percentile of *observed* head silhouette widths,
+            # not an inferred ISO/ANSI catalogue dimension.
+            head_width_px = float(np.percentile(head_widths, 90))
+            if head_width_px < 1.18 * underface_estimate.shank_outer_px:
+                results.append(_not_measured(
+                    step, "head_not_separable_from_shank",
+                    {"candidate_head_width_px": _round(head_width_px)},
+                ))
+                continue
+            results.append({
+                "operation": operation,
+                "inputs": inputs,
+                "purpose": str(step.get("purpose", "")),
+                "status": "measured",
+                "value_px": _round(head_width_px),
+                "value_mm": _round(head_width_px / px_per_cm * 10, 3),
+                "derived_tpi": None,
+                "landmarks": {},
+                "diagnostics": {
+                    "method": "head_silhouette_width_p90",
+                    "head_profile_samples": int(len(head_widths)),
+                    "head_width_p50_px": _round(float(np.median(head_widths))),
+                    "shank_reference_width_px": _round(underface_estimate.shank_outer_px),
+                },
+                "reason_codes": [],
+            })
             continue
 
         if operation not in {"outer_width", "periodicity"}:
