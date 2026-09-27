@@ -55,11 +55,14 @@ jobs:
             lib/drive-evidence.test.ts \
             lib/purchase-spec-completeness.ts \
             lib/purchase-spec-completeness.test.ts \
+            lib/nominal-length-consistency.ts \
+            lib/nominal-length-consistency.test.ts \
             lib/cv-first-v2-integration.test.ts \
             --target ES2022 --module commonjs --moduleResolution node \
             --esModuleInterop --skipLibCheck --outDir /tmp/hcsi-cv-first-v2-test
           node "$(find /tmp/hcsi-cv-first-v2-test -name head-style-consistency.test.js -print -quit)"
           node "$(find /tmp/hcsi-cv-first-v2-test -name drive-evidence.test.js -print -quit)"
           node "$(find /tmp/hcsi-cv-first-v2-test -name purchase-spec-completeness.test.js -print -quit)"
+          node "$(find /tmp/hcsi-cv-first-v2-test -name nominal-length-consistency.test.js -print -quit)"
           node "$(find /tmp/hcsi-cv-first-v2-test -name cv-first-v2-integration.test.js -print -quit)"
       - run: pnpm build

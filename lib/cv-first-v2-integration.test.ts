@@ -52,7 +52,7 @@ const result = {
     drive_form: drive.display_form,
     thread_system: 'metric',
     length_convention: length.convention,
-    nominal_specification: 'M6 × 1.0 × 40 mm',
+    nominal_specification: 'M6 × 1.0 × 10 mm',
   },
 } as unknown as IdentificationResult
 assert.equal(assessPurchaseSpecificationCompleteness(result, gate, drive).complete, true)

@@ -7,6 +7,7 @@ import { assessPurchaseSpecificationCompleteness } from './purchase-spec-complet
 const gate: PurchaseGate = {
   allowed: true, stage: 'final', reasons: [],
   required_dimensions: ['D', 'P', 'L_underhead'], selected_length: 'L_underhead',
+  selected_length_mm: 12,
 }
 const result = {
   category: 'fasteners',
@@ -20,6 +21,11 @@ const visibleDrive: DriveEvidence = {
 }
 
 assert.equal(assessPurchaseSpecificationCompleteness(result, gate, visibleDrive).complete, true)
+assert.equal(assessPurchaseSpecificationCompleteness({
+  ...result, fastener_interpretation: {
+    ...result.fastener_interpretation!, nominal_specification: 'M3 × 0.5 × 11 mm',
+  },
+}, gate, visibleDrive).reason_codes.includes('nominal_length_inconsistent'), true)
 assert.equal(
   assessPurchaseSpecificationCompleteness({
     ...result,

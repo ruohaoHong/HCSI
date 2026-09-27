@@ -16,6 +16,7 @@ export interface PurchaseGate {
   reasons: PurchaseGateReason[]
   required_dimensions: FixedDimension[]
   selected_length: 'L_underhead' | 'L_overall' | null
+  selected_length_mm?: number | null
 }
 
 // Only image-observable checks gate CV readiness. A single photograph cannot
@@ -40,7 +41,7 @@ function usableDimension(measurement: MeasurementResult | null, key: FixedDimens
 export function preflightPurchaseGate(measurement: MeasurementResult | null): PurchaseGate {
   const reasons: PurchaseGateReason[] = []
   if (!measurement) return { allowed: false, stage: 'cv_preflight', reasons: ['measurement_unavailable'],
-    required_dimensions: ['D','P','K','DK'], selected_length: null }
+    required_dimensions: ['D','P','K','DK'], selected_length: null, selected_length_mm: null }
   if (measurement.measurement_status !== 'valid' || !measurement.ruler.detected ||
     measurement.scale_px_per_cm === null || measurement.scale_px_per_cm <= 0) {
     reasons.push('scale_unreliable')
@@ -67,7 +68,7 @@ export function preflightPurchaseGate(measurement: MeasurementResult | null): Pu
     reasons.push('missing_length_candidate')
   }
   return { allowed: reasons.length === 0, stage: 'cv_preflight', reasons,
-    required_dimensions: ['D','P','K','DK'], selected_length: null }
+    required_dimensions: ['D','P','K','DK'], selected_length: null, selected_length_mm: null }
 }
 
 export function finalPurchaseGate(
@@ -83,7 +84,7 @@ export function finalPurchaseGate(
   else if (!usableDimension(measurement, selected.dimension)) reasons.push('selected_length_unmeasured')
   return { allowed: reasons.length === 0, stage: 'final', reasons,
     required_dimensions: [...before.required_dimensions, ...(selected.dimension ? [selected.dimension] : [])],
-    selected_length: selected.dimension }
+    selected_length: selected.dimension, selected_length_mm: selected.value_mm }
 }
 
 export function publicPurchaseGuidance(gate: PurchaseGate, itemName: string): string {

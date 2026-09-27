@@ -137,7 +137,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
             ? '尺寸規格已有可信 CV 證據；驅動槽尺寸仍須以實物確認。'
             : ''
         : purchaseGate.allowed
-          ? publicCompletenessGuidance(identificationRaw.item_name)
+          ? publicCompletenessGuidance(identificationRaw.item_name, purchaseCompleteness.reason_codes)
           : publicPurchaseGuidance(purchaseGate, identificationRaw.item_name)
     if (fullFastenerSpecAllowed && optionalDrive.includes('drive_form')) {
       // Do not turn a side-view dimension success into an unsupported claim

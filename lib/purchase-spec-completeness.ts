@@ -1,6 +1,7 @@
 import type { IdentificationResult } from './identification'
 import type { PurchaseGate } from './cv-purchase-policy'
 import type { DriveEvidence } from './drive-evidence'
+import { assessNominalLengthConsistency, type NominalLengthAgreement } from './nominal-length-consistency'
 
 export type PurchaseCompletenessReason =
   | 'cv_purchase_gate_blocked'
@@ -8,6 +9,8 @@ export type PurchaseCompletenessReason =
   | 'thread_system_unresolved'
   | 'nominal_specification_missing'
   | 'nominal_specification_incomplete'
+  | 'nominal_length_unverifiable'
+  | 'nominal_length_inconsistent'
 
 export interface PurchaseSpecificationCompleteness {
   // Complete *dimensional* purchase spec, independently of a visible drive
@@ -16,6 +19,7 @@ export interface PurchaseSpecificationCompleteness {
   reason_codes: PurchaseCompletenessReason[]
   numeric_component_count: number
   optional_unconfirmed_fields: Array<'drive_form' | 'drive_size'>
+  nominal_length_agreement: NominalLengthAgreement
 }
 
 export function assessPurchaseSpecificationCompleteness(
@@ -37,6 +41,13 @@ export function assessPurchaseSpecificationCompleteness(
   const numericComponents = nominal.match(/\d+(?:\.\d+)?/g)?.length ?? 0
   if (!nominal) reasons.push('nominal_specification_missing')
   else if (numericComponents < 3) reasons.push('nominal_specification_incomplete')
+  const lengthAgreement = assessNominalLengthConsistency(
+    nominal, gate.selected_length_mm, fastener?.thread_system ?? 'unknown',
+  )
+  if (gate.allowed && nominal && numericComponents >= 3) {
+    if (lengthAgreement.status === 'inconsistent') reasons.push('nominal_length_inconsistent')
+    else if (lengthAgreement.status !== 'consistent') reasons.push('nominal_length_unverifiable')
+  }
   const noRecess = /^(none|no drive|不適用|外六角)$/i.test(drive.display_form)
   const optionalUnconfirmed: PurchaseSpecificationCompleteness['optional_unconfirmed_fields'] =
     !drive.form_observed ? ['drive_form', 'drive_size'] : noRecess ? [] : ['drive_size']
@@ -45,10 +56,17 @@ export function assessPurchaseSpecificationCompleteness(
     reason_codes: reasons,
     numeric_component_count: numericComponents,
     optional_unconfirmed_fields: optionalUnconfirmed,
+    nominal_length_agreement: lengthAgreement,
   }
 }
 
-export function publicCompletenessGuidance(itemName: string): string {
+export function publicCompletenessGuidance(itemName: string, reasons: PurchaseCompletenessReason[] = []): string {
   const name = itemName || '此五金'
+  if (reasons.includes('nominal_length_inconsistent')) {
+    return name + '（已量得主要尺寸，但候選公稱長度與影像實測不一致；暫不提供完整購買規格，請持實物核對）'
+  }
+  if (reasons.includes('nominal_length_unverifiable')) {
+    return name + '（主要尺寸已量得，但候選購買規格的長度無法可靠核對；請持實物確認）'
+  }
   return name + '（主要尺寸或公稱規格仍不完整；請依提示補拍清楚的側面與尺，並於購買前持實物核對）'
 }
