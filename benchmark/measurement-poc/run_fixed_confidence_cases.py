@@ -36,9 +36,12 @@ def _region(values: list[float]) -> dict:
 
 def _fixture_path(directory: Path, case_id: str) -> Path:
     names = {
-        "A": ("case-a.bin", "case-a.jpg"),
-        "B": ("case-b.bin", "case-b.jpg"),
-        "D": ("case-d.bin", "case-d.jpg"),
+        # The *-original.jpg names are the immutable filenames emitted by the
+        # historical acceptance runs whose artifacts CI downloads.  The
+        # case-* aliases are retained for local fixture directories.
+        "A": ("case-a.bin", "case-a.jpg", "A-original.jpg"),
+        "B": ("case-b.bin", "case-b.jpg", "B-original.jpg"),
+        "D": ("case-d.bin", "case-d.jpg", "D-original.jpg"),
         "E": ("case-e.webp",),
     }[case_id]
     for name in names:
