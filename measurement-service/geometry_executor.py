@@ -11,6 +11,7 @@ from geometry import (
     _select_physical_object_candidate,
 )
 from edge_observation import measure_thread_major_diameter, observe_thread_edges
+from head_geometry import observe_head_profile, unavailable_head_geometry
 from periodic_silhouette_diameter import estimate_periodic_silhouette_diameter
 from thread_extent import infer_thread_extent
 from thread_geometry import (
@@ -208,6 +209,46 @@ def _threaded_shank_landmarks(profile: ThreadedShankProfile) -> dict[str, dict[s
             "y_px": _round(profile.end_xy[1]),
         },
     }
+
+
+def observe_head_geometry(
+    image_rgb: np.ndarray,
+    ruler_mark_points_px: np.ndarray,
+    px_per_cm: float,
+    semantic_vision: dict | None = None,
+) -> dict[str, Any]:
+    """Return head silhouette evidence without changing the fixed dimensions."""
+    contour = _select_object_contour(
+        image_rgb,
+        ruler_mark_points_px,
+        px_per_cm,
+        semantic_vision=semantic_vision,
+    )
+    if contour is None:
+        return unavailable_head_geometry("object_contour_not_found").to_dict()
+    profile = detect_threaded_shank(contour)
+    if profile is None:
+        return unavailable_head_geometry("head_profile_not_found").to_dict()
+    underface = estimate_head_underface(profile)
+    if underface is None:
+        shank_outer = measure_outer_width_px(profile)
+        if shank_outer is None:
+            return unavailable_head_geometry("head_boundary_not_found").to_dict()
+        # Countersunk heads do not expose the abrupt bilateral bearing shoulder
+        # required by the protruding-head L estimator. For silhouette evidence
+        # only, the coarse width transition is a valid search boundary; it does
+        # not replace or modify either L candidate.
+        underface = HeadUnderfaceEstimate(
+            s=profile.transition_s,
+            shank_outer_px=shank_outer,
+            stable_limit_px=max(shank_outer * 1.08, shank_outer + 2.0),
+            expansion_threshold_px=max(shank_outer * 1.30, shank_outer + 6.0),
+            persistence_px=max(5, int(round(shank_outer * 0.10))),
+        )
+        return observe_head_profile(
+            profile, underface, boundary_source="coarse_transition",
+        ).to_dict()
+    return observe_head_profile(profile, underface).to_dict()
 
 
 def execute_geometry_steps(

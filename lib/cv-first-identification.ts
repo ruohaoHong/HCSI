@@ -100,13 +100,30 @@ function buildLlmReadableCvEvidence(measurement: MeasurementResult | null, measu
           ? Number((DK.value_mm / D.value_mm).toFixed(3)) : null,
         note: 'Physical constraints, not a unique head-style classifier.',
       } : null
+  const head = measurement.head_geometry
+  const headGeometry = head ? {
+    status: head.status,
+    quality: head.quality,
+    reason_codes: head.reason_codes,
+    boundary_source: head.boundary_source,
+    height_to_width: head.height_to_width,
+    bearing_width_ratio: head.bearing_width_ratio,
+    mid_width_ratio: head.mid_width_ratio,
+    top_width_ratio: head.top_width_ratio,
+    max_width_position: head.max_width_position,
+    width_trend: head.width_trend,
+    centerline_drift_ratio: head.centerline_drift_ratio,
+    profile_roughness: head.profile_roughness,
+    length_convention_evidence: head.length_convention_evidence,
+    normalized_profile_points: head.profile_points,
+  } : null
   return {
     source: 'deterministic_cv_before_llm',
     scale_system: measurement.scale_system,
     physical_dimensions: readable,
     optional_thread_extent,
     head_proportions: headProportions,
-    head_outline: measurement.head_geometry ?? null,
+    head_geometry: headGeometry,
     capture_caution: 'A single image cannot independently prove the hardware and ruler are coplanar.',
   }
 }

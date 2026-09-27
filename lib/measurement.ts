@@ -89,9 +89,32 @@ export interface CvDimensionEvidence {
   diagnostics: Record<string, number | string | boolean>
 }
 
-// Reserved for raw, image-observed head silhouette evidence. The concrete
-// CV-first v2 schema is added independently from the legacy dimension slots.
-export type HeadGeometryEvidence = Record<string, unknown>
+export interface HeadProfilePoint {
+  axial_fraction: number
+  width_ratio: number
+  center_offset_ratio: number
+}
+
+export interface HeadGeometryEvidence {
+  status: GeometryStepMeasurementStatus
+  quality: 'reliable' | 'degraded' | 'unusable'
+  reason_codes: string[]
+  boundary_source: 'bearing_plane' | 'coarse_transition' | 'unavailable'
+  sample_count: number
+  head_height_px: number | null
+  head_width_p90_px: number | null
+  shank_width_px: number | null
+  height_to_width: number | null
+  bearing_width_ratio: number | null
+  mid_width_ratio: number | null
+  top_width_ratio: number | null
+  max_width_position: number | null
+  width_trend: number | null
+  centerline_drift_ratio: number | null
+  profile_roughness: number | null
+  length_convention_evidence: 'countersunk' | 'protruding' | 'ambiguous' | 'unknown'
+  profile_points: HeadProfilePoint[]
+}
 
 export interface MeasurementResult {
   dimensions?: Partial<Record<FixedDimension, CvDimensionEvidence>>
@@ -127,6 +150,38 @@ export interface MeasurementResult {
 
 function isFiniteNumberOrNull(value: unknown): value is number | null {
   return value === null || (typeof value === 'number' && Number.isFinite(value))
+}
+
+function isHeadGeometryEvidence(value: unknown): value is HeadGeometryEvidence {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const candidate = value as Record<string, unknown>
+  if (!['measured', 'not_measured'].includes(String(candidate.status))) return false
+  if (!['reliable', 'degraded', 'unusable'].includes(String(candidate.quality))) return false
+  if (!['bearing_plane', 'coarse_transition', 'unavailable'].includes(String(candidate.boundary_source))) return false
+  if (!['countersunk', 'protruding', 'ambiguous', 'unknown'].includes(String(candidate.length_convention_evidence))) return false
+  if (!Number.isInteger(candidate.sample_count) || Number(candidate.sample_count) < 0) return false
+  if (!Array.isArray(candidate.reason_codes) || !candidate.reason_codes.every(item => typeof item === 'string')) return false
+  for (const key of [
+    'head_height_px', 'head_width_p90_px', 'shank_width_px', 'height_to_width',
+    'bearing_width_ratio', 'mid_width_ratio', 'top_width_ratio', 'max_width_position',
+    'width_trend', 'centerline_drift_ratio', 'profile_roughness',
+  ]) {
+    if (!isFiniteNumberOrNull(candidate[key])) return false
+  }
+  if (!Array.isArray(candidate.profile_points) || !candidate.profile_points.every(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return false
+    const point = item as Record<string, unknown>
+    return ['axial_fraction', 'width_ratio', 'center_offset_ratio'].every(
+      key => typeof point[key] === 'number' && Number.isFinite(point[key])
+    )
+  })) return false
+  if (candidate.status === 'measured') {
+    if (candidate.quality === 'unusable' || Number(candidate.sample_count) === 0) return false
+    if (candidate.head_height_px === null || candidate.head_width_p90_px === null || candidate.shank_width_px === null) return false
+  } else if (candidate.quality !== 'unusable' || Number(candidate.sample_count) !== 0 || candidate.profile_points.length !== 0) {
+    return false
+  }
+  return true
 }
 
 function isGeometryStepMeasurement(value: unknown): value is GeometryStepMeasurement {
@@ -231,6 +286,8 @@ export function isMeasurementResult(value: unknown): value is MeasurementResult 
       if (dim.status === 'not_measured' && (dim.value_px !== null || dim.value_mm !== null)) return false
     }
   }
+  if (candidate.head_geometry !== undefined && candidate.head_geometry !== null &&
+      !isHeadGeometryEvidence(candidate.head_geometry)) return false
   if (!Array.isArray(candidate.reason_codes) || !candidate.reason_codes.every((item) => typeof item === 'string')) return false
   const ruler = candidate.ruler
   const object = candidate.object

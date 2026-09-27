@@ -7,6 +7,12 @@ import { runMeasurementPreflight, MeasurementServiceError } from '@/lib/measurem
 import { verifyMeasurementProof } from '@/lib/measurement-proof'
 import { selectLengthFromCv } from '@/lib/cv-length-policy'
 import { preflightPurchaseGate, finalPurchaseGate, publicPurchaseGuidance } from '@/lib/cv-purchase-policy'
+import { evaluateHeadStyleConsistency } from '@/lib/head-style-consistency'
+import { sanitizeDriveEvidence, stripUnverifiedDriveSizeClaims } from '@/lib/drive-evidence'
+import {
+  assessPurchaseSpecificationCompleteness,
+  publicCompletenessGuidance,
+} from '@/lib/purchase-spec-completeness'
 import type { MeasurementResult, FixedDimension } from '@/lib/measurement'
 import { loadReferencePack } from '@/lib/reference-loader'
 
@@ -71,15 +77,53 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       throw new Error(`${config.label} CV-first 語義辨識結果格式不完整`)
     }
     // Nominal identification never edits the signed raw CV observations.
-    const selectedLength = selectLengthFromCv(identificationRaw.fastener_interpretation.head_style, measurement)
+    // A reliable silhouette can reject an impossible semantic head choice,
+    // but ambiguous geometry leaves the combined visual/CV choice intact.
+    const headConsistency = evaluateHeadStyleConsistency(
+      identificationRaw.fastener_interpretation.head_style,
+      measurement,
+    )
+    identificationRaw.fastener_interpretation.head_style = headConsistency.resolved_head_style
+    if (headConsistency.status === 'conflict') {
+      identificationRaw.uncertain_fields.push('頭部外觀判讀與可信側面輪廓衝突；已排除該頭型，請補拍頭部側面與正面。')
+    } else if (headConsistency.status === 'insufficient' &&
+               ['unknown', 'other'].includes(headConsistency.resolved_head_style)) {
+      identificationRaw.uncertain_fields.push('頭型證據不足，尚不能決定正確的購買長度慣例。')
+    }
+    const selectedLength = selectLengthFromCv(headConsistency.resolved_head_style, measurement)
     identificationRaw.fastener_interpretation.length_convention = selectedLength.convention
     // The preflight can proceed on either L candidate; once head style is
     // inferred, the FINAL gate requires the correct measured length.
-    const purchaseGate = finalPurchaseGate(measurement, identificationRaw.fastener_interpretation.head_style)
-    const fullFastenerSpecAllowed = identificationRaw.category === 'fasteners' && purchaseGate.allowed
+    const purchaseGate = finalPurchaseGate(
+      measurement,
+      headConsistency.resolved_head_style,
+      headConsistency,
+    )
+    const driveEvidence = sanitizeDriveEvidence(identificationRaw.fastener_interpretation.drive_form)
+    identificationRaw.fastener_interpretation.drive_form = driveEvidence.display_form
+    identificationRaw.fastener_interpretation.nominal_specification =
+      stripUnverifiedDriveSizeClaims(identificationRaw.fastener_interpretation.nominal_specification)
+    identificationRaw.purchase_description =
+      stripUnverifiedDriveSizeClaims(identificationRaw.purchase_description)
+    identificationRaw.specifications = identificationRaw.specifications.map(spec => ({
+      ...spec,
+      value: stripUnverifiedDriveSizeClaims(spec.value),
+    }))
+    const purchaseCompleteness = assessPurchaseSpecificationCompleteness(
+      identificationRaw,
+      purchaseGate,
+      driveEvidence,
+    )
+    const fullFastenerSpecAllowed = identificationRaw.category === 'fasteners' &&
+      purchaseGate.allowed && purchaseCompleteness.complete
+    const guidance = fullFastenerSpecAllowed
+      ? ''
+      : purchaseGate.allowed
+        ? publicCompletenessGuidance(identificationRaw.item_name)
+        : publicPurchaseGuidance(purchaseGate, identificationRaw.item_name)
     if (!fullFastenerSpecAllowed) {
       identificationRaw.fastener_interpretation.nominal_specification = ''
-      identificationRaw.purchase_description = publicPurchaseGuidance(purchaseGate, identificationRaw.item_name)
+      identificationRaw.purchase_description = guidance
       // Never display speculative numeric specs when full evidence is blocked.
       identificationRaw.specifications = identificationRaw.specifications.filter(
         spec => spec.evidence_level === 'observed' && !/\\d/.test(spec.value)
@@ -91,25 +135,32 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     // Slot form is image-observed (when visible); slot SIZE has no CV measurement
     // or verified standards-table derivation in this version.
     identificationRaw.specifications = identificationRaw.specifications.filter(
-      spec => !/^(S\\s*[:：／]?|驅動槽尺寸|槽孔尺寸)/i.test(spec.label)
+      spec => !/^(S\\s*[:：／]?|驅動(?:槽)?(?:尺寸|規格)|槽孔尺寸)/i.test(spec.label)
     )
     if (identificationRaw.category === 'fasteners') {
-      const drive = identificationRaw.fastener_interpretation.drive_form.trim()
-      if (!drive || /unknown|待確認|未確認|不可見|無法/i.test(drive)) {
-        identificationRaw.fastener_interpretation.drive_form = '待確認'
+      if (!driveEvidence.form_observed) {
         identificationRaw.uncertain_fields.push('驅動槽型式及尺寸：目前角度無法確認，請補拍螺絲頭正面。')
-      } else if (!/^(none|no drive|不適用|外六角)$/i.test(drive)) {
+      } else if (!/^(none|no drive|不適用|外六角)$/i.test(driveEvidence.display_form)) {
         identificationRaw.uncertain_fields.push('驅動槽尺寸：尚無可信實測或驗證標準表，請補拍螺絲頭正面或持實物確認。')
       }
     }
+    identificationRaw.uncertain_fields = [...new Set(identificationRaw.uncertain_fields)]
     const dimensions = measurement?.dimensions ?? {}
     const response = {
       provider, model: config.model, result: identificationRaw, measurement,
+      user_guidance: {
+        purchase_ready: fullFastenerSpecAllowed,
+        message: guidance,
+        actions: fullFastenerSpecAllowed ? [] : ['依提示補拍', '購買前以實物核對必要尺寸'],
+      },
       specification_evidence: {
         cv_raw_measurements: dimensions,
         llm_inferred_nominal: identificationRaw.fastener_interpretation.nominal_specification,
         purchase_gate: purchaseGate,
-        standard_table_derived: [], // No verified standards table is wired in v1.
+        purchase_completeness: purchaseCompleteness,
+        head_style_consistency: headConsistency,
+        drive_evidence: driveEvidence,
+        standard_table_derived: [], // No verified standards table is wired in v2.
         not_obtained: [
           ...REQUIRED_INFERENCE_DIMENSIONS.filter(key => dimensions[key]?.status !== 'measured'),
         ],
@@ -118,8 +169,12 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       selected_length: selectedLength,
       measurement_source: proofValid ? 'signed_preflight_reused' : measurement ? 'server_cv_executed' : 'service_unavailable',
       measurement_service_error: measurementServiceError,
-      schema_version: 'hcsi.cv-first.v1',
+      schema_version: 'hcsi.cv-first.v2',
     }
+    console.info('[HCSI] CV-first internal diagnostics', {
+      provider, purchaseGate, purchaseCompleteness, headConsistency, driveEvidence,
+      measurementServiceError, measurementReasonCodes: measurement?.reason_codes ?? [],
+    })
     await logResult(provider, config.model, identificationRaw.category, identificationRaw, measurement)
     return NextResponse.json(response)
   } catch (error) {

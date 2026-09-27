@@ -1,5 +1,9 @@
 name: Measurement PoC
 
+permissions:
+  contents: read
+  actions: read
+
 on:
   push:
     paths:
@@ -42,3 +46,34 @@ jobs:
       - run: pytest -q measurement-service/tests
       - name: Verify benchmark scoring example
         run: python benchmark/measurement-poc/score.py benchmark/measurement-poc/example.json
+      - name: Download locked real-case A/B fixtures
+        uses: actions/download-artifact@v4
+        with:
+          name: real-acceptance-ab
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ruohaoHong/HCSI
+          run-id: 35753143674
+          path: /tmp/hcsi-real-fixtures
+      - name: Download locked real-case D fixture
+        uses: actions/download-artifact@v4
+        with:
+          name: real-case-d
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ruohaoHong/HCSI
+          run-id: 36009560609
+          path: /tmp/hcsi-real-fixtures
+      - name: Reassemble and verify repository Case E derivative
+        run: python benchmark/measurement-poc/assemble_case_e_fixture.py --output /tmp/hcsi-real-fixtures/case-e.webp
+      - name: Run frozen B/D/E measurement regression
+        run: |
+          python benchmark/measurement-poc/run_fixed_confidence_cases.py \
+            --service-dir measurement-service \
+            --fixture-dir /tmp/hcsi-real-fixtures \
+            --output /tmp/hcsi-real-bde.json \
+            --label cv-first-v2 \
+            --cases B D E
+      - name: Upload B/D/E regression diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: cv-first-v2-real-bde
+          path: /tmp/hcsi-real-bde.json

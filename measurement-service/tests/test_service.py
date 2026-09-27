@@ -70,6 +70,8 @@ def test_measure_rgb_combines_ruler_scale_and_opencv_geometry(monkeypatch):
     assert len(result["geometry_steps"]) == 7
     assert set(result["dimensions"]) == {"D", "P", "L_underhead", "L_overall", "B", "K", "DK"}
     assert result["dimensions"]["B"]["status"] == "not_measured"
+    assert result["head_geometry"]["status"] in {"measured", "not_measured"}
+    assert result["head_geometry"]["quality"] in {"reliable", "degraded", "unusable"}
     assert result["image_sha256"] == "abc123"
 
 
@@ -213,6 +215,9 @@ def test_fixed_measurements_ignore_unknown_or_other_semantic_head(monkeypatch):
         }
         assert len(result["geometry_steps"]) == 7
         assert result["dimensions"]["B"]["status"] == "not_measured"
+        assert result["head_geometry"]["status"] == "measured"
+        assert result["head_geometry"]["quality"] == "reliable"
+        assert result["head_geometry"]["length_convention_evidence"] == "protruding"
         assert all(
             step["reason_codes"] != ["operation_not_implemented"]
             for step in result["geometry_steps"]

@@ -14,7 +14,16 @@ function fixture(): MeasurementResult {
     dimensions: Object.fromEntries(keys.map(key => [key, {
       status: 'measured', value_px: 100, value_mm: 10, confidence: 'verified',
       risk_signals: [], reason_codes: [], diagnostics: {},
-    }]))
+    }])),
+    head_geometry: {
+      status: 'measured', quality: 'reliable', reason_codes: [],
+      boundary_source: 'bearing_plane', sample_count: 30,
+      head_height_px: 30, head_width_p90_px: 60, shank_width_px: 25,
+      height_to_width: 0.5, bearing_width_ratio: 0.9, mid_width_ratio: 0.9,
+      top_width_ratio: 0.8, max_width_position: 0.2, width_trend: -0.1,
+      centerline_drift_ratio: 0.02, profile_roughness: 0.01,
+      length_convention_evidence: 'protruding', profile_points: [],
+    },
   } as unknown as MeasurementResult
 }
 let cv = fixture()
@@ -42,4 +51,10 @@ assert.equal(preflightPurchaseGate(cv).allowed, false, 'observable CV risks must
 cv = fixture()
 cv.confidence_evaluation.checks.find(c => c.id === 'perspective_risk')!.status = 'failed'
 assert.equal(preflightPurchaseGate(cv).allowed, false, 'excessive perspective blocks precise purchase spec')
+cv = fixture()
+cv.head_geometry!.quality = 'degraded'
+assert.equal(preflightPurchaseGate(cv).allowed, false, 'degraded head silhouette blocks a complete purchase spec')
+cv = fixture()
+cv.head_geometry!.length_convention_evidence = 'countersunk'
+assert.equal(finalPurchaseGate(cv, 'pan').allowed, false, 'physical head conflict blocks a complete purchase spec')
 console.log('CV purchase evidence gates: all tests passed')

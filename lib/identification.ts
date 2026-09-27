@@ -71,6 +71,11 @@ export interface IdentificationResult {
 }
 
 export interface AnalysisResponse {
+  user_guidance?: {
+    purchase_ready: boolean
+    message: string
+    actions: string[]
+  }
   selected_length?: {
     convention: 'under_head' | 'overall' | 'unresolved'
     dimension: 'L_underhead' | 'L_overall' | null

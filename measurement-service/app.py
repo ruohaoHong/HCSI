@@ -11,7 +11,13 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 
 from confidence_gate import evaluate_measurement_confidence
 from geometry import extract_object_geometry
-from geometry_executor import FIXED_FASTENER_STEPS, execute_geometry_steps, unmeasured_geometry_steps
+from geometry_executor import (
+    FIXED_FASTENER_STEPS,
+    execute_geometry_steps,
+    observe_head_geometry,
+    unmeasured_geometry_steps,
+)
+from head_geometry import unavailable_head_geometry
 from rulernet import infer_ruler, local_px_per_cm, perspective_step_pct
 from scale_reference import resolve_scale_reference
 from semantic_regions import normalize_semantic_vision, parse_semantic_vision
@@ -126,6 +132,7 @@ def _result(
     scale_px_per_cm: float | None = None,
     scale_px_per_inch: float | None = None,
     geometry_steps: list[dict[str, Any]] | None = None,
+    head_geometry: dict[str, Any] | None = None,
     capture_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     valid = status == "valid"
@@ -208,6 +215,11 @@ def _result(
     return {
         "schema_version": "hcsi.measurement.v1",
         "dimensions": dimensions,
+        "head_geometry": (
+            head_geometry
+            if head_geometry is not None
+            else unavailable_head_geometry("head_geometry_not_observed").to_dict()
+        ),
         "image_sha256": image_sha256,
         "measurement_status": status,
         "measurement_confidence": confidence["status"],
@@ -378,6 +390,12 @@ def measure_rgb(
         requested_steps,
         semantic_vision=semantic_context,
     )
+    head_geometry = observe_head_geometry(
+        image_rgb,
+        scale_ref.reference_points_px,
+        effective_scale,
+        semantic_vision=semantic_context,
+    )
     return _result(
         image_sha256=image_sha256,
         width=width,
@@ -392,6 +410,7 @@ def measure_rgb(
         scale_px_per_cm=effective_scale,
         scale_px_per_inch=effective_scale * 2.54,
         geometry_steps=executed_steps,
+        head_geometry=head_geometry,
         capture_evidence=capture_evidence,
     )
 

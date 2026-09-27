@@ -129,6 +129,7 @@ def main() -> None:
                 "same_plane_status": result.get("capture_assumptions", {}).get(
                     "same_plane_status"
                 ),
+                "head_geometry": result.get("head_geometry"),
                 "values_mm": values,
                 "ground_truth_mm": definition["ground_truth"],
                 "step_statuses": {

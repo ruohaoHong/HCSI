@@ -1,11 +1,13 @@
 import type { FixedDimension, MeasurementResult } from './measurement'
 import type { HeadStyle } from './identification'
 import { selectLengthFromCv } from './cv-length-policy'
+import { evaluateHeadStyleConsistency, type HeadStyleConsistency } from './head-style-consistency'
 
 export type PurchaseGateReason =
   | 'measurement_unavailable' | 'scale_unreliable' | 'object_unreliable'
   | 'geometry_quality_unreliable' | 'missing_D' | 'missing_P'
   | 'missing_head_geometry' | 'missing_length_candidate'
+  | 'head_geometry_unreliable' | 'head_style_conflict'
   | 'head_unresolved' | 'selected_length_unmeasured'
 
 export interface PurchaseGate {
@@ -53,6 +55,10 @@ export function preflightPurchaseGate(measurement: MeasurementResult | null): Pu
     if (!usableDimension(measurement, key)) reasons.push(key === 'D' ? 'missing_D' : 'missing_P')
   }
   if (!usableDimension(measurement, 'K') || !usableDimension(measurement, 'DK')) reasons.push('missing_head_geometry')
+  if (measurement.head_geometry?.status !== 'measured' ||
+      measurement.head_geometry.quality !== 'reliable') {
+    reasons.push('head_geometry_unreliable')
+  }
   if (!usableDimension(measurement, 'L_underhead') && !usableDimension(measurement, 'L_overall')) {
     reasons.push('missing_length_candidate')
   }
@@ -60,9 +66,14 @@ export function preflightPurchaseGate(measurement: MeasurementResult | null): Pu
     required_dimensions: ['D','P','K','DK'], selected_length: null }
 }
 
-export function finalPurchaseGate(measurement: MeasurementResult | null, head: HeadStyle): PurchaseGate {
+export function finalPurchaseGate(
+  measurement: MeasurementResult | null,
+  head: HeadStyle,
+  consistency: HeadStyleConsistency = evaluateHeadStyleConsistency(head, measurement),
+): PurchaseGate {
   const before = preflightPurchaseGate(measurement)
   const reasons = [...before.reasons]
+  if (consistency.status === 'conflict') reasons.push('head_style_conflict')
   const selected = selectLengthFromCv(head, measurement)
   if (selected.dimension === null) reasons.push('head_unresolved')
   else if (!usableDimension(measurement, selected.dimension)) reasons.push('selected_length_unmeasured')
@@ -79,6 +90,9 @@ export function publicPurchaseGuidance(gate: PurchaseGate, itemName: string): st
   }
   if (gate.reasons.includes('object_unreliable') || gate.reasons.includes('geometry_quality_unreliable')) {
     return `${name}（照片尚不足以可靠量測，請避免螺絲與尺重疊，清楚拍攝側面並減少透視後重試）`
+  }
+  if (gate.reasons.includes('head_style_conflict') || gate.reasons.includes('head_geometry_unreliable')) {
+    return `${name}（頭部外觀與可量測輪廓尚未取得一致證據，請清楚補拍螺絲側面與頭部正面）`
   }
   if (gate.reasons.includes('head_unresolved') || gate.reasons.includes('selected_length_unmeasured')) {
     return `${name}（頭型或對應長度尚未可靠確認，請補拍完整頭部、螺絲尖端與旁邊的尺）`
