@@ -41,8 +41,8 @@ jobs:
       - name: CV purchase gate regression
         run: |
           rm -rf /tmp/hcsi-purchase-gate-test
-          pnpm exec tsc lib/cv-purchase-policy.ts lib/cv-purchase-policy.test.ts \\
-            --target ES2022 --module commonjs --moduleResolution node \\
+          pnpm exec tsc lib/cv-purchase-policy.ts lib/cv-purchase-policy.test.ts \
+            --target ES2022 --module commonjs --moduleResolution node \
             --esModuleInterop --skipLibCheck --outDir /tmp/hcsi-purchase-gate-test
           node "$(find /tmp/hcsi-purchase-gate-test -name cv-purchase-policy.test.js -print -quit)"
       - run: pnpm build

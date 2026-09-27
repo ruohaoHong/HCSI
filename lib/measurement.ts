@@ -89,8 +89,13 @@ export interface CvDimensionEvidence {
   diagnostics: Record<string, number | string | boolean>
 }
 
+// Reserved for raw, image-observed head silhouette evidence. The concrete
+// CV-first v2 schema is added independently from the legacy dimension slots.
+export type HeadGeometryEvidence = Record<string, unknown>
+
 export interface MeasurementResult {
   dimensions?: Partial<Record<FixedDimension, CvDimensionEvidence>>
+  head_geometry?: HeadGeometryEvidence | null
   schema_version: 'hcsi.measurement.v1'
   image_sha256: string
   measurement_status: MeasurementStatus
