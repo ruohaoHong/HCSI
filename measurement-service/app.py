@@ -177,34 +177,45 @@ def _result(
         # A failure in one dimension never erases another dimension's raw
         # pixel/mm result. Confidence describes provenance, not a veto.
         measured = step.get("status") == "measured"
-        # Local dimension risks must not inherit an unrelated B failure.
-        # Shared capture/scale/contour uncertainty still affects every mm.
-        independent_failure_codes = {
-            "geometry_steps_incomplete", "geometry_steps_not_requested",
-            *[
-                failure
-                for other in step_results if other is not step
-                for failure in other.get("reason_codes", [])
-            ],
+        # Dimension trust comes from observable CV checks and the local
+        # measurement. A missing *independent* coplanarity claim is recorded
+        # globally but is not evidence that the CV edge/scale is defective.
+        observable_check_ids = {
+            "scale_available", "scale_observation_support",
+            "perspective_risk", "object_geometry", "segmentation_risk",
+            "semantic_target_consistency", "semantic_reference_consistency",
         }
+        observable_problems = [
+            check["reason_code"] or check["id"]
+            for check in confidence["checks"]
+            if (
+                check["id"] in observable_check_ids
+                and check["required"]
+                and check["status"] not in {"passed", "not_applicable"}
+            ) or (
+                check["id"] in {"same_plane", "near_overhead_capture"}
+                and check["status"] == "failed"
+            )
+        ]
+        local_risks = [
+            risk for risk in object_json.get("risk_signals", [])
+            if risk != "object_ruler_alignment_unknown"
+        ]
         risks = (
-            list(object_json.get("risk_signals", []))
-            + [reason for reason in confidence["reason_codes"]
-               if reason not in independent_failure_codes]
+            local_risks + observable_problems + list(step.get("reason_codes", []))
             if measured else list(step.get("reason_codes", []))
         )
-        # An observed endpoint may be positioned only to about one visible
-        # pitch. Explicitly mark this *local* B limitation even if external
-        # capture checks happen to be independently confirmed.
+        # B's visible boundary is inherently less precise than its shaft
+        # dimensions. Keep B optional for purchase inference.
         if measured and dimension == "B":
             risks.append("thread_boundary_resolution_limited_by_visible_pitch")
+        trustworthy = measured and not risks and dimension != "B"
         dimensions[dimension] = {
             "status": step["status"],
             "value_px": step.get("value_px"),
             "value_mm": step.get("value_mm"),
             "confidence": (
-                "verified" if measured and confidence["status"] == "verified"
-                and dimension != "B"
+                "verified" if trustworthy
                 else "measured_with_risk" if measured
                 else "not_measured"
             ),

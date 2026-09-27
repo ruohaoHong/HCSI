@@ -48,7 +48,11 @@ export function preflightPurchaseGate(measurement: MeasurementResult | null): Pu
   if (!measurement.object.detected || !measurement.object.contour_reliable) reasons.push('object_unreliable')
   const checks = new Map(measurement.confidence_evaluation.checks.map(check => [check.id, check.status]))
   // A failed or unknown observable check is a reason to stop full-spec inference.
-  if (OBSERVABLE_REQUIRED_CHECKS.some(id => checks.get(id) !== 'passed')) {
+  if (OBSERVABLE_REQUIRED_CHECKS.some(id => checks.get(id) !== 'passed') ||
+      checks.get('same_plane') === 'failed' ||
+      checks.get('near_overhead_capture') === 'failed') {
+    // Unknown capture metadata alone is not a CV failure; an explicit
+    // rejected capture condition IS a reason to refuse precise purchase specs.
     reasons.push('geometry_quality_unreliable')
   }
   for (const key of ['D','P'] as const) {

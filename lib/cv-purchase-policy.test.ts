@@ -52,6 +52,9 @@ cv = fixture()
 cv.confidence_evaluation.checks.find(c => c.id === 'perspective_risk')!.status = 'failed'
 assert.equal(preflightPurchaseGate(cv).allowed, false, 'excessive perspective blocks precise purchase spec')
 cv = fixture()
+cv.confidence_evaluation.checks.push({ id: 'same_plane', status: 'failed' } as never)
+assert.equal(preflightPurchaseGate(cv).allowed, false, 'explicitly rejected coplanarity must block')
+cv = fixture()
 cv.head_geometry!.quality = 'degraded'
 assert.equal(preflightPurchaseGate(cv).allowed, false, 'degraded head silhouette blocks a complete purchase spec')
 cv = fixture()

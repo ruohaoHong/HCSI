@@ -249,3 +249,53 @@ def test_real_http_handler_omitted_steps_runs_fixed_cv_plan(monkeypatch):
     assert set(result["dimensions"]) == {
         "D", "P", "L_underhead", "L_overall", "B", "K", "DK",
     }
+
+
+def test_dimension_confidence_uses_observable_cv_evidence_not_missing_capture_metadata():
+    """A failed optional B or unknown coplanarity must not contaminate D."""
+    ruler = {
+        "detected": True, "mark_count": 8, "scale_system": "metric",
+        "scale_source": "metric_ticks", "px_per_cm": 100.0,
+        "perspective_step_pct": 1.0, "perspective_ok": True,
+    }
+    obj = {
+        "detected": True, "contour_reliable": True,
+        "risk_signals": [], "semantic_routing_supplied": False,
+    }
+    d = {
+        "operation": "outer_width", "inputs": ["threaded_shank"],
+        "status": "measured", "value_px": 40.0, "value_mm": 4.0,
+        "reason_codes": [], "diagnostics": {},
+    }
+    b = {
+        "operation": "threaded_length", "inputs": ["threaded_shank"],
+        "status": "not_measured", "value_px": None, "value_mm": None,
+        "reason_codes": ["thread_tip_boundary_unresolved"],
+        "diagnostics": {},
+    }
+    common = dict(
+        image_sha256="abc123", width=100, height=100,
+        status="valid", reasons=[], ruler=ruler, obj=obj,
+        length_mm=10.0, width_mm=4.0,
+        scale_system="metric", scale_px_per_cm=100.0,
+        scale_px_per_inch=254.0, geometry_steps=[d, b],
+    )
+    result = service_app._result(**common)
+    assert result["measurement_confidence"] == "uncertain"
+    assert result["dimensions"]["D"]["confidence"] == "verified"
+    assert result["dimensions"]["D"]["risk_signals"] == []
+    assert result["dimensions"]["B"]["status"] == "not_measured"
+    assert "same_plane_unverified" in result["confidence_evaluation"]["reason_codes"]
+    rejected = service_app._result(
+        **common,
+        capture_evidence={
+            "same_plane": {"status": "rejected", "source": "manual_confirmation"},
+        },
+    )
+    assert rejected["dimensions"]["D"]["confidence"] == "measured_with_risk"
+    assert "same_plane_rejected" in rejected["dimensions"]["D"]["risk_signals"]
+    blurred = service_app._result(
+        **{**common, "ruler": {**ruler, "perspective_ok": False, "perspective_step_pct": 9.0}},
+    )
+    assert blurred["dimensions"]["D"]["confidence"] == "measured_with_risk"
+    assert "perspective_risk_detected" in blurred["dimensions"]["D"]["risk_signals"]
