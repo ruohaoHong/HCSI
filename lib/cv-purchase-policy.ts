@@ -29,7 +29,7 @@ const CAPTURE_METADATA_ONLY = new Set([
 ])
 function usableDimension(measurement: MeasurementResult | null, key: FixedDimension): boolean {
   const dim = measurement?.dimensions?.[key]
-  if (dim?.status !== 'measured' || !Number.isFinite(dim.value_mm) || (dim.value_mm ?? 0) <= 0) return false
+  if (dim?.status !== 'measured' || typeof dim.value_mm !== 'number' || !Number.isFinite(dim.value_mm) || (dim.value_mm ?? 0) <= 0) return false
   // Presence of a real observed geometric risk is different from lacking
   // independent capture confirmation. Keep the latter in internal diagnostics.
   return dim.risk_signals.every(reason => CAPTURE_METADATA_ONLY.has(reason))

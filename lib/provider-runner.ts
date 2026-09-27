@@ -6,6 +6,7 @@ import { CV_FIRST_IDENTIFICATION_JSON_SCHEMA, buildCvFirstIdentificationPrompt }
 import { runMeasurementPreflight, MeasurementServiceError } from '@/lib/measurement-client'
 import { verifyMeasurementProof } from '@/lib/measurement-proof'
 import { selectLengthFromCv } from '@/lib/cv-length-policy'
+import { preflightPurchaseGate, finalPurchaseGate, publicPurchaseGuidance } from '@/lib/cv-purchase-policy'
 import type { MeasurementResult, FixedDimension } from '@/lib/measurement'
 import { loadReferencePack } from '@/lib/reference-loader'
 
@@ -54,11 +55,12 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const cvComplete = !!measurement?.dimensions && REQUIRED_INFERENCE_DIMENSIONS.every(key => !!measurement?.dimensions?.[key])
     if (measurement && !cvComplete) throw new Error('CV-first 回傳缺少推論所需的固定尺寸槽位')
 
+    const preflightGate = preflightPurchaseGate(measurement)
     const reference = await loadReferencePack('fasteners')
     const identificationRaw = await runStructuredProvider({
       provider, apiKey, model: config.model, image,
       prompt: buildCvFirstIdentificationPrompt(measurement, measurementServiceError?.code ?? null,
-        reference.core, reference.category),
+        reference.core, reference.category, preflightGate.allowed),
       schemaName: 'hcsi_cv_first_identification',
       schema: CV_FIRST_IDENTIFICATION_JSON_SCHEMA as unknown as JsonSchema,
       maxOutputTokens: 4600,
@@ -71,32 +73,45 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     // Nominal identification never edits the signed raw CV observations.
     const selectedLength = selectLengthFromCv(identificationRaw.fastener_interpretation.head_style, measurement)
     identificationRaw.fastener_interpretation.length_convention = selectedLength.convention
-    const haveMetricEvidence = !!measurement?.dimensions &&
-      ['D', 'P', 'L_underhead', 'L_overall'].some(
-        key => measurement?.dimensions?.[key as FixedDimension]?.status === 'measured'
-      )
-    if (!haveMetricEvidence) {
+    // The preflight can proceed on either L candidate; once head style is
+    // inferred, the FINAL gate requires the correct measured length.
+    const purchaseGate = finalPurchaseGate(measurement, identificationRaw.fastener_interpretation.head_style)
+    const fullFastenerSpecAllowed = identificationRaw.category === 'fasteners' && purchaseGate.allowed
+    if (!fullFastenerSpecAllowed) {
       identificationRaw.fastener_interpretation.nominal_specification = ''
-      identificationRaw.purchase_description = `${identificationRaw.item_name}（尺寸未經可信尺度驗證；請補拍含尺照片或持實物至五金行核對）`
+      identificationRaw.purchase_description = publicPurchaseGuidance(purchaseGate, identificationRaw.item_name)
+      // Never display speculative numeric specs when full evidence is blocked.
+      identificationRaw.specifications = identificationRaw.specifications.filter(
+        spec => spec.evidence_level === 'observed' && !/\\d/.test(spec.value)
+      )
+      identificationRaw.most_likely_identification = identificationRaw.item_name
+      identificationRaw.identification_status = identificationRaw.identification_status === 'unidentifiable'
+        ? 'unidentifiable' : 'partial'
     }
+    // Slot form is image-observed (when visible); slot SIZE has no CV measurement
+    // or verified standards-table derivation in this version.
     identificationRaw.specifications = identificationRaw.specifications.filter(
-      spec => !/^S\s*[:：／]?|驅動槽尺寸|槽孔尺寸/i.test(spec.label)
+      spec => !/^(S\\s*[:：／]?|驅動槽尺寸|槽孔尺寸)/i.test(spec.label)
     )
-    identificationRaw.specifications.push({
-      label: 'S 驅動槽尺寸',
-      value: '待確認：目前沒有已核實的標準型號與相應標準規格表，不是照片實測。',
-      evidence_level: 'unconfirmed',
-    })
+    if (identificationRaw.category === 'fasteners') {
+      const drive = identificationRaw.fastener_interpretation.drive_form.trim()
+      if (!drive || /unknown|待確認|未確認|不可見|無法/i.test(drive)) {
+        identificationRaw.fastener_interpretation.drive_form = '待確認'
+        identificationRaw.uncertain_fields.push('驅動槽型式及尺寸：目前角度無法確認，請補拍螺絲頭正面。')
+      } else if (!/^(none|no drive|不適用|外六角)$/i.test(drive)) {
+        identificationRaw.uncertain_fields.push('驅動槽尺寸：尚無可信實測或驗證標準表，請補拍螺絲頭正面或持實物確認。')
+      }
+    }
     const dimensions = measurement?.dimensions ?? {}
     const response = {
       provider, model: config.model, result: identificationRaw, measurement,
       specification_evidence: {
         cv_raw_measurements: dimensions,
         llm_inferred_nominal: identificationRaw.fastener_interpretation.nominal_specification,
+        purchase_gate: purchaseGate,
         standard_table_derived: [], // No verified standards table is wired in v1.
         not_obtained: [
           ...REQUIRED_INFERENCE_DIMENSIONS.filter(key => dimensions[key]?.status !== 'measured'),
-          'S',
         ],
         not_implemented: ['T'],
       },

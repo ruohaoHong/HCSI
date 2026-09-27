@@ -44,42 +44,70 @@ const LLM_DIMENSION_GUIDANCE = {
   DK: { label: 'Maximum head diameter', meaning: 'Maximum transverse head diameter/width; combine with the original image and K to support head-style classification.' },
 } as const
 
+// Keep debug diagnostics and raw pixel tracks on the server. The model needs
+// physical meaning, trusted millimetres and any observable limitations.
 function buildLlmReadableCvEvidence(measurement: MeasurementResult | null, measurementServiceError: string | null) {
   if (!measurement?.dimensions) return {
     source: 'deterministic_cv_before_llm',
     measurement_available: false,
-    error: measurementServiceError || 'no_measurement_available',
-    instruction: 'No trustworthy numeric CV evidence is available. Identify appearance only; do not invent precise dimensions.',
+    note: 'No trustworthy numeric measurements are available; classify visible appearance only.',
+    service_unavailable: Boolean(measurementServiceError),
   }
-  const dimensions = Object.fromEntries(
-    (Object.keys(LLM_DIMENSION_GUIDANCE) as Array<keyof typeof LLM_DIMENSION_GUIDANCE>).map((key) => {
+  const readable = Object.fromEntries(
+    (Object.keys(LLM_DIMENSION_GUIDANCE) as Array<keyof typeof LLM_DIMENSION_GUIDANCE>).map(key => {
       const raw = measurement.dimensions?.[key]
       const guide = LLM_DIMENSION_GUIDANCE[key]
       return [key, {
         label: guide.label,
-        meaning: guide.meaning,
+        physical_meaning: guide.meaning,
         measured_mm: raw?.status === 'measured' ? raw.value_mm : null,
-        measured_px: raw?.status === 'measured' ? raw.value_px : null,
         status: raw?.status ?? 'not_measured',
-        confidence: raw?.confidence ?? 'not_measured',
-        risks: raw?.risk_signals ?? [],
-        failure_reasons: raw?.reason_codes ?? [],
-        diagnostics: raw?.diagnostics ?? {},
+        reliability: raw?.confidence ?? 'not_measured',
+        observable_limitations: (raw?.risk_signals ?? []).filter(reason =>
+          reason !== 'same_plane_unverified' && reason !== 'capture_orientation_unverified'
+        ),
       }]
-    }),
+    })
   )
+  const pitch = measurement.dimensions.P
+  const pitchStep = measurement.geometry_steps.find(step =>
+    step.operation === 'periodicity' && step.status === 'measured' &&
+    step.inputs.length === 1 && step.inputs[0] === 'threaded_shank'
+  )
+  const tpi = pitch?.status === 'measured' && pitch.value_mm && pitch.value_mm > 0
+    ? pitchStep?.derived_tpi ?? Number((25.4 / pitch.value_mm).toFixed(2))
+    : null
+  if (tpi !== null) Object.assign(readable.P, { derived_tpi_from_measured_pitch: tpi })
+  const B = measurement.dimensions.B
+  const optional_thread_extent = B?.status === 'measured' && B.value_mm !== null
+    ? {
+        measured_mm: B.value_mm,
+        label: 'Visible threaded extent: optional evidence for full/partial thread',
+        limitations: B.risk_signals.filter(reason =>
+          reason !== 'same_plane_unverified' && reason !== 'capture_orientation_unverified'
+        ),
+        note: 'Supporting evidence only. Its absence does not invalidate the core dimensions.',
+      }
+    : null
+  const K = measurement.dimensions.K
+  const DK = measurement.dimensions.DK
+  const D = measurement.dimensions.D
+  const headProportions = K?.status === 'measured' && DK?.status === 'measured' &&
+    K.value_mm && DK.value_mm && DK.value_mm > 0
+    ? {
+        height_to_head_width: Number((K.value_mm / DK.value_mm).toFixed(3)),
+        head_width_to_shank_diameter: D?.status === 'measured' && D.value_mm && D.value_mm > 0
+          ? Number((DK.value_mm / D.value_mm).toFixed(3)) : null,
+        note: 'Physical constraints, not a unique head-style classifier.',
+      } : null
   return {
     source: 'deterministic_cv_before_llm',
-    instruction: 'These are image measurements, not nominal catalogue dimensions. Preserve measured values exactly. Infer a likely purchasable nominal specification only as an inference.',
-    measurement_status: measurement.measurement_status,
-    measurement_confidence: measurement.measurement_confidence,
     scale_system: measurement.scale_system,
-    dimensions,
-    capture_conditions: {
-      same_plane: measurement.capture_assumptions.same_plane_status,
-      near_overhead: measurement.capture_assumptions.near_overhead_status,
-    },
-    global_risks: measurement.confidence_evaluation.reason_codes,
+    physical_dimensions: readable,
+    optional_thread_extent,
+    head_proportions: headProportions,
+    head_outline: measurement.head_geometry ?? null,
+    capture_caution: 'A single image cannot independently prove the hardware and ruler are coplanar.',
   }
 }
 
@@ -87,44 +115,36 @@ export function buildCvFirstIdentificationPrompt(
   measurement: MeasurementResult | null,
   measurementServiceError: string | null,
   coreReference: string,
-  fastenerReference: string
+  fastenerReference: string,
+  allowPreciseSpec: boolean
 ): string {
   const evidence = buildLlmReadableCvEvidence(measurement, measurementServiceError)
-  return `你是 HCSI 台灣五金辨識器。你會同時看到原始照片，以及一份在你執行前由 deterministic CV 量出的尺寸證據。
+  return `你是 HCSI 台灣五金辨識器。你會同時看到原始照片，以及事先由 deterministic CV 取得的物理尺寸證據。
+任務：整合原圖與 CV 物理證據，辨識五金與適用的台灣五金行購買名稱。不得改寫 CV 原始測量值。
 
-主要任務：根據「照片外觀 + CV 實測證據」，回答這個五金最可能應該用什麼規格名稱去台灣五金行詢問／購買。你不是重做 CV，也不能覆寫 CV 原始值。
+推論模式：${allowPreciseSpec
+  ? '必要 CV 前置品質檢查已通過。你可以推論候選公稱規格，但結果還會再經過頭型與正確長度的最終核驗。'
+  : '必要 CV 品質或尺寸不足。只辨識原圖外觀，不提供任何完整或精確的公稱購買規格；nominal_specification 必須為空字串。'}
 
-===== CV 尺寸證據（已翻成可直接理解的實體語義） =====
+===== 具物理語義的 CV 證據 =====
 ${JSON.stringify(evidence, null, 2)}
 
-如何讀：
-- measured_mm 是照片尺度換算出的實測毫米值，不是型錄公稱值。
-- meaning 明確描述該尺寸量的是哪兩個實體位置及它對採購判斷的用途；按 meaning 理解，不要只靠縮寫猜。
-- status=not_measured 表示沒有可靠數值；failure_reasons 是失敗原因，diagnostics 不能當替代尺寸。
-- measured_with_risk 仍是 CV 實測，但帶有列出的風險；保留數值與風險，不要把它取消。
-- D/P 是公稱直徑與牙距/牙數推論的主要數值證據。
-- L_underhead/L_overall 是兩種不同 length convention；先從原圖判斷頭型，再選對應購買長度，禁止平均。
-- K/DK 是頭型輔助證據；頭型仍需結合原圖形狀。
-- 全牙／半牙與螺紋覆蓋型態由你直接觀察原圖判斷；CV 的 B 不參與本版語義辨識或購買規格推論。
-- 原圖用來判斷 pan/truss/hex/flat-countersunk/socket-cap 等頭型，以及 Phillips/hex socket/Torx 等 drive form。
-- 沒有外接標準尺寸資料表。可用一般工程知識提出最可能 nominal specification，但只能標 estimated。
+讀取與推論原則：
+- measured_mm 是實際影像測量的毫米值，不是公稱型錄值。公稱規格只能標 estimated。
+- D 螺紋外徑、P 螺距、對應頭型的正確 L 為核心採購證據。P 的 derived_tpi_from_measured_pitch 是衍生證據。
+- K 頭高、DK 頭寬、比例和可用頭部輪廓是物理約束。頭型判斷必須結合原圖，排除與可信幾何明確衝突的候選；幾何不足以區分相近頭型時，選擇原圖與幾何共同支持度最高者，不編造百分比。
+- pan/truss/hex/button/socket_cap/round 通常使用 L_underhead；flat_countersunk 通常使用 L_overall。禁止平均或改寫兩種實測值；頭型仍不明就 unresolved。
+- optional_thread_extent 若有可信實測，只當全牙/半牙輔助證據；沒有 B 不等於其他尺寸失敗。視覺上可自行觀察螺紋覆蓋範圍。
+- 實際拍攝常只有側視圖。只有槽面清楚可見，或有其他已驗證證據時，才指定驅動槽型式；看不到填「待確認」。目前沒有驅動槽 S 尺寸的實測與可信標準表，禁止從 K/DK、螺絲名稱猜 S 號數。需確認時請補拍頭部正面。
+- reliability 的 measured_with_risk 表示有具體量測限制；不要把風險當作尺寸，也不要把失敗槽位的診斷當成測量。
+- CV measured、原圖 observed、推論公稱 estimated、缺乏證據 unconfirmed，四者不得混淆。
+- 本版不提供 T，也沒有外接標準尺寸表。非螺絲物件要按原圖正確分類，不套用螺絲量法。
 
 ===== 通用參考 =====
 ${coreReference}
 ===== 螺絲／五金參考 =====
 ${fastenerReference}
 
-證據規則：
-1. 傳入的 D、P、L_underhead、L_overall、K、DK 槽位互相獨立；任何成功實測不得因其他槽位失敗而被取消或改寫。
-2. specifications：CV 原始值=measured；公稱規格推論=estimated；照片直接可見=observed；無依據=unconfirmed。
-3. pan/truss/hex/button/socket_cap/round 通常採 L_underhead；flat_countersunk 通常採 L_overall。看不清頭型就 length_convention=unresolved。
-4. head_style 與 drive_form 必須以原圖為主要形態證據，K/DK 只輔助；看不到 drive 就寫「待確認」。
-5. thread_system 綜合原圖與 D/P 推定。P diagnostics 若含 derived_tpi，只視為 P 的 deterministic 衍生證據。
-6. purchase_description 要能直接拿去台灣五金行詢問。證據足夠就給最可能完整規格；仍不確定的欄位明確標待確認，不為湊名稱亂猜。
-7. 不可把 measured_mm 圓整成 nominal 後標 measured；measurement 與 inference 永遠分開。
-8. S 驅動槽尺寸未實測且沒有驗證標準表；可辨識 drive form，但 S 尺寸維持 unconfirmed。T 不提供。
-9. capture_conditions/global_risks 要反映在不確定性，但不能抹除成功實測。
-10. 非螺絲物件要正確分類，不套用螺絲尺寸語義。
-11. 必須輸出 fastener_interpretation 的 head_style、drive_form、thread_system、length_convention、nominal_specification；無法確認用 unknown/unresolved/空字串。
+輸出必須符合 schema，包括 fastener_interpretation 的 head_style、drive_form、thread_system、length_convention、nominal_specification。
 `
 }
