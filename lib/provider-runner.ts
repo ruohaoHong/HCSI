@@ -124,6 +124,21 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       purchaseGate,
       driveEvidence,
     )
+    // Protruding geometry only confirms the length-convention family, not
+    // pan versus truss/button/round. Never leave a contradicted nominal
+    // purchase length wrapped in an over-specific model-generated head name.
+    const headSubtypeNotIndependentlyVerified =
+      headConsistency.geometry_evidence === 'protruding' &&
+      ['pan', 'truss', 'button', 'round'].includes(headConsistency.resolved_head_style)
+    if (headSubtypeNotIndependentlyVerified) {
+      identificationRaw.uncertain_fields.push(
+        'CV 目前只確認突出頭類；盤頭、大扁頭等相近頭型仍以原圖判讀，購買前請核對實物頭型。'
+      )
+      if (purchaseCompleteness.reason_codes.includes('nominal_length_inconsistent')) {
+        identificationRaw.item_name = '突出頭型螺絲'
+        identificationRaw.subtype = '具體頭型及公稱長度待確認'
+      }
+    }
     const isFastener = identificationRaw.category === 'fasteners'
     const fullFastenerSpecAllowed = isFastener &&
       purchaseGate.allowed && purchaseCompleteness.complete
