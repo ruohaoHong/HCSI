@@ -1,5 +1,6 @@
 name: Frozen Case D CV-first v2 OpenAI blind E2E
 
+# Follow-up diagnostic on an already-seen fixture, NOT a new independent holdout.
 # One explicitly bounded OpenAI call. Exact frozen image is SHA-checked before
 # inference; its GT is introduced only in the subsequent evaluation step.
 on:
@@ -122,6 +123,10 @@ jobs:
           assert output['measurement'] == cv, 'Provider modified signed raw CV evidence'
           (root/'response.json').write_text(json.dumps(output,ensure_ascii=False,indent=2))
           result = output['result']
+          agreement = output['specification_evidence']['purchase_completeness']['nominal_length_agreement']
+          if output['user_guidance']['purchase_ready']:
+              assert agreement['status'] == 'consistent', 'Ready nominal length disagrees with selected CV length'
+          print('Nominal length vs CV gate:', agreement)
           print('Frozen D API completed; CV status:',cv['measurement_status'])
           print('Purchase gate:', output['specification_evidence']['purchase_gate'])
           print('Optional drive evidence:', output['specification_evidence']['drive_evidence'])
@@ -157,6 +162,7 @@ jobs:
                   'purchase_ready':purchase_ready,
                   'nominal_output':result['result']['fastener_interpretation']['nominal_specification'],
                   'cv_errors':comparisons,
+                  'nominal_length_agreement':result['specification_evidence']['purchase_completeness']['nominal_length_agreement'],
                   'optional_B_not_a_pass_criterion':True}
           (root/'evaluation.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
           print(json.dumps(report,ensure_ascii=False,indent=2))
