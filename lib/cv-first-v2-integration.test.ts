@@ -34,7 +34,8 @@ const measurement = {
 } as unknown as MeasurementResult
 
 const conflict = evaluateHeadStyleConsistency('pan', measurement)
-assert.equal(conflict.resolved_head_style, 'unknown')
+assert.equal(conflict.resolved_head_style, 'flat_countersunk')
+assert.equal(selectLengthFromCv(conflict.resolved_head_style, measurement).dimension, 'L_overall')
 assert.equal(finalPurchaseGate(measurement, conflict.resolved_head_style, conflict).allowed, false)
 
 const supported = evaluateHeadStyleConsistency('flat_countersunk', measurement)
@@ -55,6 +56,10 @@ const result = {
   },
 } as unknown as IdentificationResult
 assert.equal(assessPurchaseSpecificationCompleteness(result, gate, drive).complete, true)
+const driveNotVisible = sanitizeDriveEvidence('待確認')
+assert.equal(assessPurchaseSpecificationCompleteness(result, gate, driveNotVisible).complete, true)
+assert.deepEqual(assessPurchaseSpecificationCompleteness(result, gate, driveNotVisible).optional_unconfirmed_fields,
+  ['drive_form', 'drive_size'])
 
 measurement.dimensions!.B = {
   status: 'not_measured', value_px: null, value_mm: null,

@@ -27,10 +27,14 @@ assert.equal(
   }, gate, visibleDrive).complete,
   false,
 )
-assert.equal(assessPurchaseSpecificationCompleteness(result, gate, {
-  ...visibleDrive, form_observed: false,
-}).reason_codes.includes('drive_form_unresolved'), true)
+const sideViewDrive = assessPurchaseSpecificationCompleteness(result, gate, {
+  ...visibleDrive, display_form: '待確認', form_observed: false,
+})
+assert.equal(sideViewDrive.complete, true, 'drive face is not required for dimensional purchase evidence')
+assert.deepEqual(sideViewDrive.reason_codes, [])
+assert.deepEqual(sideViewDrive.optional_unconfirmed_fields, ['drive_form', 'drive_size'])
+assert.deepEqual(assessPurchaseSpecificationCompleteness(result, gate, visibleDrive).optional_unconfirmed_fields, ['drive_size'])
 assert.equal(assessPurchaseSpecificationCompleteness(result, {
   ...gate, allowed: false,
 }, visibleDrive).reason_codes.includes('cv_purchase_gate_blocked'), true)
-console.log('Purchase completeness: CV gate, head/thread semantics, D-P-L nominal components, and drive form are required')
+console.log('Purchase completeness: complete D/P/L does not depend on optional drive evidence')

@@ -8,12 +8,14 @@ export type PurchaseCompletenessReason =
   | 'thread_system_unresolved'
   | 'nominal_specification_missing'
   | 'nominal_specification_incomplete'
-  | 'drive_form_unresolved'
 
 export interface PurchaseSpecificationCompleteness {
+  // Complete *dimensional* purchase spec, independently of a visible drive
+  // recess. Ruler + screw side-view images rarely show the drive face.
   complete: boolean
   reason_codes: PurchaseCompletenessReason[]
   numeric_component_count: number
+  optional_unconfirmed_fields: Array<'drive_form' | 'drive_size'>
 }
 
 export function assessPurchaseSpecificationCompleteness(
@@ -31,18 +33,22 @@ export function assessPurchaseSpecificationCompleteness(
     reasons.push('thread_system_unresolved')
   }
   const nominal = fastener?.nominal_specification.trim() ?? ''
+  // Sanity check only; it never replaces the independent CV D/P/L gate.
   const numericComponents = nominal.match(/\d+(?:\.\d+)?/g)?.length ?? 0
   if (!nominal) reasons.push('nominal_specification_missing')
   else if (numericComponents < 3) reasons.push('nominal_specification_incomplete')
-  if (!drive.form_observed) reasons.push('drive_form_unresolved')
+  const noRecess = /^(none|no drive|不適用|外六角)$/i.test(drive.display_form)
+  const optionalUnconfirmed: PurchaseSpecificationCompleteness['optional_unconfirmed_fields'] =
+    !drive.form_observed ? ['drive_form', 'drive_size'] : noRecess ? [] : ['drive_size']
   return {
     complete: reasons.length === 0,
     reason_codes: reasons,
     numeric_component_count: numericComponents,
+    optional_unconfirmed_fields: optionalUnconfirmed,
   }
 }
 
 export function publicCompletenessGuidance(itemName: string): string {
   const name = itemName || '此五金'
-  return name + '（已取得部分物理尺寸，但公稱規格或驅動型式仍不完整；請補拍頭部正面，並於購買前持實物核對）'
+  return name + '（主要尺寸或公稱規格仍不完整；請依提示補拍清楚的側面與尺，並於購買前持實物核對）'
 }

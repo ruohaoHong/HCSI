@@ -19,8 +19,10 @@ function measurement(
 
 const conflict = evaluateHeadStyleConsistency('pan', measurement('countersunk'))
 assert.equal(conflict.status, 'conflict')
-assert.equal(conflict.resolved_head_style, 'unknown')
+assert.equal(conflict.resolved_head_style, 'flat_countersunk', 'trusted CV countersunk geometry determines the length class')
 assert.equal(conflict.excluded_candidates.includes('pan'), true)
+assert.equal(evaluateHeadStyleConsistency('flat_countersunk', measurement('protruding')).resolved_head_style, 'unknown',
+  'protruding silhouette does not uniquely imply a particular protruding head')
 
 const supported = evaluateHeadStyleConsistency('pan', measurement('protruding'))
 assert.equal(supported.status, 'consistent')

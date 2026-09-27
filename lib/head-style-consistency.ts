@@ -53,7 +53,7 @@ export function evaluateHeadStyleConsistency(
     return {
       status: 'conflict',
       llm_head_style: llmHead,
-      resolved_head_style: 'unknown',
+      resolved_head_style: geometryEvidence === 'countersunk' ? 'flat_countersunk' : 'unknown',
       geometry_evidence: geometryEvidence,
       excluded_candidates: geometryEvidence === 'countersunk'
         ? [...PROTRUDING_HEADS]
