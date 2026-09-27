@@ -40,7 +40,6 @@ const LLM_DIMENSION_GUIDANCE = {
   P: { label: 'Thread pitch', meaning: 'Axial distance between adjacent thread repeats; primary evidence for metric pitch or imperial TPI.' },
   L_underhead: { label: 'Under-head length', meaning: 'Bearing/underface surface to physical tip; usually the purchase length for protruding-head screws.' },
   L_overall: { label: 'Overall length', meaning: 'Top of head to physical tip; usually the purchase length for countersunk/flat-head screws.' },
-  B: { label: 'Visible threaded extent', meaning: 'Threaded-region extent when resolvable; supporting evidence for full/partial thread. Its absence does not invalidate D/P/L.' },
   K: { label: 'Head axial height', meaning: 'Axial height of the head; combine with the original image and DK to support head-style classification.' },
   DK: { label: 'Maximum head diameter', meaning: 'Maximum transverse head diameter/width; combine with the original image and K to support head-style classification.' },
 } as const
@@ -106,7 +105,7 @@ ${JSON.stringify(evidence, null, 2)}
 - D/P 是公稱直徑與牙距/牙數推論的主要數值證據。
 - L_underhead/L_overall 是兩種不同 length convention；先從原圖判斷頭型，再選對應購買長度，禁止平均。
 - K/DK 是頭型輔助證據；頭型仍需結合原圖形狀。
-- B 是全牙/半牙與螺紋範圍的輔助證據；B 缺失不阻止使用成功的 D/P/L/K/DK。
+- 全牙／半牙與螺紋覆蓋型態由你直接觀察原圖判斷；CV 的 B 不參與本版語義辨識或購買規格推論。
 - 原圖用來判斷 pan/truss/hex/flat-countersunk/socket-cap 等頭型，以及 Phillips/hex socket/Torx 等 drive form。
 - 沒有外接標準尺寸資料表。可用一般工程知識提出最可能 nominal specification，但只能標 estimated。
 
@@ -116,7 +115,7 @@ ${coreReference}
 ${fastenerReference}
 
 證據規則：
-1. 七個 dimension 槽位互相獨立；任何成功實測不得因其他槽位失敗而被取消或改寫。
+1. 傳入的 D、P、L_underhead、L_overall、K、DK 槽位互相獨立；任何成功實測不得因其他槽位失敗而被取消或改寫。
 2. specifications：CV 原始值=measured；公稱規格推論=estimated；照片直接可見=observed；無依據=unconfirmed。
 3. pan/truss/hex/button/socket_cap/round 通常採 L_underhead；flat_countersunk 通常採 L_overall。看不清頭型就 length_convention=unresolved。
 4. head_style 與 drive_form 必須以原圖為主要形態證據，K/DK 只輔助；看不到 drive 就寫「待確認」。

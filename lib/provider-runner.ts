@@ -18,7 +18,9 @@ const PROVIDER_CONFIG = {
 type JsonSchema = Record<string, unknown>
 type MeasurementServiceFallback = { code: string; message: string } | null
 
-const REQUIRED_DIMENSIONS: FixedDimension[] = ['D','P','L_underhead','L_overall','B','K','DK']
+// B remains available in the raw CV payload for diagnostics/research, but is intentionally
+// excluded from the LLM purchase-inference contract. Thread coverage is a visual LLM task in v1.
+const REQUIRED_INFERENCE_DIMENSIONS: FixedDimension[] = ['D','P','L_underhead','L_overall','K','DK']
 
 export async function handleIdentificationRequest(request: Request, provider: Provider) {
   try {
@@ -49,8 +51,8 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
         }
       }
     }
-    const cvComplete = !!measurement?.dimensions && REQUIRED_DIMENSIONS.every(key => !!measurement?.dimensions?.[key])
-    if (measurement && !cvComplete) throw new Error('CV-first 回傳缺少固定六項測量槽位')
+    const cvComplete = !!measurement?.dimensions && REQUIRED_INFERENCE_DIMENSIONS.every(key => !!measurement?.dimensions?.[key])
+    if (measurement && !cvComplete) throw new Error('CV-first 回傳缺少推論所需的固定尺寸槽位')
 
     const reference = await loadReferencePack('fasteners')
     const identificationRaw = await runStructuredProvider({
@@ -93,7 +95,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
         llm_inferred_nominal: identificationRaw.fastener_interpretation.nominal_specification,
         standard_table_derived: [], // No verified standards table is wired in v1.
         not_obtained: [
-          ...REQUIRED_DIMENSIONS.filter(key => dimensions[key]?.status !== 'measured'),
+          ...REQUIRED_INFERENCE_DIMENSIONS.filter(key => dimensions[key]?.status !== 'measured'),
           'S',
         ],
         not_implemented: ['T'],
