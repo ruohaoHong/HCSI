@@ -165,7 +165,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       visibleChecks.some(check => check.id === id && check.status === 'passed'))
       && !visibleChecks.some(check =>
         ['same_plane', 'near_overhead_capture'].includes(check.id) && check.status === 'failed')
-    const cvSpecifications = observableCaptureUsable && measurement?.measurement_status === 'valid'
+    const cvSpecifications = isFastener && observableCaptureUsable && measurement?.measurement_status === 'valid'
       ? ([
           ['D', '螺紋外徑'], ['P', '螺距'], ['L_underhead', '頭下長度'],
           ['L_overall', '全長'], ['K', '頭部高度'], ['DK', '頭部最大寬度'],
