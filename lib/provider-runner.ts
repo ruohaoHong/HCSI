@@ -25,8 +25,8 @@ const PROVIDER_CONFIG = {
 type JsonSchema = Record<string, unknown>
 type MeasurementServiceFallback = { code: string; message: string } | null
 
-// B remains available in the raw CV payload for diagnostics/research, but is intentionally
-// excluded from the LLM purchase-inference contract. Thread coverage is a visual LLM task in v1.
+// B is optional LLM evidence only when CV can support it; never a hard gate.
+// Keep six fixed core slots for transparent per-dimension failure diagnostics.
 const REQUIRED_INFERENCE_DIMENSIONS: FixedDimension[] = ['D','P','L_underhead','L_overall','K','DK']
 
 export async function handleIdentificationRequest(request: Request, provider: Provider) {
@@ -85,7 +85,17 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     )
     identificationRaw.fastener_interpretation.head_style = headConsistency.resolved_head_style
     if (headConsistency.status === 'conflict') {
-      identificationRaw.uncertain_fields.push('頭部外觀判讀與可信側面輪廓衝突；已排除該頭型，請補拍頭部側面與正面。')
+      if (headConsistency.resolved_head_style === 'flat_countersunk') {
+        // Preserve what trusted physical geometry can establish, without
+        // reusing a nominal length inferred for an inconsistent LLM head.
+        identificationRaw.item_name = '沉頭類螺絲'
+        identificationRaw.subtype = '沉頭側面輪廓（CV 量測支持）'
+        identificationRaw.uncertain_fields.push('頭部實測輪廓支持沉頭，已排除原先衝突的目測頭型；公稱規格仍須依正確全長重新核對。')
+      } else {
+        identificationRaw.item_name = '突出頭類螺絲'
+        identificationRaw.subtype = '突出頭型（具體頭型待確認）'
+        identificationRaw.uncertain_fields.push('CV 輪廓排除沉頭，但仍無法唯一確認突出頭的具體種類。')
+      }
     } else if (headConsistency.status === 'insufficient' &&
                ['unknown', 'other'].includes(headConsistency.resolved_head_style)) {
       identificationRaw.uncertain_fields.push('頭型證據不足，尚不能決定正確的購買長度慣例。')
@@ -114,14 +124,28 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       purchaseGate,
       driveEvidence,
     )
-    const fullFastenerSpecAllowed = identificationRaw.category === 'fasteners' &&
+    const isFastener = identificationRaw.category === 'fasteners'
+    const fullFastenerSpecAllowed = isFastener &&
       purchaseGate.allowed && purchaseCompleteness.complete
-    const guidance = fullFastenerSpecAllowed
-      ? ''
-      : purchaseGate.allowed
-        ? publicCompletenessGuidance(identificationRaw.item_name)
-        : publicPurchaseGuidance(purchaseGate, identificationRaw.item_name)
-    if (!fullFastenerSpecAllowed) {
+    const optionalDrive = purchaseCompleteness.optional_unconfirmed_fields
+    const guidance = !isFastener
+      ? '目前精確 CV 規格核驗僅支援螺絲；此結果為外觀辨識，購買前請核對實物尺寸。'
+      : fullFastenerSpecAllowed
+        ? optionalDrive.includes('drive_form')
+          ? '尺寸規格已有可信 CV 證據；照片尚未確認驅動槽型式及尺寸，請補拍螺絲頭正面或持實物比對。'
+          : optionalDrive.includes('drive_size')
+            ? '尺寸規格已有可信 CV 證據；驅動槽尺寸仍須以實物確認。'
+            : ''
+        : purchaseGate.allowed
+          ? publicCompletenessGuidance(identificationRaw.item_name)
+          : publicPurchaseGuidance(purchaseGate, identificationRaw.item_name)
+    if (fullFastenerSpecAllowed && optionalDrive.includes('drive_form')) {
+      // Do not turn a side-view dimension success into an unsupported claim
+      // that a specific screwdriver recess was actually photographed.
+      identificationRaw.purchase_description =
+        `${identificationRaw.item_name}：${identificationRaw.fastener_interpretation.nominal_specification}（驅動槽型式及尺寸待確認）`
+    }
+    if (isFastener && !fullFastenerSpecAllowed) {
       identificationRaw.fastener_interpretation.nominal_specification = ''
       identificationRaw.purchase_description = guidance
       // Never display speculative numeric specs when full evidence is blocked.
@@ -132,6 +156,33 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       identificationRaw.identification_status = identificationRaw.identification_status === 'unidentifiable'
         ? 'unidentifiable' : 'partial'
     }
+    // Only the deterministic CV response can create public "measured" items.
+    // When the complete purchase gate fails, preserve independently credible
+    // physical dimensions; do not confuse them with an inferred nominal size.
+    const visibleChecks = measurement?.confidence_evaluation.checks ?? []
+    const observableCaptureUsable = ['scale_available', 'scale_observation_support',
+      'perspective_risk', 'object_geometry', 'segmentation_risk'].every(id =>
+      visibleChecks.some(check => check.id === id && check.status === 'passed'))
+      && !visibleChecks.some(check =>
+        ['same_plane', 'near_overhead_capture'].includes(check.id) && check.status === 'failed')
+    const cvSpecifications = observableCaptureUsable && measurement?.measurement_status === 'valid'
+      ? ([
+          ['D', '螺紋外徑'], ['P', '螺距'], ['L_underhead', '頭下長度'],
+          ['L_overall', '全長'], ['K', '頭部高度'], ['DK', '頭部最大寬度'],
+        ] as const).flatMap(([key, label]) => {
+          const d = measurement.dimensions?.[key]
+          const trusted = d?.status === 'measured' && typeof d.value_mm === 'number' &&
+            Number.isFinite(d.value_mm) && d.value_mm > 0 &&
+            d.risk_signals.every(reason =>
+              ['same_plane_unverified', 'capture_orientation_unverified',
+                'object_ruler_alignment_unknown'].includes(reason))
+          return trusted ? [{ label, value: `${d.value_mm} mm`, evidence_level: 'measured' as const }] : []
+        })
+      : []
+    identificationRaw.specifications = [
+      ...cvSpecifications,
+      ...identificationRaw.specifications.filter(spec => spec.evidence_level !== 'measured'),
+    ]
     // Slot form is image-observed (when visible); slot SIZE has no CV measurement
     // or verified standards-table derivation in this version.
     identificationRaw.specifications = identificationRaw.specifications.filter(
@@ -151,7 +202,9 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       user_guidance: {
         purchase_ready: fullFastenerSpecAllowed,
         message: guidance,
-        actions: fullFastenerSpecAllowed ? [] : ['依提示補拍', '購買前以實物核對必要尺寸'],
+        actions: fullFastenerSpecAllowed
+          ? optionalDrive.length ? ['補拍螺絲頭正面或持實物核對驅動槽'] : []
+          : ['依提示補拍', '購買前以實物核對必要尺寸'],
       },
       specification_evidence: {
         cv_raw_measurements: dimensions,

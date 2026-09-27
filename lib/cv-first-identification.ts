@@ -64,8 +64,16 @@ function buildLlmReadableCvEvidence(measurement: MeasurementResult | null, measu
         status: raw?.status ?? 'not_measured',
         reliability: raw?.confidence ?? 'not_measured',
         observable_limitations: (raw?.risk_signals ?? []).filter(reason =>
-          reason !== 'same_plane_unverified' && reason !== 'capture_orientation_unverified'
-        ),
+          !['same_plane_unverified', 'capture_orientation_unverified',
+            'object_ruler_alignment_unknown'].includes(reason)
+        ).map(reason => ({
+          perspective_risk_detected: 'Ruler perspective variation exceeds the trusted capture range.',
+          scale_observation_support_insufficient: 'Too few independent ruler ticks to trust the scale.',
+          segmentation_risk_detected: 'Hardware/ruler boundary separation is unreliable.',
+          thread_boundary_resolution_limited_by_visible_pitch: 'Thread end is only resolved to about one pitch.',
+          same_plane_rejected: 'Hardware and ruler were confirmed not to be coplanar.',
+          capture_orientation_rejected: 'Capture angle was confirmed unsuitable for the measurement.',
+        } as Record<string, string>)[reason] ?? 'An additional CV-observed reliability limit is recorded internally'),
       }]
     })
   )
@@ -79,14 +87,20 @@ function buildLlmReadableCvEvidence(measurement: MeasurementResult | null, measu
     : null
   if (tpi !== null) Object.assign(readable.P, { derived_tpi_from_measured_pitch: tpi })
   const B = measurement.dimensions.B
-  const optional_thread_extent = B?.status === 'measured' && B.value_mm !== null
+  const bScaleChecks = ['scale_available', 'scale_observation_support',
+    'perspective_risk', 'object_geometry', 'segmentation_risk'].every(id =>
+    measurement.confidence_evaluation.checks.some(check => check.id === id && check.status === 'passed')
+  )
+  const bObservedRisks = B?.risk_signals.filter(reason =>
+    !['same_plane_unverified', 'capture_orientation_unverified',
+      'object_ruler_alignment_unknown', 'thread_boundary_resolution_limited_by_visible_pitch'].includes(reason)
+  ) ?? []
+  const optional_thread_extent = B?.status === 'measured' && B.value_mm !== null &&
+    Number.isFinite(B.value_mm) && B.value_mm > 0 && bScaleChecks && bObservedRisks.length === 0
     ? {
         measured_mm: B.value_mm,
-        label: 'Visible threaded extent: optional evidence for full/partial thread',
-        limitations: B.risk_signals.filter(reason =>
-          reason !== 'same_plane_unverified' && reason !== 'capture_orientation_unverified'
-        ),
-        note: 'Supporting evidence only. Its absence does not invalidate the core dimensions.',
+        label: 'Visible threaded extent: optional support for thread coverage, not a standard thread length',
+        limitation: 'Thread termination is resolved only to roughly one visible pitch; use as auxiliary evidence, never override D/P/L.',
       }
     : null
   const K = measurement.dimensions.K
@@ -101,22 +115,24 @@ function buildLlmReadableCvEvidence(measurement: MeasurementResult | null, measu
         note: 'Physical constraints, not a unique head-style classifier.',
       } : null
   const head = measurement.head_geometry
-  const headGeometry = head ? {
-    status: head.status,
+  const headGeometry = head?.status === 'measured' ? {
     quality: head.quality,
-    reason_codes: head.reason_codes,
-    boundary_source: head.boundary_source,
-    height_to_width: head.height_to_width,
-    bearing_width_ratio: head.bearing_width_ratio,
-    mid_width_ratio: head.mid_width_ratio,
+    silhouette_class: head.length_convention_evidence,
+    silhouette_meaning: head.length_convention_evidence === 'countersunk'
+      ? 'Head widens from the shank toward its outer top: countersunk-type physical geometry.'
+      : head.length_convention_evidence === 'protruding'
+        ? 'Head has a wide underside: protruding-head geometry; this alone cannot distinguish pan/button/truss/hex.'
+        : 'The side silhouette alone cannot establish the head length convention.',
+    height_to_width_ratio: head.height_to_width,
+    underside_width_ratio: head.bearing_width_ratio,
     top_width_ratio: head.top_width_ratio,
-    max_width_position: head.max_width_position,
-    width_trend: head.width_trend,
-    centerline_drift_ratio: head.centerline_drift_ratio,
-    profile_roughness: head.profile_roughness,
-    length_convention_evidence: head.length_convention_evidence,
-    normalized_profile_points: head.profile_points,
-  } : null
+    shape_limitation: head.quality === 'reliable'
+      ? 'Physical constraint on the possible head types, not a unique catalogue-standard match.'
+      : 'Head silhouette is degraded; do not force a head type or a purchasable nominal specification.',
+  } : {
+    quality: 'unavailable',
+    silhouette_meaning: 'No reliable head silhouette was measured.',
+  }
   return {
     source: 'deterministic_cv_before_llm',
     scale_system: measurement.scale_system,
@@ -149,7 +165,7 @@ ${JSON.stringify(evidence, null, 2)}
 讀取與推論原則：
 - measured_mm 是實際影像測量的毫米值，不是公稱型錄值。公稱規格只能標 estimated。
 - D 螺紋外徑、P 螺距、對應頭型的正確 L 為核心採購證據。P 的 derived_tpi_from_measured_pitch 是衍生證據。
-- K 頭高、DK 頭寬、比例和可用頭部輪廓是物理約束。頭型判斷必須結合原圖，排除與可信幾何明確衝突的候選；幾何不足以區分相近頭型時，選擇原圖與幾何共同支持度最高者，不編造百分比。
+- K 頭高、DK 頭寬、比例和可用頭部輪廓是物理約束。可信 CV 沉頭/突出頭證據優先於主觀目測；當側面幾何只支持突出頭大類時，仍須依原圖判別 pan/button/truss 等細分頭型，不能僅憑 K/DK 強行指定。
 - pan/truss/hex/button/socket_cap/round 通常使用 L_underhead；flat_countersunk 通常使用 L_overall。禁止平均或改寫兩種實測值；頭型仍不明就 unresolved。
 - optional_thread_extent 若有可信實測，只當全牙/半牙輔助證據；沒有 B 不等於其他尺寸失敗。視覺上可自行觀察螺紋覆蓋範圍。
 - 實際拍攝常只有側視圖。只有槽面清楚可見，或有其他已驗證證據時，才指定驅動槽型式；看不到填「待確認」。目前沒有驅動槽 S 尺寸的實測與可信標準表，禁止從 K/DK、螺絲名稱猜 S 號數。需確認時請補拍頭部正面。
