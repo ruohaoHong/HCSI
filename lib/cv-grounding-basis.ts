@@ -49,7 +49,7 @@ function nearestDyadic64(inches: number | null): {
 }
 
 export interface CvGroundingBasis {
-  mode: 'cv_grounded_specification' | 'appearance_only'
+  mode: 'cv_grounded_specification' | 'dimension_grounded_semantic_pending' | 'appearance_only'
   rule: string
   hard_physical_facts: {
     D_mm: number | null
@@ -59,6 +59,24 @@ export interface CvGroundingBasis {
     head_geometry_class: 'countersunk' | 'protruding' | 'ambiguous' | 'unknown'
     purchase_length_dimension: 'L_underhead' | 'L_overall' | null
     purchase_length_mm: number | null
+  }
+  evidence_partition: {
+    bearing_plane: {
+      status: 'supported' | 'unsupported'
+      source: 'bearing_plane' | 'coarse_transition' | 'unavailable'
+      length_dimension: 'L_underhead' | null
+      length_mm: number | null
+    }
+    envelope_dimensions: {
+      status: 'supported' | 'partial' | 'unavailable'
+      K_mm: number | null
+      DK_mm: number | null
+    }
+    silhouette_integrity: {
+      status: 'reliable' | 'degraded' | 'unusable' | 'unavailable'
+      reason_codes: string[]
+      can_constrain_head_subtype: boolean
+    }
   }
   unit_conversions: {
     diameter_inch_decimal: number | null
@@ -133,7 +151,7 @@ export interface CvDimensionCandidate {
 export function buildCvDimensionCandidate(basis: CvGroundingBasis): CvDimensionCandidate {
   const numbered = basis.unit_conversions.imperial_numbered_thread_math
   const length = basis.unit_conversions.purchase_length_dyadic_approx
-  if (basis.mode !== 'cv_grounded_specification' ||
+  if (basis.mode === 'appearance_only' ||
       !numbered?.eligible_as_numbered_size_evidence || !length) {
     return {
       status: 'unavailable',
@@ -225,27 +243,65 @@ export function buildCvGroundingBasis(
 ): CvGroundingBasis {
   const dims = measurement?.dimensions
   const head = measurement?.head_geometry
-  const headReliable = head?.status === 'measured' && head.quality === 'reliable'
-  const geometryClass = headReliable ? head.length_convention_evidence : 'unknown'
-  const lengthDimension =
-    geometryClass === 'countersunk' ? 'L_overall'
-      : geometryClass === 'protruding' ? 'L_underhead'
-        : null
   const D = trusted(dims?.D)
+  const P = trusted(dims?.P)
+  const K = trusted(dims?.K)
+  const DK = trusted(dims?.DK)
+  const underHeadLength = trusted(dims?.L_underhead)
+  const overallLength = trusted(dims?.L_overall)
+
+  // Keep three physically different questions separate:
+  // 1) is there a defensible bearing plane for under-head length,
+  // 2) are K/DK envelope dimensions measured,
+  // 3) is the full side silhouette trustworthy enough to constrain a head subtype.
+  // A failure in (3) must not erase evidence already established by (1) or (2).
+  const headMeasured = head?.status === 'measured'
+  const silhouetteReliable = headMeasured && head.quality === 'reliable'
+  const bearingPlaneSupported =
+    headMeasured && head.boundary_source === 'bearing_plane' && underHeadLength !== null
+  const envelopeStatus =
+    K !== null && DK !== null ? 'supported'
+      : K !== null || DK !== null ? 'partial'
+        : 'unavailable'
+
+  const geometryClass: CvGroundingBasis['hard_physical_facts']['head_geometry_class'] =
+    bearingPlaneSupported
+      ? 'protruding'
+      : silhouetteReliable
+        ? head.length_convention_evidence
+        : 'unknown'
+  const lengthDimension: 'L_underhead' | 'L_overall' | null =
+    bearingPlaneSupported
+      ? 'L_underhead'
+      : silhouetteReliable && geometryClass === 'countersunk'
+        ? 'L_overall'
+        : silhouetteReliable && geometryClass === 'protruding'
+          ? 'L_underhead'
+          : null
+  const L = lengthDimension === 'L_underhead'
+    ? underHeadLength
+    : lengthDimension === 'L_overall'
+      ? overallLength
+      : null
+
   const dUncertaintyRaw = dims?.D?.diagnostics?.edge_diameter_uncertainty_mm
   const dUncertainty = typeof dUncertaintyRaw === 'number' &&
     Number.isFinite(dUncertaintyRaw) && dUncertaintyRaw > 0
       ? dUncertaintyRaw
       : null
-  const P = trusted(dims?.P)
-  const K = trusted(dims?.K)
-  const DK = trusted(dims?.DK)
-  const L = lengthDimension ? trusted(dims?.[lengthDimension]) : null
-  const ready = allowPreciseSpec && D !== null && P !== null &&
-    K !== null && DK !== null && L !== null && headReliable
 
-  const normalizedProfile = head?.status === 'measured'
-    ? (head.profile_points ?? [])
+  const dimensionGrounded =
+    D !== null && P !== null && K !== null && DK !== null && L !== null &&
+    (bearingPlaneSupported || silhouetteReliable)
+  const ready = allowPreciseSpec && dimensionGrounded && silhouetteReliable
+  const mode: CvGroundingBasis['mode'] = ready
+    ? 'cv_grounded_specification'
+    : dimensionGrounded
+      ? 'dimension_grounded_semantic_pending'
+      : 'appearance_only'
+
+  const normalizedProfile = silhouetteReliable
+    ? (head?.profile_points ?? [])
         .filter(point => Number.isFinite(point.axial_fraction) && Number.isFinite(point.width_ratio))
         .map(point => ({
           axial_fraction: Number(point.axial_fraction.toFixed(6)),
@@ -261,10 +317,9 @@ export function buildCvGroundingBasis(
   const upperHalfSlope = middleWidth !== null && upperWidth !== null
     ? Number(((upperWidth - middleWidth) / 0.42).toFixed(6))
     : null
-  const topOverUnderside = ratio(
-    head?.status === 'measured' ? head.top_width_ratio : null,
-    head?.status === 'measured' ? head.bearing_width_ratio : null,
-  )
+  const topOverUnderside = silhouetteReliable
+    ? ratio(head?.top_width_ratio ?? null, head?.bearing_width_ratio ?? null)
+    : null
 
   const B = dims?.B
   const bRisks = B?.risk_signals.filter(reason =>
@@ -277,11 +332,16 @@ export function buildCvGroundingBasis(
       ? { B_mm: B.value_mm, role: 'support_only' as const }
       : null
 
+  const silhouetteStatus: CvGroundingBasis['evidence_partition']['silhouette_integrity']['status'] =
+    headMeasured ? head.quality : 'unavailable'
+
   return {
-    mode: ready ? 'cv_grounded_specification' : 'appearance_only',
+    mode,
     rule: ready
       ? 'Trusted CV measurements are the physical premise. The image may add semantic labels but must not resize or override them.'
-      : 'Core CV evidence is incomplete. Use the image for appearance only; do not output a precise nominal purchase specification.',
+      : dimensionGrounded
+        ? 'D/P/L/K/DK remain grounded physical evidence. Head silhouette integrity is insufficient for subtype verification, so the original image must resolve head semantics without overriding measured dimensions.'
+        : 'Core CV evidence is incomplete. Use the image for appearance only; do not output a precise nominal purchase specification.',
     hard_physical_facts: {
       D_mm: D,
       P_mm: P,
@@ -290,6 +350,24 @@ export function buildCvGroundingBasis(
       head_geometry_class: geometryClass,
       purchase_length_dimension: lengthDimension,
       purchase_length_mm: L,
+    },
+    evidence_partition: {
+      bearing_plane: {
+        status: bearingPlaneSupported ? 'supported' : 'unsupported',
+        source: headMeasured ? head.boundary_source : 'unavailable',
+        length_dimension: bearingPlaneSupported ? 'L_underhead' : null,
+        length_mm: bearingPlaneSupported ? underHeadLength : null,
+      },
+      envelope_dimensions: {
+        status: envelopeStatus,
+        K_mm: K,
+        DK_mm: DK,
+      },
+      silhouette_integrity: {
+        status: silhouetteStatus,
+        reason_codes: headMeasured ? [...head.reason_codes] : [],
+        can_constrain_head_subtype: silhouetteReliable,
+      },
     },
     unit_conversions: {
       diameter_inch_decimal: D === null ? null : Number((D / 25.4).toFixed(6)),
@@ -300,13 +378,13 @@ export function buildCvGroundingBasis(
       note: 'Pure unit conversions, numbered-thread arithmetic inversion, and nearest 1/64-inch length quantization only. These are mathematical transforms of CV measurements, not a nominal-size lookup table or proof that a stocked standard exists.',
     },
     head_support: {
-      height_to_width_ratio: head?.status === 'measured' ? head.height_to_width : null,
-      underside_width_ratio: head?.status === 'measured' ? head.bearing_width_ratio : null,
-      mid_width_ratio: head?.status === 'measured' ? head.mid_width_ratio : null,
-      top_width_ratio: head?.status === 'measured' ? head.top_width_ratio : null,
-      max_width_position: head?.status === 'measured' ? head.max_width_position : null,
-      width_trend: head?.status === 'measured' ? head.width_trend : null,
-      quality: head?.status === 'measured' ? head.quality : 'unavailable',
+      height_to_width_ratio: headMeasured ? head.height_to_width : null,
+      underside_width_ratio: headMeasured ? head.bearing_width_ratio : null,
+      mid_width_ratio: headMeasured ? head.mid_width_ratio : null,
+      top_width_ratio: headMeasured ? head.top_width_ratio : null,
+      max_width_position: headMeasured ? head.max_width_position : null,
+      width_trend: headMeasured ? head.width_trend : null,
+      quality: headMeasured ? head.quality : 'unavailable',
     },
     head_shape_math: {
       K_over_DK: ratio(K, DK),
@@ -321,11 +399,16 @@ export function buildCvGroundingBasis(
         ? null
         : Number((upperHalfSlope - lowerHalfSlope).toFixed(6)),
       normalized_profile: normalizedProfile,
-      note: 'Dimensionless arithmetic derived only from measured head geometry. These values describe silhouette shape; they are not a head-style lookup table and do not themselves name pan/button/socket/etc.',
+      note: silhouetteReliable
+        ? 'Dimensionless arithmetic derived from measured head geometry. These values describe silhouette shape; they are not a head-style lookup table and do not themselves name pan/button/socket/etc.'
+        : 'K/DK and DK/D remain measured envelope ratios. Detailed silhouette-derived ratios/profile are withheld because silhouette integrity is not reliable; no head subtype should be manufactured from the degraded profile.',
     },
     optional_thread_extent: optionalB,
     image_role: [
-      'Resolve the specific head subtype only within the CV-compatible head geometry class.',
+      'Resolve the specific head subtype only within the physically supported geometry class.',
+      silhouetteReliable
+        ? 'Use the reliable normalized side silhouette as a physical constraint on head subtype.'
+        : 'Detailed side-silhouette integrity is not reliable; use the original image for head subtype semantics and do not reconstruct a subtype from the degraded profile.',
       'Observe full-thread/partial-thread appearance; B is optional support only.',
       'Identify drive form only when the drive face is actually visible.',
       'Identify non-dimensional appearance and material features.',

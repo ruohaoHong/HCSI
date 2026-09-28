@@ -26,12 +26,27 @@ present, and whether the wall is cylindrical), not fixed K/DK thresholds or a
 catalogue lookup. `other` means the visible form positively falls outside the
 listed families; translation uncertainty alone is not a reason to use it.
 
-## Head geometry quality
+## Head geometry evidence partition
 
+Head evidence is intentionally split into three independent questions:
+
+- bearing-plane validity: whether a physical under-head bearing plane supports
+  L_underhead. A valid bearing plane is not invalidated by a later silhouette
+  integrity failure.
+- envelope dimensions: whether K and DK were physically measured. Their
+  arithmetic ratios remain available even if the detailed profile is degraded.
+- silhouette integrity: whether the complete side profile is continuous enough
+  to constrain a semantic head subtype.
+
+Silhouette quality is:
 - reliable: sufficient profile support with low roughness and centerline drift.
-- degraded: measurements are retained, but the silhouette cannot verify a full
-  purchase specification.
-- unusable: no defensible head profile was obtained.
+- degraded: D/P/L/K/DK and bearing/envelope evidence may remain valid, but the
+  detailed normalized profile must not constrain the LLM head subtype.
+- unusable: no defensible detailed head profile was obtained.
+
+A degraded silhouette blocks the final complete-purchase gate, but it no longer
+turns otherwise valid dimensions into appearance-only evidence. This separation
+is generic: it does not map any K/DK ratio or Case-specific value to a head name.
 
 boundary_source=bearing_plane means the protruding-head shoulder estimator
 found a physical underface. coarse_transition is a silhouette-only fallback

@@ -60,10 +60,6 @@ export function preflightPurchaseGate(measurement: MeasurementResult | null): Pu
     if (!usableDimension(measurement, key)) reasons.push(key === 'D' ? 'missing_D' : 'missing_P')
   }
   if (!usableDimension(measurement, 'K') || !usableDimension(measurement, 'DK')) reasons.push('missing_head_geometry')
-  if (measurement.head_geometry?.status !== 'measured' ||
-      measurement.head_geometry.quality !== 'reliable') {
-    reasons.push('head_geometry_unreliable')
-  }
   if (!usableDimension(measurement, 'L_underhead') && !usableDimension(measurement, 'L_overall')) {
     reasons.push('missing_length_candidate')
   }
@@ -78,6 +74,10 @@ export function finalPurchaseGate(
 ): PurchaseGate {
   const before = preflightPurchaseGate(measurement)
   const reasons = [...before.reasons]
+  if (measurement?.head_geometry?.status !== 'measured' ||
+      measurement.head_geometry.quality !== 'reliable') {
+    reasons.push('head_geometry_unreliable')
+  }
   if (consistency.status === 'conflict') reasons.push('head_style_conflict')
   const selected = selectLengthFromCv(head, measurement)
   if (selected.dimension === null) reasons.push('head_unresolved')

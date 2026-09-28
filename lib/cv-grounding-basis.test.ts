@@ -87,4 +87,26 @@ assert.equal(metricLikeBasis.unit_conversions.imperial_numbered_thread_math?.eli
   'nearest integer alone must not turn a metric-like diameter into numbered imperial evidence')
 assert.equal(buildCvDimensionCandidate(metricLikeBasis).status, 'unavailable',
   'an ineligible numbered conversion must not become a public dimension candidate')
-console.log('CV grounding basis: only physical facts and reversible unit conversions precede LLM semantics')
+
+const degradedBearing = structuredClone(measurement) as unknown as MeasurementResult
+degradedBearing.head_geometry!.length_convention_evidence = 'protruding'
+degradedBearing.head_geometry!.quality = 'degraded'
+degradedBearing.head_geometry!.boundary_source = 'bearing_plane'
+degradedBearing.head_geometry!.reason_codes = ['head_profile_centerline_drift']
+const partial = buildCvGroundingBasis(degradedBearing, true)
+assert.equal(partial.mode, 'dimension_grounded_semantic_pending')
+assert.equal(partial.hard_physical_facts.head_geometry_class, 'protruding')
+assert.equal(partial.hard_physical_facts.purchase_length_dimension, 'L_underhead')
+assert.equal(partial.hard_physical_facts.purchase_length_mm, 10.27)
+assert.equal(partial.evidence_partition.bearing_plane.status, 'supported')
+assert.equal(partial.evidence_partition.envelope_dimensions.status, 'supported')
+assert.equal(partial.evidence_partition.silhouette_integrity.status, 'degraded')
+assert.equal(partial.evidence_partition.silhouette_integrity.can_constrain_head_subtype, false)
+assert.equal(partial.head_shape_math.K_over_DK, 0.342705)
+assert.equal(partial.head_shape_math.DK_over_D, 1.98729)
+assert.equal(partial.head_shape_math.normalized_profile.length, 0,
+  'degraded silhouette must not be handed to LLM as subtype geometry')
+assert.equal(partial.head_shape_math.top_over_underside_width, null)
+assert.equal(buildCvDimensionCandidate(partial).status, 'candidate',
+  'dimension-only arithmetic may survive a silhouette-only quality failure')
+console.log('CV grounding basis: physical dimensions, bearing plane and silhouette integrity are independent evidence')

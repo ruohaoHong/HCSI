@@ -57,7 +57,7 @@ export function buildCvFirstIdentificationPrompt(
 ${JSON.stringify(basis, null, 2)}
 ${serviceNote}
 
-${basis.mode === 'cv_grounded_specification'
+${basis.mode !== 'appearance_only'
   ? `hard_physical_facts 是本次規格推論的前提，不是建議：
 1. nominal diameter：以 D_mm（必要時參考純換算 diameter_inch_decimal）作為唯一尺寸基準，照片不得改變 D。
    若 imperial_numbered_thread_math 存在，它只是把 Unified numbered-screw 的線性直徑關係反解成 size index，再顯示 nearest integer 與 diameter residual；不是 #size 查表。
@@ -71,7 +71,9 @@ ${basis.mode === 'cv_grounded_specification'
    當這個殘差相對實測長度很小時，可以把該分數當作「CV 長度的英制購買表示候選」；這不代表庫存保證，也不需要另外查一張長度規格表才能填 nominal_specification。
    不要把任意 decimal inch 四捨五入成商品尺寸；只能使用這個已提供 residual 的 dyadic quantization。
 4. 頭型：先服從 head_geometry_class。countersunk 不可被原圖改成突出頭；protruding 時，原圖只能在相容的突出頭候選中細分。
-   具體頭型細分時，優先使用 head_shape_math 與 head_support 描述的「實測輪廓形狀」，再看照片語義：
+   evidence_partition 把 bearing plane、K/DK envelope 與 detailed silhouette integrity 分開。只有 silhouette_integrity.can_constrain_head_subtype=true 時，才把 normalized_profile／silhouette slope 當成頭型限制。
+   如果 can_constrain_head_subtype=false，保留已量得的 D/P/L/K/DK 與 K/DK、DK/D 純算術比值，但不得用 degraded profile 否決或製造頭型；此時具體頭型交由原圖語義判斷。
+   當 silhouette 可靠時，具體頭型細分優先使用 head_shape_math 與 head_support 描述的「實測輪廓形狀」，再看照片語義：
    - K_over_DK、DK_over_D、top_over_underside_width、width_drop_underside_to_top 都是純算術比值；
    - lower_half_slope / upper_half_slope / slope_change 與 normalized_profile 描述頭部從 underside 到 top 的實際寬度變化；
    - 這些數值不是規格表、不是型號表，也不直接等於 pan/button/socket 等名稱。禁止套用「某數值=某頭型」的硬編碼表。
@@ -84,6 +86,9 @@ ${HEAD_STYLE_SEMANTIC_GUIDANCE}
 
 最後才把上述結果組成台灣五金行可詢問的候選購買名稱。
 CV mm 是 measured；公稱名稱/規格是 estimated。這裡的 nominal_specification 是「最吻合 CV 的採購候選」，不是庫存或標準文件認證。
+${basis.mode === 'dimension_grounded_semantic_pending'
+  ? '本次尺寸已由 CV／純數學 grounding 支持，但 detailed head silhouette 未通過完整性檢查。你仍應根據原圖做頭型語義判斷，且不得因 silhouette degraded 而重算或丟棄 D/P/L/K/DK；最終是否可直接購買由後端 final gate 決定。'
+  : ''}
 如果 D/P/L 的純數學表示彼此一致、殘差很小，而且沒有物理矛盾，應組成候選 nominal_specification；不要只因未查 catalog table 就留空。
 只有在 D/P/指定 L 之間彼此不相容、數學殘差明顯、或必要物理證據缺失時才留空。
 不要另外輸出驗證用候選表或中間推理欄位；直接把最符合 CV 物理基底的公稱規格與使用者答案放進既有 schema。`

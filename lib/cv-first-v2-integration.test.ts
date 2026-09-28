@@ -72,4 +72,4 @@ assert.equal(finalPurchaseGate(measurement, supported.resolved_head_style, suppo
 
 measurement.head_geometry!.quality = 'degraded'
 assert.equal(finalPurchaseGate(measurement, supported.resolved_head_style, supported).allowed, false)
-console.log('CV-first v2 integration: physical conflict, length selection, completeness, optional B, and quality gate compose safely')
+console.log('CV-first v2 integration: dimensions can survive silhouette degradation while the final purchase gate remains conservative')

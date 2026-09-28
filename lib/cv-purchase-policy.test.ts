@@ -56,7 +56,11 @@ cv.confidence_evaluation.checks.push({ id: 'same_plane', status: 'failed' } as n
 assert.equal(preflightPurchaseGate(cv).allowed, false, 'explicitly rejected coplanarity must block')
 cv = fixture()
 cv.head_geometry!.quality = 'degraded'
-assert.equal(preflightPurchaseGate(cv).allowed, false, 'degraded head silhouette blocks a complete purchase spec')
+assert.equal(preflightPurchaseGate(cv).allowed, true,
+  'degraded silhouette must not erase otherwise valid dimensional preflight evidence')
+assert.equal(finalPurchaseGate(cv, 'pan').allowed, false,
+  'degraded silhouette still blocks a complete purchase spec until head semantics are resolved safely')
+assert.equal(finalPurchaseGate(cv, 'pan').reasons.includes('head_geometry_unreliable'), true)
 cv = fixture()
 cv.head_geometry!.length_convention_evidence = 'countersunk'
 assert.equal(finalPurchaseGate(cv, 'pan').allowed, false, 'physical head conflict blocks a complete purchase spec')
