@@ -13,6 +13,9 @@ const dimensions = Object.fromEntries(
     confidence: 'verified', risk_signals: [], reason_codes: [], diagnostics: {},
   }]),
 )
+dimensions.D = { ...dimensions.D!, value_mm: 6 }
+dimensions.P = { ...dimensions.P!, value_mm: 1 }
+
 const measurement = {
   measurement_status: 'valid', scale_px_per_cm: 100,
   ruler: { detected: true },
