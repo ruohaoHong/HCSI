@@ -1,0 +1,224 @@
+name: Case B image-only OpenAI E2E
+
+# Test harness only. Application/CV source is unchanged from parent dc9e2becd4aca4e5501b5242d2444228c32c4c46.
+# Inference receives exactly one external input: the immutable original Case B image.
+# Ground truth is introduced only after the final API response has been frozen.
+on:
+  push:
+    branches: [feature/measurement-confidence-gate]
+    paths: ['.github/workflows/case-b-image-only-openai-e2e.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  case-b-image-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      HCSI_MEASUREMENT_SERVICE_URL: http://127.0.0.1:8000
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: measurement-service/requirements.txt
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Restore exact immutable Case B image by SHA only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/hcsi-case-b case-b-e2e-results
+          gh run download 35753143674 --repo "${{ github.repository }}"             --name real-acceptance-ab --dir /tmp/hcsi-case-b
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          expected = '6f18c4db1acb3879cf52f5965a53795f75dc069c428cd39af54e276bdaa02be6'
+          matches = [p for p in Path('/tmp/hcsi-case-b').rglob('*')
+                     if p.is_file() and hashlib.sha256(p.read_bytes()).hexdigest() == expected]
+          if len(matches) != 1:
+              raise SystemExit(f'Case B immutable image missing/nonunique: matches={len(matches)}')
+          Path('case-b-e2e-results/case-b.jpg').write_bytes(matches[0].read_bytes())
+          print('Case B original image SHA-256 VERIFIED:', expected)
+          print('No GT/specification has been loaded into inference.')
+          PY
+
+      - name: Install dependencies and build application
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENAI_API_KEY" || { echo "OPENAI_API_KEY unavailable"; exit 1; }
+          python -m pip install -r measurement-service/requirements.txt
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Start deterministic CV service and Next.js API
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup python -m uvicorn app:app --app-dir measurement-service --host 127.0.0.1 --port 8000 > /tmp/hcsi-b-cv.log 2>&1 < /dev/null &
+          nohup pnpm start --hostname 127.0.0.1 --port 3000 > /tmp/hcsi-b-next.log 2>&1 < /dev/null &
+          python - <<'PY'
+          import time, urllib.request
+          for url in ['http://127.0.0.1:8000/openapi.json', 'http://127.0.0.1:3000']:
+              for _ in range(100):
+                  try:
+                      with urllib.request.urlopen(url, timeout=3) as r:
+                          if r.status == 200:
+                              print('Ready:', url)
+                              break
+                  except Exception:
+                      time.sleep(2)
+              else:
+                  raise SystemExit('Service did not start: ' + url)
+          PY
+
+      - name: Image-only request through full backend E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, json, pathlib, urllib.request, urllib.error
+          root = pathlib.Path('case-b-e2e-results')
+          image = (root / 'case-b.jpg').read_bytes()
+          encoded = base64.b64encode(image).decode('ascii')
+
+          # The ONLY request input is the raw image.
+          body = {'image': encoded}
+          req = urllib.request.Request(
+              'http://127.0.0.1:3000/api/analyze-openai',
+              data=json.dumps(body).encode('utf-8'),
+              headers={'Content-Type':'application/json'},
+              method='POST',
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=900) as resp:
+                  status, raw = resp.status, resp.read()
+          except urllib.error.HTTPError as exc:
+              status, raw = exc.code, exc.read()
+          if status != 200:
+              raise SystemExit(f'/api/analyze-openai HTTP {status}: ' + raw.decode(errors='replace')[:1200])
+
+          output = json.loads(raw)
+          (root / 'response.json').write_text(json.dumps(output, ensure_ascii=False, indent=2))
+          assert output['measurement_source'] == 'server_cv_executed',               'Expected internal server CV from image-only input'
+          cv = output['measurement']
+          assert cv['image_sha256'] == '6f18c4db1acb3879cf52f5965a53795f75dc069c428cd39af54e276bdaa02be6'
+          assert set(cv['dimensions']) == {'D','P','L_underhead','L_overall','B','K','DK'}
+          (root / 'cv.json').write_text(json.dumps(cv, ensure_ascii=False, indent=2))
+
+          print('CASE B FULL E2E COMPLETED')
+          print('measurement_source:', output['measurement_source'])
+          print('schema_version:', output['schema_version'])
+          print('CV status:', cv['measurement_status'])
+          print('CV confidence:', cv['measurement_confidence'])
+          print('CV grounding basis:', json.dumps(
+              output['specification_evidence']['cv_grounding_basis'], ensure_ascii=False))
+          print('Head style:', output['result']['fastener_interpretation']['head_style'])
+          print('Thread system:', output['result']['fastener_interpretation']['thread_system'])
+          print('Nominal specification:', output['result']['fastener_interpretation']['nominal_specification'])
+          print('Selected length:', json.dumps(output['selected_length'], ensure_ascii=False))
+          print('Purchase description:', output['result']['purchase_description'])
+          print('Purchase ready:', output['user_guidance']['purchase_ready'])
+          print('Uncertain fields:', json.dumps(output['result']['uncertain_fields'], ensure_ascii=False))
+          PY
+
+      - name: Compare with immutable Case B GT only after inference
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, pathlib, re
+          root = pathlib.Path('case-b-e2e-results')
+          output = json.loads((root / 'response.json').read_text())
+          cv = output['measurement']['dimensions']
+
+          # GT enters for the first time here, after the API response is frozen.
+          gt = {
+              'D': 6.0,
+              'P': 1.0,
+              'L_overall': 40.0,
+              'head_style': 'flat_countersunk',
+              'thread_system': 'metric',
+          }
+          dimensions = {}
+          for key in ('D','P','L_overall'):
+              d = cv[key]
+              measured = d['value_mm'] if d['status'] == 'measured' else None
+              expected = gt[key]
+              dimensions[key] = {
+                  'status': d['status'],
+                  'measured_mm': measured,
+                  'gt_mm': expected,
+                  'absolute_error_mm': abs(measured-expected) if measured is not None else None,
+                  'relative_error_pct': 100*abs(measured-expected)/expected if measured is not None else None,
+              }
+
+          interp = output['result']['fastener_interpretation']
+          nominal = interp['nominal_specification']
+          compact = re.sub(r'\s+', '', nominal.lower()).replace('×','x')
+          nominal_core_matches = (
+              'm6' in compact and
+              ('1.0' in compact or '1mm' in compact) and
+              ('40' in compact)
+          )
+          report = {
+              'case': 'B',
+              'inference_external_input': ['original_image_only'],
+              'gt_loaded_after_response': True,
+              'measurement_source': output['measurement_source'],
+              'full_e2e_completed': True,
+              'cv_errors': dimensions,
+              'gt_head_style': gt['head_style'],
+              'output_head_style': interp['head_style'],
+              'head_matches_gt': interp['head_style'] == gt['head_style'],
+              'gt_thread_system': gt['thread_system'],
+              'output_thread_system': interp['thread_system'],
+              'thread_system_matches_gt': interp['thread_system'] == gt['thread_system'],
+              'expected_length_convention': 'overall',
+              'output_length_convention': output['selected_length']['convention'],
+              'length_convention_matches_gt': output['selected_length']['convention'] == 'overall',
+              'nominal_output': nominal,
+              'nominal_core_m6_1_0_x_40_matches': nominal_core_matches,
+              'purchase_description': output['result']['purchase_description'],
+              'purchase_ready': output['user_guidance']['purchase_ready'],
+          }
+          (root / 'evaluation.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
+          print('POST-INFERENCE CASE B GT EVALUATION')
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload response and post-inference evaluation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: case-b-image-only-openai-e2e
+          path: |
+            case-b-e2e-results/cv.json
+            case-b-e2e-results/response.json
+            case-b-e2e-results/evaluation.json
+          if-no-files-found: ignore
+
+      - name: Print sanitized logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          echo 'CV service diagnostics:'
+          tail -n 70 /tmp/hcsi-b-cv.log 2>/dev/null || true
+          echo 'Next.js diagnostics:'
+          tail -n 70 /tmp/hcsi-b-next.log 2>/dev/null || true
