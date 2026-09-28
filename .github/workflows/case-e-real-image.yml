@@ -82,6 +82,8 @@ jobs:
               {"operation":"axial_distance","inputs":["object_tip","head_underface"],"purpose":"nominal fastener length L"},
               {"operation":"outer_width","inputs":["threaded_shank"],"purpose":"major diameter D"},
               {"operation":"periodicity","inputs":["threaded_shank"],"purpose":"thread pitch P"},
+              {"operation":"axial_distance","inputs":["head_start","head_top"],"purpose":"generic head extent K"},
+              {"operation":"outer_width","inputs":["head"],"purpose":"generic head width DK"},
           ]
           semantic = {
               "head_style":"socket_cap",
@@ -242,6 +244,29 @@ jobs:
               )
           if axial is None or axial.get("status") != "measured" or axial.get("value_mm") is None:
               raise SystemExit("Case E failed: semantic fastener L was not measured")
+
+          k_step = next(
+              (
+                  step for step in result.get("geometry_steps", [])
+                  if step.get("operation") == "axial_distance"
+                  and set(step.get("inputs", [])) == {"head_start", "head_top"}
+              ),
+              None,
+          )
+          dk_step = next(
+              (
+                  step for step in result.get("geometry_steps", [])
+                  if step.get("operation") == "outer_width"
+                  and step.get("inputs", []) == ["head"]
+              ),
+              None,
+          )
+          assert k_step is not None and k_step["status"] == "measured", k_step
+          assert dk_step is not None and dk_step["status"] == "measured", dk_step
+          print("CASE_E_K_MM=" + str(k_step["value_mm"]))
+          print("CASE_E_K_BOUNDARY=" + str(k_step["diagnostics"].get("head_boundary_source")))
+          print("CASE_E_DK_MM=" + str(dk_step["value_mm"]))
+          print("CASE_E_DK_BOUNDARY=" + str(dk_step["diagnostics"].get("head_boundary_source")))
 
           measured_l = float(axial["value_mm"])
           abs_error = abs(measured_l - gt["L"])
