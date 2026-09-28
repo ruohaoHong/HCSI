@@ -13,86 +13,23 @@ function trusted(dim: CvDimensionEvidence | undefined): number | null {
     ? dim.value_mm : null
 }
 
-function gcd(a: number, b: number): number {
-  let x = Math.abs(Math.round(a)), y = Math.abs(Math.round(b))
-  while (y) [x, y] = [y, x % y]
-  return x || 1
-}
-
-function fractionLabel(numerator: number, denominator: number): string {
-  const whole = Math.floor(numerator / denominator)
-  const rem = numerator % denominator
-  if (rem === 0) return String(whole)
-  const d = gcd(rem, denominator)
-  const frac = `${rem / d}/${denominator / d}`
-  return whole > 0 ? `${whole} ${frac}` : frac
-}
-
-function imperialLengthCandidates(mm: number | null) {
-  if (mm === null) return []
-  const inch = mm / 25.4
-  const seen = new Set<string>()
-  return [64, 32, 16, 8].flatMap(denominator => {
-    const numerator = Math.round(inch * denominator)
-    if (numerator <= 0) return []
-    const label = fractionLabel(numerator, denominator)
-    if (seen.has(label)) return []
-    seen.add(label)
-    const candidateMm = numerator / denominator * 25.4
-    return [{
-      fraction_inch: label,
-      candidate_mm: Number(candidateMm.toFixed(5)),
-      absolute_difference_mm: Number(Math.abs(mm - candidateMm).toFixed(5)),
-    }]
-  }).sort((a, b) => a.absolute_difference_mm - b.absolute_difference_mm)
-}
-
-function nearestNumberedScrew(D: number | null) {
-  if (D === null) return null
-  let best: { designation: string; nominal_D_mm: number; absolute_difference_mm: number } | null = null
-  for (let gauge = 0; gauge <= 14; gauge++) {
-    const mm = (0.060 + 0.013 * gauge) * 25.4
-    const diff = Math.abs(D - mm)
-    if (!best || diff < best.absolute_difference_mm) {
-      best = {
-        designation: `#${gauge}`,
-        nominal_D_mm: Number(mm.toFixed(5)),
-        absolute_difference_mm: Number(diff.toFixed(5)),
-      }
-    }
-  }
-  return best
-}
-
 export interface CvGroundingBasis {
   mode: 'cv_grounded_specification' | 'appearance_only'
   rule: string
   hard_physical_facts: {
     D_mm: number | null
     P_mm: number | null
-    derived_tpi: number | null
     K_mm: number | null
     DK_mm: number | null
     head_geometry_class: 'countersunk' | 'protruding' | 'ambiguous' | 'unknown'
     purchase_length_dimension: 'L_underhead' | 'L_overall' | null
     purchase_length_mm: number | null
   }
-  arithmetic_nominal_hints: {
-    note: string
-    diameter_inch: number | null
-    nearest_numbered_screw: {
-      designation: string
-      nominal_D_mm: number
-      absolute_difference_mm: number
-    } | null
+  unit_conversions: {
+    diameter_inch_decimal: number | null
     pitch_tpi_exact: number | null
-    nearest_integer_tpi: number | null
-    length_inch_exact: number | null
-    imperial_fraction_candidates: Array<{
-      fraction_inch: string
-      candidate_mm: number
-      absolute_difference_mm: number
-    }>
+    purchase_length_inch_decimal: number | null
+    note: string
   }
   head_support: {
     height_to_width_ratio: number | null
@@ -144,21 +81,17 @@ export function buildCvGroundingBasis(
     hard_physical_facts: {
       D_mm: D,
       P_mm: P,
-      derived_tpi: P === null ? null : Number((25.4 / P).toFixed(3)),
       K_mm: K,
       DK_mm: DK,
       head_geometry_class: geometryClass,
       purchase_length_dimension: lengthDimension,
       purchase_length_mm: L,
     },
-    arithmetic_nominal_hints: {
-      note: 'Pure arithmetic proximity hints only; they do not certify that a catalogue/standard offers the candidate.',
-      diameter_inch: D === null ? null : Number((D / 25.4).toFixed(5)),
-      nearest_numbered_screw: nearestNumberedScrew(D),
-      pitch_tpi_exact: P === null ? null : Number((25.4 / P).toFixed(5)),
-      nearest_integer_tpi: P === null ? null : Math.round(25.4 / P),
-      length_inch_exact: L === null ? null : Number((L / 25.4).toFixed(5)),
-      imperial_fraction_candidates: imperialLengthCandidates(L),
+    unit_conversions: {
+      diameter_inch_decimal: D === null ? null : Number((D / 25.4).toFixed(6)),
+      pitch_tpi_exact: P === null ? null : Number((25.4 / P).toFixed(6)),
+      purchase_length_inch_decimal: L === null ? null : Number((L / 25.4).toFixed(6)),
+      note: 'Pure unit conversions only. No nominal screw-size table or candidate list is applied.',
     },
     head_support: {
       height_to_width_ratio: head?.status === 'measured' ? head.height_to_width : null,
@@ -175,7 +108,7 @@ export function buildCvGroundingBasis(
     ],
     forbidden_image_inferences: [
       'Do not estimate D, P, L, K or DK from apparent pixel size.',
-      'Do not prefer a common nominal size when it fits the trusted CV facts worse.',
+      'Do not prefer a common nominal size when it fits trusted CV facts worse.',
       'Do not infer drive size from head type, K/DK, or an unverified standard table.',
     ],
   }

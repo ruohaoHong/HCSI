@@ -16,6 +16,7 @@ import {
 import type { MeasurementResult, FixedDimension } from '@/lib/measurement'
 import { loadReferencePack } from '@/lib/reference-loader'
 import { buildCvGroundingBasis } from '@/lib/cv-grounding-basis'
+import { isInternalNominalMapping, type InternalNominalMapping } from '@/lib/nominal-candidate-consistency'
 
 const MAX_IMAGE_LENGTH = 7_000_000
 const PROVIDER_CONFIG = {
@@ -64,7 +65,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
 
     const preflightGate = preflightPurchaseGate(measurement)
     const reference = await loadReferencePack('fasteners')
-    const identificationRaw = await runStructuredProvider({
+    const providerPayload = await runStructuredProvider({
       provider, apiKey, model: config.model, image,
       prompt: buildCvFirstIdentificationPrompt(measurement, measurementServiceError?.code ?? null,
         reference.core, reference.category, preflightGate.allowed),
@@ -72,11 +73,19 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       schema: CV_FIRST_IDENTIFICATION_JSON_SCHEMA as unknown as JsonSchema,
       maxOutputTokens: 4600,
     })
-    if (!isIdentificationResult(identificationRaw) ||
-        !identificationRaw.fastener_interpretation ||
-        typeof identificationRaw.fastener_interpretation.head_style !== 'string') {
+    if (!isIdentificationResult(providerPayload) ||
+        !providerPayload.fastener_interpretation ||
+        typeof providerPayload.fastener_interpretation.head_style !== 'string') {
       throw new Error(`${config.label} CV-first 語義辨識結果格式不完整`)
     }
+    const nominalMapping: InternalNominalMapping | null =
+      isInternalNominalMapping(providerPayload.internal_nominal_mapping)
+        ? providerPayload.internal_nominal_mapping
+        : null
+    // Internal structured nominal mapping is server-only evidence. Do not let
+    // it enter the public/user-facing IdentificationResult rendered by the UI.
+    delete providerPayload.internal_nominal_mapping
+    const identificationRaw = providerPayload as IdentificationResult
     // Nominal identification never edits the signed raw CV observations.
     // A reliable silhouette can reject an impossible semantic head choice,
     // but ambiguous geometry leaves the combined visual/CV choice intact.
@@ -125,6 +134,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       purchaseGate,
       driveEvidence,
       measurement,
+      nominalMapping,
     )
     // Protruding geometry only confirms the length-convention family, not
     // pan versus truss/button/round. Never leave a contradicted nominal
@@ -136,7 +146,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       identificationRaw.uncertain_fields.push(
         'CV 目前只確認突出頭類；盤頭、大扁頭等相近頭型仍以原圖判讀，購買前請核對實物頭型。'
       )
-      if (purchaseCompleteness.reason_codes.includes('nominal_length_inconsistent')) {
+      if (purchaseCompleteness.reason_codes.includes('nominal_candidate_inconsistent')) {
         identificationRaw.item_name = '突出頭型螺絲'
         identificationRaw.subtype = '具體頭型及公稱長度待確認'
       }
@@ -226,6 +236,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       specification_evidence: {
         cv_raw_measurements: dimensions,
         llm_inferred_nominal: identificationRaw.fastener_interpretation.nominal_specification,
+        internal_llm_nominal_mapping: nominalMapping,
         purchase_gate: purchaseGate,
         purchase_completeness: purchaseCompleteness,
         head_style_consistency: headConsistency,
@@ -244,6 +255,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     }
     console.info('[HCSI] CV-first internal diagnostics', {
       provider, purchaseGate, purchaseCompleteness, headConsistency, driveEvidence,
+      nominalMapping,
       measurementServiceError, measurementReasonCodes: measurement?.reason_codes ?? [],
     })
     await logResult(provider, config.model, identificationRaw.category, identificationRaw, measurement)

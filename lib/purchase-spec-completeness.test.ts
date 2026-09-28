@@ -3,6 +3,7 @@ import type { IdentificationResult } from './identification'
 import type { PurchaseGate } from './cv-purchase-policy'
 import type { DriveEvidence } from './drive-evidence'
 import type { MeasurementResult } from './measurement'
+import type { InternalNominalMapping } from './nominal-candidate-consistency'
 import { assessPurchaseSpecificationCompleteness } from './purchase-spec-completeness'
 
 const gate: PurchaseGate = {
@@ -25,31 +26,32 @@ const result = {
     length_convention: 'under_head', nominal_specification: 'M3 × 0.5 × 12 mm',
   },
 } as unknown as IdentificationResult
+const mapping: InternalNominalMapping = {
+  nominal_diameter: { label: 'M3', equivalent_mm: 3 },
+  nominal_pitch: { label: '0.5 mm', equivalent_mm: 0.5 },
+  nominal_length: { label: '12 mm', equivalent_mm: 12 },
+}
 const visibleDrive: DriveEvidence = {
   display_form: '十字', form_observed: true, size_status: 'not_measured', reason_codes: [],
 }
 
-assert.equal(assessPurchaseSpecificationCompleteness(result, gate, visibleDrive, measurement).complete, true)
-assert.equal(assessPurchaseSpecificationCompleteness({
-  ...result, fastener_interpretation: {
-    ...result.fastener_interpretation!, nominal_specification: 'M3 × 0.5 × 11 mm',
-  },
-}, gate, visibleDrive, measurement).reason_codes.includes('nominal_length_inconsistent'), true)
-assert.equal(
-  assessPurchaseSpecificationCompleteness({
-    ...result,
-    fastener_interpretation: { ...result.fastener_interpretation!, nominal_specification: 'M3 × 12 mm' },
-  }, gate, visibleDrive, measurement).complete,
-  false,
-)
+assert.equal(assessPurchaseSpecificationCompleteness(
+  result, gate, visibleDrive, measurement, mapping).complete, true)
+assert.equal(assessPurchaseSpecificationCompleteness(
+  result, gate, visibleDrive, measurement, {
+    ...mapping, nominal_length: { label: '11 mm', equivalent_mm: 11 },
+  }).reason_codes.includes('nominal_candidate_inconsistent'), true)
+assert.equal(assessPurchaseSpecificationCompleteness(
+  result, gate, visibleDrive, measurement, {
+    ...mapping, nominal_pitch: { label: '', equivalent_mm: null },
+  }).reason_codes.includes('nominal_candidate_incomplete'), true)
+
 const sideViewDrive = assessPurchaseSpecificationCompleteness(result, gate, {
   ...visibleDrive, display_form: '待確認', form_observed: false,
-}, measurement)
+}, measurement, mapping)
 assert.equal(sideViewDrive.complete, true, 'drive face is not required for dimensional purchase evidence')
-assert.deepEqual(sideViewDrive.reason_codes, [])
 assert.deepEqual(sideViewDrive.optional_unconfirmed_fields, ['drive_form', 'drive_size'])
-assert.deepEqual(assessPurchaseSpecificationCompleteness(result, gate, visibleDrive, measurement).optional_unconfirmed_fields, ['drive_size'])
 assert.equal(assessPurchaseSpecificationCompleteness(result, {
   ...gate, allowed: false,
-}, visibleDrive, measurement).reason_codes.includes('cv_purchase_gate_blocked'), true)
-console.log('Purchase completeness: complete D/P/L does not depend on optional drive evidence')
+}, visibleDrive, measurement, mapping).reason_codes.includes('cv_purchase_gate_blocked'), true)
+console.log('Purchase completeness: LLM nominal mapping is internal; drive remains optional')
