@@ -77,7 +77,9 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
         typeof providerPayload.fastener_interpretation.head_style !== 'string') {
       throw new Error(`${config.label} CV-first 語義辨識結果格式不完整`)
     }
-    const identificationRaw = providerPayload as IdentificationResult
+    const identificationRaw = providerPayload as IdentificationResult & {
+      fastener_interpretation: NonNullable<IdentificationResult['fastener_interpretation']>
+    }
     // Nominal identification never edits the signed raw CV observations.
     // A reliable silhouette can reject an impossible semantic head choice,
     // but ambiguous geometry leaves the combined visual/CV choice intact.
