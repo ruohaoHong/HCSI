@@ -306,9 +306,16 @@ def observe_head_geometry(
             persistence_px=max(5, int(round(shank_outer * 0.10))),
         )
         return observe_head_profile(
-            profile, underface, boundary_source="coarse_transition",
+            profile,
+            underface,
+            boundary_source="coarse_transition",
+            image_rgb=image_rgb,
         ).to_dict()
-    return observe_head_profile(profile, underface).to_dict()
+    return observe_head_profile(
+        profile,
+        underface,
+        image_rgb=image_rgb,
+    ).to_dict()
 
 
 def execute_geometry_steps(
