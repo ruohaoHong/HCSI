@@ -1,5 +1,6 @@
 import type { MeasurementResult } from '@/lib/measurement'
 import { buildCvGroundingBasis } from '@/lib/cv-grounding-basis'
+import { HEAD_STYLE_SEMANTIC_GUIDANCE, HEAD_STYLE_VALUES } from '@/lib/head-style-taxonomy'
 
 export const CV_FIRST_IDENTIFICATION_JSON_SCHEMA = {
   type: 'object', additionalProperties: false,
@@ -22,7 +23,7 @@ export const CV_FIRST_IDENTIFICATION_JSON_SCHEMA = {
     fastener_interpretation: {
       type: 'object', additionalProperties: false,
       properties: {
-        head_style: { type: 'string', enum: ['hex','flat_countersunk','pan','truss','button','socket_cap','round','other','unknown'] },
+        head_style: { type: 'string', enum: HEAD_STYLE_VALUES },
         drive_form: { type: 'string' },
         thread_system: { type: 'string', enum: ['metric','imperial','unknown'] },
         length_convention: { type: 'string', enum: ['under_head','overall','unresolved'] },
@@ -76,6 +77,8 @@ ${basis.mode === 'cv_grounded_specification'
    - 這些數值不是規格表、不是型號表，也不直接等於 pan/button/socket 等名稱。禁止套用「某數值=某頭型」的硬編碼表。
    - 你的任務是確認照片所選的語義名稱是否真的符合這組實測 silhouette；若某名稱所暗示的外形和 normalized_profile 明顯矛盾，就排除它，再從仍與實測輪廓一致的候選中命名。
    - 不得因「某頭型常見」或某尺寸常搭配某頭型而覆蓋實測輪廓。
+
+${HEAD_STYLE_SEMANTIC_GUIDANCE}
 5. 驅動槽：只有槽面真的看得到才判斷型式；看不到填「待確認」。禁止由頭型、K/DK 或未驗證標準知識猜驅動槽尺寸。
 6. B 只有 optional_thread_extent 時才可當全牙/半牙輔助證據，且永遠不能覆寫 D/P/L。
 

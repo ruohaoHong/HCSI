@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import type { MeasurementResult } from './measurement'
-import { buildCvGroundingBasis } from './cv-grounding-basis'
+import { buildCvDimensionCandidate, buildCvGroundingBasis } from './cv-grounding-basis'
 
 const dim = (mm: number, diagnostics: Record<string, number> = {}) => ({
   status: 'measured' as const, value_px: mm * 10, value_mm: mm,
@@ -62,6 +62,13 @@ assert.equal(protruding.head_shape_math.slope_change, -0.238096)
 assert.match(protruding.head_shape_math.note, /not a head-style lookup table/)
 assert.equal('arithmetic_nominal_hints' in protruding, false,
   'CV grounding must not contain nominal candidate tables or standard mappings')
+const dimensionCandidate = buildCvDimensionCandidate(protruding)
+assert.equal(dimensionCandidate.status, 'candidate')
+assert.equal(dimensionCandidate.specification, '#8-32 × 13/32 in')
+assert.equal(dimensionCandidate.source, 'imperial_numbered_arithmetic')
+assert.deepEqual(dimensionCandidate.excludes,
+  ['head_style', 'drive_form', 'drive_size', 'thread_series'])
+assert.match(dimensionCandidate.note, /not a complete purchase specification/)
 
 measurement.head_geometry!.length_convention_evidence = 'countersunk'
 const countersunk = buildCvGroundingBasis(measurement, true)
@@ -78,4 +85,6 @@ assert.equal(metricLikeBasis.unit_conversions.imperial_numbered_thread_math?.dia
 assert.equal(metricLikeBasis.unit_conversions.imperial_numbered_thread_math?.diameter_residual_over_cv_uncertainty, 3.631111)
 assert.equal(metricLikeBasis.unit_conversions.imperial_numbered_thread_math?.eligible_as_numbered_size_evidence, false,
   'nearest integer alone must not turn a metric-like diameter into numbered imperial evidence')
+assert.equal(buildCvDimensionCandidate(metricLikeBasis).status, 'unavailable',
+  'an ineligible numbered conversion must not become a public dimension candidate')
 console.log('CV grounding basis: only physical facts and reversible unit conversions precede LLM semantics')

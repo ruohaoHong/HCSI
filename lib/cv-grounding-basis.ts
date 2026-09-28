@@ -114,6 +114,52 @@ export interface CvGroundingBasis {
   forbidden_image_inferences: string[]
 }
 
+export interface CvDimensionCandidate {
+  status: 'candidate' | 'unavailable'
+  specification: string | null
+  source: 'imperial_numbered_arithmetic' | null
+  evidence_level: 'estimated' | 'unconfirmed'
+  excludes: Array<'head_style' | 'drive_form' | 'drive_size' | 'thread_series'>
+  reason_codes: string[]
+  note: string
+}
+
+/**
+ * Preserve independently supported dimension notation without promoting it to
+ * a complete purchase specification.  This is deliberately limited to the
+ * already-established reversible numbered-thread arithmetic; it does not add
+ * a catalogue lookup, thread-series label, head style, or drive claim.
+ */
+export function buildCvDimensionCandidate(basis: CvGroundingBasis): CvDimensionCandidate {
+  const numbered = basis.unit_conversions.imperial_numbered_thread_math
+  const length = basis.unit_conversions.purchase_length_dyadic_approx
+  if (basis.mode !== 'cv_grounded_specification' ||
+      !numbered?.eligible_as_numbered_size_evidence || !length) {
+    return {
+      status: 'unavailable',
+      specification: null,
+      source: null,
+      evidence_level: 'unconfirmed',
+      excludes: ['head_style', 'drive_form', 'drive_size', 'thread_series'],
+      reason_codes: ['cv_dimension_candidate_not_supported'],
+      note: 'No independent dimension-only nominal candidate is exposed.',
+    }
+  }
+  return {
+    status: 'candidate',
+    specification: `#${numbered.nearest_integer_size}-${numbered.nearest_integer_tpi} × ${length.label}`,
+    source: 'imperial_numbered_arithmetic',
+    evidence_level: 'estimated',
+    excludes: ['head_style', 'drive_form', 'drive_size', 'thread_series'],
+    reason_codes: [
+      'numbered_diameter_residual_within_cv_uncertainty',
+      'nearest_integer_tpi_from_measured_pitch',
+      'length_quantized_to_nearest_1_64_inch',
+    ],
+    note: 'Dimension-only CV arithmetic candidate; not a complete purchase specification and not proof of catalogue availability.',
+  }
+}
+
 function numberedImperialThreadMath(
   diameterMm: number | null,
   pitchMm: number | null,

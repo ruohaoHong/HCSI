@@ -16,7 +16,15 @@ CV-first v2 keeps deterministic measurements separate from semantic inference:
 5. The final purchase gate requires usable D, P, K, DK, the
    head-style-selected L, reliable head geometry and no physical conflict. A
    second completeness gate requires a resolved head/thread system, a complete
-   nominal D/P/L expression and an observable drive form.
+   nominal D/P/L expression. Drive form and size remain optional evidence and
+   are never guessed from a side view.
+
+The semantic localizer and final identifier share one head-style taxonomy.
+Pan, truss, button, round and socket-cap labels are distinguished with
+qualitative silhouette features (where taper starts, whether a lower skirt is
+present, and whether the wall is cylindrical), not fixed K/DK thresholds or a
+catalogue lookup. `other` means the visible form positively falls outside the
+listed families; translation uncertainty alone is not a reason to use it.
 
 ## Head geometry quality
 
@@ -41,6 +49,12 @@ evidence remains under specification_evidence, while full diagnostic objects
 are written to server logs. The UI-facing purchase description never contains
 an unverified drive size. PH2, T20, H4 and similar tokens are removed; metric
 or imperial fastener dimensions such as M3 and #10-24 are preserved.
+
+When numbered-thread arithmetic and the measured length support a reversible
+dimension notation but the semantic head gate is unresolved, the API may
+return a separate `dimension_candidate`. It is explicitly dimension-only,
+excludes head style, drive form/size and thread-series claims, and never changes
+`purchase_ready=false` into a complete purchase specification.
 
 No percentage confidence score is synthesized. A single photograph still
 cannot independently verify object/ruler coplanarity, so that condition remains

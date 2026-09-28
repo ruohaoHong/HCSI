@@ -1,7 +1,6 @@
 import type { HeadStyle } from './identification'
 import type { MeasurementResult } from './measurement'
-
-const PROTRUDING_HEADS: HeadStyle[] = ['hex', 'pan', 'truss', 'button', 'socket_cap', 'round']
+import { PROTRUDING_HEAD_STYLES } from './head-style-taxonomy'
 
 export type HeadConsistencyStatus = 'consistent' | 'conflict' | 'insufficient'
 
@@ -45,7 +44,7 @@ export function evaluateHeadStyleConsistency(
     }
   }
   const conflicts = (
-    geometryEvidence === 'countersunk' && PROTRUDING_HEADS.includes(llmHead)
+    geometryEvidence === 'countersunk' && PROTRUDING_HEAD_STYLES.includes(llmHead)
   ) || (
     geometryEvidence === 'protruding' && llmHead === 'flat_countersunk'
   )
@@ -56,7 +55,7 @@ export function evaluateHeadStyleConsistency(
       resolved_head_style: geometryEvidence === 'countersunk' ? 'flat_countersunk' : 'unknown',
       geometry_evidence: geometryEvidence,
       excluded_candidates: geometryEvidence === 'countersunk'
-        ? [...PROTRUDING_HEADS]
+        ? [...PROTRUDING_HEAD_STYLES]
         : ['flat_countersunk'],
       selection_basis: 'physical_conflict_rejected',
       reason_codes: ['llm_head_style_conflicts_with_reliable_cv_geometry'],
@@ -68,7 +67,7 @@ export function evaluateHeadStyleConsistency(
     resolved_head_style: llmHead,
     geometry_evidence: geometryEvidence,
     excluded_candidates: geometryEvidence === 'countersunk'
-      ? [...PROTRUDING_HEADS]
+      ? [...PROTRUDING_HEAD_STYLES]
       : geometryEvidence === 'protruding'
         ? ['flat_countersunk']
         : [],

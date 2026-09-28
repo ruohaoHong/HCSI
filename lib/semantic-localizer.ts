@@ -1,4 +1,5 @@
 import type { HardwareCategory, SemanticVisionContext } from './identification'
+import { HEAD_STYLE_SEMANTIC_GUIDANCE, HEAD_STYLE_VALUES } from './head-style-taxonomy'
 
 type LocalizationProvider = 'openai' | 'gemini' | 'grok'
 
@@ -45,7 +46,7 @@ const LOCALIZATION_SCHEMA = {
         reference_region: REGION_SCHEMA,
         head_style: {
           type: 'string',
-          enum: ['hex', 'flat_countersunk', 'pan', 'button', 'socket_cap', 'round', 'other', 'unknown'],
+          enum: HEAD_STYLE_VALUES,
         },
       },
       required: ['target_region', 'reference_region', 'head_style'],
@@ -69,8 +70,10 @@ const LOCALIZATION_PROMPT = `
 - bounding box 要完整包住語義物件並留少量安全邊界，但不要把整張圖都框入。
 - target_region 與 reference_region 要盡量區分五金和尺，避免互相吞併。
 - confidence 只表示「框到正確語義物件」的信心，不代表量測精度。
-- head_style 只從 hex / flat_countersunk / pan / button / socket_cap / round / other / unknown 選一個。
+- head_style 只從 ${HEAD_STYLE_VALUES.join(' / ')} 選一個。
 - 看不清楚就 unknown，不要為了讓後續量測成功而硬猜。
+
+${HEAD_STYLE_SEMANTIC_GUIDANCE}
 
 你的輸出只用於 ROI / reference exclusion；deterministic CV 仍會自行決定 pixel ownership、尺度與尺寸。
 `
@@ -203,9 +206,7 @@ function isLocalizationResult(value: unknown): value is SemanticLocalizationResu
   const categories = new Set([
     'fasteners', 'plumbing', 'electrical', 'building-hardware', 'general-repair', 'unknown',
   ])
-  const heads = new Set([
-    'hex', 'flat_countersunk', 'pan', 'button', 'socket_cap', 'round', 'other', 'unknown',
-  ])
+  const heads = new Set<string>(HEAD_STYLE_VALUES)
   return categories.has(v.category) &&
     typeof v.object_hint === 'string' &&
     !!v.semantic_vision &&

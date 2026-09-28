@@ -15,7 +15,7 @@ import {
 } from '@/lib/purchase-spec-completeness'
 import type { MeasurementResult, FixedDimension } from '@/lib/measurement'
 import { loadReferencePack } from '@/lib/reference-loader'
-import { buildCvGroundingBasis } from '@/lib/cv-grounding-basis'
+import { buildCvDimensionCandidate, buildCvGroundingBasis } from '@/lib/cv-grounding-basis'
 import { localizeForMeasurement, type SemanticLocalizationResult } from '@/lib/semantic-localizer'
 
 const MAX_IMAGE_LENGTH = 7_000_000
@@ -75,6 +75,8 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     if (measurement && !cvComplete) throw new Error('CV-first 回傳缺少推論所需的固定尺寸槽位')
 
     const preflightGate = preflightPurchaseGate(measurement)
+    const cvGroundingBasis = buildCvGroundingBasis(measurement, preflightGate.allowed)
+    const dimensionCandidate = buildCvDimensionCandidate(cvGroundingBasis)
     const reference = await loadReferencePack('fasteners')
     const providerPayload = await runStructuredProvider({
       provider, apiKey, model: config.model, image,
@@ -92,6 +94,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const identificationRaw = providerPayload as IdentificationResult & {
       fastener_interpretation: NonNullable<IdentificationResult['fastener_interpretation']>
     }
+    const llmHeadBeforeFinalGate = identificationRaw.fastener_interpretation.head_style
     // Nominal identification never edits the signed raw CV observations.
     // A reliable silhouette can reject an impossible semantic head choice,
     // but ambiguous geometry leaves the combined visual/CV choice intact.
@@ -129,6 +132,8 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     identificationRaw.fastener_interpretation.drive_form = driveEvidence.display_form
     identificationRaw.fastener_interpretation.nominal_specification =
       stripUnverifiedDriveSizeClaims(identificationRaw.fastener_interpretation.nominal_specification)
+    const llmNominalBeforeFinalGate =
+      identificationRaw.fastener_interpretation.nominal_specification.trim() || null
     identificationRaw.purchase_description =
       stripUnverifiedDriveSizeClaims(identificationRaw.purchase_description)
     identificationRaw.specifications = identificationRaw.specifications.map(spec => ({
@@ -154,7 +159,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const fullFastenerSpecAllowed = isFastener &&
       purchaseGate.allowed && purchaseCompleteness.complete
     const optionalDrive = purchaseCompleteness.optional_unconfirmed_fields
-    const guidance = !isFastener
+    const baseGuidance = !isFastener
       ? '目前精確 CV 規格核驗僅支援螺絲；此結果為外觀辨識，購買前請核對實物尺寸。'
       : fullFastenerSpecAllowed
         ? optionalDrive.includes('drive_form')
@@ -165,6 +170,10 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
         : purchaseGate.allowed
           ? publicCompletenessGuidance(identificationRaw.item_name)
           : publicPurchaseGuidance(purchaseGate, identificationRaw.item_name)
+    const guidance = isFastener && !fullFastenerSpecAllowed &&
+      dimensionCandidate.status === 'candidate'
+      ? `${baseGuidance}；可獨立保留的尺寸候選為 ${dimensionCandidate.specification}，但它不含頭型、UNC/UNF 牙系列別、驅動槽或庫存標準驗證，不能直接當成完整購買規格。`
+      : baseGuidance
     if (fullFastenerSpecAllowed && optionalDrive.includes('drive_form')) {
       // Do not turn a side-view dimension success into an unsupported claim
       // that a specific screwdriver recess was actually photographed.
@@ -228,6 +237,12 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       user_guidance: {
         purchase_ready: fullFastenerSpecAllowed,
         message: guidance,
+        dimension_candidate: fullFastenerSpecAllowed ? null : dimensionCandidate.specification,
+        dimension_candidate_status: fullFastenerSpecAllowed
+          ? 'included_in_purchase_specification'
+          : dimensionCandidate.status === 'candidate'
+            ? 'dimension_only_not_purchase_ready'
+            : 'unavailable',
         actions: fullFastenerSpecAllowed
           ? optionalDrive.length ? ['補拍螺絲頭正面或持實物核對驅動槽'] : []
           : ['依提示補拍', '購買前以實物核對必要尺寸'],
@@ -235,11 +250,16 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       specification_evidence: {
         cv_raw_measurements: dimensions,
         llm_inferred_nominal: identificationRaw.fastener_interpretation.nominal_specification,
+        llm_semantic_candidate_before_gates: {
+          head_style: llmHeadBeforeFinalGate,
+          nominal_specification: llmNominalBeforeFinalGate,
+        },
+        dimension_candidate: dimensionCandidate,
         purchase_gate: purchaseGate,
         purchase_completeness: purchaseCompleteness,
         head_style_consistency: headConsistency,
         drive_evidence: driveEvidence,
-        cv_grounding_basis: buildCvGroundingBasis(measurement, preflightGate.allowed),
+        cv_grounding_basis: cvGroundingBasis,
         standard_table_derived: [], // No verified standards table is wired in v2.
         not_obtained: [
           ...REQUIRED_INFERENCE_DIMENSIONS.filter(key => dimensions[key]?.status !== 'measured'),
@@ -254,6 +274,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     }
     console.info('[HCSI] CV-first internal diagnostics', {
       provider, purchaseGate, purchaseCompleteness, headConsistency, driveEvidence,
+      dimensionCandidate,
       measurementServiceError, measurementReasonCodes: measurement?.reason_codes ?? [],
     })
     await logResult(provider, config.model, identificationRaw.category, identificationRaw, measurement)

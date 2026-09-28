@@ -28,6 +28,13 @@ const hex = resolveMeasurementPlan(plan, {
 assert.equal(hex.length_convention, 'under_head_to_tip')
 assert.deepEqual(hex.executable_steps[0]?.inputs, ['object_tip', 'head_underface'])
 
+const truss = resolveMeasurementPlan(plan, {
+  category: 'fasteners',
+  head_style: 'truss',
+})
+assert.equal(truss.length_convention, 'under_head_to_tip')
+assert.deepEqual(truss.executable_steps[0]?.inputs, ['object_tip', 'head_underface'])
+
 const unknown = resolveMeasurementPlan(plan, {
   category: 'fasteners',
   head_style: 'unknown',

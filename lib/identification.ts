@@ -1,5 +1,8 @@
 import { geometryCapabilityPromptReference, type GeometryCapabilityKind } from './geometry-capabilities'
 import type { SemanticMeasurementPlan } from './measurement-plan-resolver'
+import { HEAD_STYLE_VALUES, type HeadStyle } from './head-style-taxonomy'
+
+export type { HeadStyle } from './head-style-taxonomy'
 
 export const HARDWARE_CATEGORIES = [
   'fasteners',
@@ -13,8 +16,6 @@ export const HARDWARE_CATEGORIES = [
 export type HardwareCategory = (typeof HARDWARE_CATEGORIES)[number]
 export type Provider = 'gemini' | 'openai' | 'grok'
 export type EvidenceLevel = 'measured' | 'observed' | 'estimated' | 'unconfirmed'
-export type HeadStyle = 'hex' | 'flat_countersunk' | 'pan' | 'truss' | 'button' | 'socket_cap' | 'round' | 'other' | 'unknown'
-
 export interface SemanticVisionRegion {
   present: boolean
   confidence: number
@@ -74,6 +75,8 @@ export interface AnalysisResponse {
   user_guidance?: {
     purchase_ready: boolean
     message: string
+    dimension_candidate?: string | null
+    dimension_candidate_status?: 'included_in_purchase_specification' | 'dimension_only_not_purchase_ready' | 'unavailable'
     actions: string[]
   }
   selected_length?: {
@@ -150,7 +153,7 @@ export const ROUTING_JSON_SCHEMA = {
         reference_region: SEMANTIC_REGION_SCHEMA,
         head_style: {
           type: 'string',
-          enum: ['hex', 'flat_countersunk', 'pan', 'button', 'socket_cap', 'round', 'other', 'unknown'],
+          enum: HEAD_STYLE_VALUES,
         },
       },
       required: ['target_region', 'reference_region', 'head_style'],
@@ -298,11 +301,11 @@ function isSemanticVisionRegion(value: unknown): value is SemanticVisionRegion {
 function isSemanticVisionContext(value: unknown): value is SemanticVisionContext {
   if (!value || typeof value !== 'object') return false
   const v = value as Record<string, unknown>
-  const headStyles: HeadStyle[] = ['hex', 'flat_countersunk', 'pan', 'button', 'socket_cap', 'round', 'other', 'unknown']
+  const headStyles = new Set<HeadStyle>(HEAD_STYLE_VALUES)
   return isSemanticVisionRegion(v.target_region) &&
     isSemanticVisionRegion(v.reference_region) &&
     typeof v.head_style === 'string' &&
-    headStyles.includes(v.head_style as HeadStyle)
+    headStyles.has(v.head_style as HeadStyle)
 }
 
 export function isRoutingResult(value: unknown): value is CategoryRoutingResult {
