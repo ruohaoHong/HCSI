@@ -138,7 +138,7 @@ export function buildCvGroundingBasis(
     K !== null && DK !== null && L !== null && headReliable
 
   const normalizedProfile = head?.status === 'measured'
-    ? head.profile_points
+    ? (head.profile_points ?? [])
         .filter(point => Number.isFinite(point.axial_fraction) && Number.isFinite(point.width_ratio))
         .map(point => ({
           axial_fraction: Number(point.axial_fraction.toFixed(6)),
