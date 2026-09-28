@@ -16,6 +16,7 @@ import {
 import type { MeasurementResult, FixedDimension } from '@/lib/measurement'
 import { loadReferencePack } from '@/lib/reference-loader'
 import { buildCvGroundingBasis } from '@/lib/cv-grounding-basis'
+import { localizeForMeasurement, type SemanticLocalizationResult } from '@/lib/semantic-localizer'
 
 const MAX_IMAGE_LENGTH = 7_000_000
 const PROVIDER_CONFIG = {
@@ -43,19 +44,30 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
 
     let measurement: MeasurementResult | null = null
     let measurementServiceError: MeasurementServiceFallback = null
+    let semanticLocalization: SemanticLocalizationResult | null = null
     const proofValid = verifyMeasurementProof(body.measurement, body.measurement_proof, image)
-    if (proofValid) {
+    const proofHasSemanticRoi = proofValid &&
+      body.measurement?.object?.semantic_routing_supplied === true
+    if (proofHasSemanticRoi) {
       measurement = body.measurement as MeasurementResult
     } else {
       try {
-        // CV executes its fixed acquisition BEFORE the single vision LLM call.
-        // Old planner output or client-supplied untrusted evidence has no veto.
-        measurement = await runMeasurementPreflight(image)
+        // Semantic localization is a spatial prior only: target/reference ROI
+        // and coarse head style. It supplies no physical dimensions.
+        semanticLocalization = await localizeForMeasurement(image, provider)
+        measurement = await runMeasurementPreflight(
+          image,
+          [],
+          semanticLocalization.semantic_vision,
+        )
       } catch (error) {
         if (error instanceof MeasurementServiceError) {
           measurementServiceError = { code: error.code, message: error.message }
         } else {
-          measurementServiceError = { code: 'measurement_unexpected_error', message: '量測服務無法使用。' }
+          measurementServiceError = {
+            code: 'measurement_localization_or_cv_error',
+            message: error instanceof Error ? error.message : '量測定位或 CV 無法使用。',
+          }
         }
       }
     }
@@ -129,7 +141,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       driveEvidence,
     )
     // Protruding geometry confirms the length-convention family, while the
-    // same single vision call supplies the finer semantic head label.
+    // final identification call supplies the finer semantic head label.
     const headSubtypeNotIndependentlyVerified =
       headConsistency.geometry_evidence === 'protruding' &&
       ['pan', 'truss', 'button', 'round'].includes(headConsistency.resolved_head_style)
@@ -235,7 +247,8 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
         not_implemented: ['T'],
       },
       selected_length: selectedLength,
-      measurement_source: proofValid ? 'signed_preflight_reused' : measurement ? 'server_cv_executed' : 'service_unavailable',
+      measurement_source: proofHasSemanticRoi ? 'signed_preflight_reused' : measurement ? 'server_cv_executed_with_semantic_roi' : 'service_unavailable',
+      semantic_roi_source: proofHasSemanticRoi ? 'signed_preflight' : semanticLocalization ? `${provider}_localizer` : 'none',
       measurement_service_error: measurementServiceError,
       schema_version: 'hcsi.cv-first.v2',
     }
