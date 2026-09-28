@@ -6,7 +6,6 @@ import { finalPurchaseGate } from './cv-purchase-policy'
 import { sanitizeDriveEvidence } from './drive-evidence'
 import { assessPurchaseSpecificationCompleteness } from './purchase-spec-completeness'
 import { selectLengthFromCv } from './cv-length-policy'
-import type { InternalNominalMapping } from './nominal-candidate-consistency'
 
 const dimensions = Object.fromEntries(
   (['D', 'P', 'L_underhead', 'L_overall', 'K', 'DK'] as FixedDimension[]).map(key => [key, {
@@ -49,11 +48,6 @@ const gate = finalPurchaseGate(measurement, supported.resolved_head_style, suppo
 assert.equal(gate.allowed, true)
 const drive = sanitizeDriveEvidence('Phillips PH2')
 assert.equal(drive.display_form, '十字（尺寸待確認）')
-const nominalMapping: InternalNominalMapping = {
-  nominal_diameter: { label: 'M6', equivalent_mm: 6 },
-  nominal_pitch: { label: '1.0 mm', equivalent_mm: 1 },
-  nominal_length: { label: '10 mm', equivalent_mm: 10 },
-}
 const result = {
   category: 'fasteners',
   fastener_interpretation: {
@@ -64,10 +58,10 @@ const result = {
     nominal_specification: 'M6 × 1.0 × 10 mm',
   },
 } as unknown as IdentificationResult
-assert.equal(assessPurchaseSpecificationCompleteness(result, gate, drive, measurement, nominalMapping).complete, true)
+assert.equal(assessPurchaseSpecificationCompleteness(result, gate, drive).complete, true)
 const driveNotVisible = sanitizeDriveEvidence('待確認')
-assert.equal(assessPurchaseSpecificationCompleteness(result, gate, driveNotVisible, measurement, nominalMapping).complete, true)
-assert.deepEqual(assessPurchaseSpecificationCompleteness(result, gate, driveNotVisible, measurement, nominalMapping).optional_unconfirmed_fields,
+assert.equal(assessPurchaseSpecificationCompleteness(result, gate, driveNotVisible).complete, true)
+assert.deepEqual(assessPurchaseSpecificationCompleteness(result, gate, driveNotVisible).optional_unconfirmed_fields,
   ['drive_form', 'drive_size'])
 
 measurement.dimensions!.B = {

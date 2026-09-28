@@ -19,27 +19,6 @@ export const CV_FIRST_IDENTIFICATION_JSON_SCHEMA = {
     key_differentiator: { type: 'string' },
     uncertain_fields: { type: 'array', items: { type: 'string' } },
     typical_use: { type: 'string' }, purchase_description: { type: 'string' }, safety_note: { type: 'string' },
-    internal_nominal_mapping: {
-      type: 'object', additionalProperties: false,
-      properties: {
-        nominal_diameter: {
-          type: 'object', additionalProperties: false,
-          properties: { label: { type: 'string' }, equivalent_mm: { anyOf: [{ type: 'number' }, { type: 'null' }] } },
-          required: ['label','equivalent_mm'],
-        },
-        nominal_pitch: {
-          type: 'object', additionalProperties: false,
-          properties: { label: { type: 'string' }, equivalent_mm: { anyOf: [{ type: 'number' }, { type: 'null' }] } },
-          required: ['label','equivalent_mm'],
-        },
-        nominal_length: {
-          type: 'object', additionalProperties: false,
-          properties: { label: { type: 'string' }, equivalent_mm: { anyOf: [{ type: 'number' }, { type: 'null' }] } },
-          required: ['label','equivalent_mm'],
-        },
-      },
-      required: ['nominal_diameter','nominal_pitch','nominal_length'],
-    },
     fastener_interpretation: {
       type: 'object', additionalProperties: false,
       properties: {
@@ -54,7 +33,7 @@ export const CV_FIRST_IDENTIFICATION_JSON_SCHEMA = {
   },
   required: ['identification_status','image_quality','category','item_name','common_names','subtype','material',
     'visible_features','specifications','most_likely_identification','confusable_candidate','key_differentiator',
-    'uncertain_fields','typical_use','purchase_description','safety_note','internal_nominal_mapping','fastener_interpretation'],
+    'uncertain_fields','typical_use','purchase_description','safety_note','fastener_interpretation'],
 } as const
 
 export function buildCvFirstIdentificationPrompt(
@@ -88,14 +67,8 @@ ${basis.mode === 'cv_grounded_specification'
 
 最後才把上述結果組成台灣五金行可詢問的候選購買名稱。
 CV mm 是 measured；公稱名稱/規格是 estimated。若找不到與 D/P/指定 L 同時相容的候選，nominal_specification 留空，不要硬湊。
-你還必須填 internal_nominal_mapping（只供後端測試／驗證，前端不顯示）：
-- nominal_diameter.label：你推論的公稱牙徑名稱；equivalent_mm：該公稱名稱本身代表的實際毫米等值。
-- nominal_pitch.label：你推論的公稱牙距/TPI 名稱；equivalent_mm：該公稱牙距本身換算成毫米的等值。
-- nominal_length.label：你推論的公稱長度名稱；equivalent_mm：該公稱長度本身換算成毫米的等值。
-equivalent_mm 必須來自「候選公稱值本身」，禁止直接複製 CV measured_mm 來通過檢查。若你無法可靠提出某個候選，label 留空、equivalent_mm=null。
-這個 internal_nominal_mapping 不要寫進 purchase_description、item_name、visible_features 或 specifications。
-伺服器只會做一般數值一致性比較，不會提供 #號、M系列或英制分數候選表給你。`
-  : `CV 必要證據不足。只辨識原圖中的五金種類與可見外觀；nominal_specification 必須為空字串，不得輸出精確 D/P/L 公稱規格。internal_nominal_mapping 的三個 label 必須留空，equivalent_mm 必須為 null。`}
+不要另外輸出驗證用候選表或中間推理欄位；直接把最符合 CV 物理基底的公稱規格與使用者答案放進既有 schema。
+  : `CV 必要證據不足。只辨識原圖中的五金種類與可見外觀；nominal_specification 必須為空字串，不得輸出精確 D/P/L 公稱規格。`}
 
 ===== 原始照片的角色（次於 CV 物理事實） =====
 只用來補：具體頭型細分、可見的全牙/半牙、可見驅動槽型式、材質/表面與其他非尺寸外觀。
@@ -106,6 +79,6 @@ ${coreReference}
 ===== 螺絲／五金參考 =====
 ${fastenerReference}
 
-輸出必須符合 schema。fastener_interpretation.nominal_specification 只能是與 CV grounding basis 相容的候選。
+輸出必須符合 schema，而且內容應直接服務一般使用者。fastener_interpretation.nominal_specification 只能是與 CV grounding basis 相容的候選；不要把內部 CV JSON、reason code、validator 或推理步驟寫到使用者文字欄位。
 `
 }

@@ -16,7 +16,6 @@ import {
 import type { MeasurementResult, FixedDimension } from '@/lib/measurement'
 import { loadReferencePack } from '@/lib/reference-loader'
 import { buildCvGroundingBasis } from '@/lib/cv-grounding-basis'
-import { isInternalNominalMapping, type InternalNominalMapping } from '@/lib/nominal-candidate-consistency'
 
 const MAX_IMAGE_LENGTH = 7_000_000
 const PROVIDER_CONFIG = {
@@ -78,13 +77,6 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
         typeof providerPayload.fastener_interpretation.head_style !== 'string') {
       throw new Error(`${config.label} CV-first 語義辨識結果格式不完整`)
     }
-    const nominalMapping: InternalNominalMapping | null =
-      isInternalNominalMapping(providerPayload.internal_nominal_mapping)
-        ? providerPayload.internal_nominal_mapping
-        : null
-    // Internal structured nominal mapping is server-only evidence. Do not let
-    // it enter the public/user-facing IdentificationResult rendered by the UI.
-    delete providerPayload.internal_nominal_mapping
     const identificationRaw = providerPayload as IdentificationResult
     // Nominal identification never edits the signed raw CV observations.
     // A reliable silhouette can reject an impossible semantic head choice,
@@ -133,12 +125,9 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       identificationRaw,
       purchaseGate,
       driveEvidence,
-      measurement,
-      nominalMapping,
     )
-    // Protruding geometry only confirms the length-convention family, not
-    // pan versus truss/button/round. Never leave a contradicted nominal
-    // purchase length wrapped in an over-specific model-generated head name.
+    // Protruding geometry confirms the length-convention family, while the
+    // same single vision call supplies the finer semantic head label.
     const headSubtypeNotIndependentlyVerified =
       headConsistency.geometry_evidence === 'protruding' &&
       ['pan', 'truss', 'button', 'round'].includes(headConsistency.resolved_head_style)
@@ -146,10 +135,6 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       identificationRaw.uncertain_fields.push(
         'CV 目前只確認突出頭類；盤頭、大扁頭等相近頭型仍以原圖判讀，購買前請核對實物頭型。'
       )
-      if (purchaseCompleteness.reason_codes.includes('nominal_candidate_inconsistent')) {
-        identificationRaw.item_name = '突出頭型螺絲'
-        identificationRaw.subtype = '具體頭型及公稱長度待確認'
-      }
     }
     const isFastener = identificationRaw.category === 'fasteners'
     const fullFastenerSpecAllowed = isFastener &&
@@ -164,7 +149,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
             ? '尺寸規格已有可信 CV 證據；驅動槽尺寸仍須以實物確認。'
             : ''
         : purchaseGate.allowed
-          ? publicCompletenessGuidance(identificationRaw.item_name, purchaseCompleteness.reason_codes)
+          ? publicCompletenessGuidance(identificationRaw.item_name)
           : publicPurchaseGuidance(purchaseGate, identificationRaw.item_name)
     if (fullFastenerSpecAllowed && optionalDrive.includes('drive_form')) {
       // Do not turn a side-view dimension success into an unsupported claim
@@ -236,7 +221,6 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       specification_evidence: {
         cv_raw_measurements: dimensions,
         llm_inferred_nominal: identificationRaw.fastener_interpretation.nominal_specification,
-        internal_llm_nominal_mapping: nominalMapping,
         purchase_gate: purchaseGate,
         purchase_completeness: purchaseCompleteness,
         head_style_consistency: headConsistency,
@@ -255,7 +239,6 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     }
     console.info('[HCSI] CV-first internal diagnostics', {
       provider, purchaseGate, purchaseCompleteness, headConsistency, driveEvidence,
-      nominalMapping,
       measurementServiceError, measurementReasonCodes: measurement?.reason_codes ?? [],
     })
     await logResult(provider, config.model, identificationRaw.category, identificationRaw, measurement)

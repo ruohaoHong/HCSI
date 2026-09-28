@@ -10,7 +10,6 @@ on:
       - '.github/workflows/case-d-cv-first-v2-openai.yml'
       - 'lib/cv-first-identification.ts'
       - 'lib/cv-grounding-basis.ts'
-      - 'lib/nominal-candidate-consistency.ts'
       - 'lib/purchase-spec-completeness.ts'
       - 'lib/provider-runner.ts'
   workflow_dispatch:
@@ -129,14 +128,7 @@ jobs:
           assert output['measurement'] == cv, 'Provider modified signed raw CV evidence'
           (root/'response.json').write_text(json.dumps(output,ensure_ascii=False,indent=2))
           result = output['result']
-          completeness = output['specification_evidence']['purchase_completeness']
-          candidate_agreement = completeness['nominal_candidate_agreement']
-          internal_mapping = output['specification_evidence']['internal_llm_nominal_mapping']
-          assert 'internal_nominal_mapping' not in result, 'Internal LLM mapping leaked into user-facing result'
-          if output['user_guidance']['purchase_ready']:
-              assert candidate_agreement['status'] == 'consistent', 'Ready nominal mapping disagrees with CV D/P/L'
-          print('Internal LLM nominal mapping:', internal_mapping)
-          print('Nominal mapping vs CV gate:', candidate_agreement)
+          assert 'internal_nominal_mapping' not in result, 'Internal verification payload leaked into user-facing result'
           print('CV grounding basis:', output['specification_evidence']['cv_grounding_basis'])
           print('Frozen D API completed; CV status:',cv['measurement_status'])
           print('Purchase gate:', output['specification_evidence']['purchase_gate'])
@@ -173,8 +165,7 @@ jobs:
                   'purchase_ready':purchase_ready,
                   'nominal_output':result['result']['fastener_interpretation']['nominal_specification'],
                   'cv_errors':comparisons,
-                  'nominal_candidate_agreement':result['specification_evidence']['purchase_completeness']['nominal_candidate_agreement'],
-                  'internal_llm_nominal_mapping':result['specification_evidence']['internal_llm_nominal_mapping'],
+                  'single_llm_cv_grounded':True,
                   'internal_mapping_absent_from_public_result':'internal_nominal_mapping' not in result['result'],
                   'optional_B_not_a_pass_criterion':True}
           (root/'evaluation.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
