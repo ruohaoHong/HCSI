@@ -65,7 +65,13 @@ ${basis.mode === 'cv_grounded_specification'
 3. nominal length：只使用 purchase_length_dimension 指定的 CV 長度與純換算 purchase_length_inch_decimal，使用你已有的工程／五金知識推論最符合的公稱長度。不得因某長度「比較常見」就選擇離 CV 更遠的候選。
    unit_conversions.purchase_length_dyadic_approx 是把同一個 CV 長度純數學量化到最近的 1/64 英寸後再約分，只是降低分數換算負擔；它不是標準規格表，也不保證市場上一定有該尺寸。
    公稱長度不能只是把 decimal inch 任意四捨五入成小數商品規格；請結合你既有的五金知識，判斷這個純數學分數表示是否也是合理的實際公稱長度。
-4. 頭型：先服從 head_geometry_class。countersunk 不可被原圖改成突出頭；protruding 時，原圖只能在相容的突出頭候選中細分。再使用 K_mm、DK_mm、head_support 與原圖判斷具體頭型。
+4. 頭型：先服從 head_geometry_class。countersunk 不可被原圖改成突出頭；protruding 時，原圖只能在相容的突出頭候選中細分。
+   具體頭型細分時，優先使用 head_shape_math 與 head_support 描述的「實測輪廓形狀」，再看照片語義：
+   - K_over_DK、DK_over_D、top_over_underside_width、width_drop_underside_to_top 都是純算術比值；
+   - lower_half_slope / upper_half_slope / slope_change 與 normalized_profile 描述頭部從 underside 到 top 的實際寬度變化；
+   - 這些數值不是規格表、不是型號表，也不直接等於 pan/button/socket 等名稱。禁止套用「某數值=某頭型」的硬編碼表。
+   - 你的任務是確認照片所選的語義名稱是否真的符合這組實測 silhouette；若某名稱所暗示的外形和 normalized_profile 明顯矛盾，就排除它，再從仍與實測輪廓一致的候選中命名。
+   - 不得因「某頭型常見」或某尺寸常搭配某頭型而覆蓋實測輪廓。
 5. 驅動槽：只有槽面真的看得到才判斷型式；看不到填「待確認」。禁止由頭型、K/DK 或未驗證標準知識猜驅動槽尺寸。
 6. B 只有 optional_thread_extent 時才可當全牙/半牙輔助證據，且永遠不能覆寫 D/P/L。
 
