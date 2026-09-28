@@ -6,7 +6,13 @@ name: Frozen Case D CV-first v2 OpenAI blind E2E
 on:
   push:
     branches: [feature/measurement-confidence-gate]
-    paths: ['.github/workflows/case-d-cv-first-v2-openai.yml']
+    paths:
+      - '.github/workflows/case-d-cv-first-v2-openai.yml'
+      - 'lib/cv-first-identification.ts'
+      - 'lib/cv-grounding-basis.ts'
+      - 'lib/nominal-thread-consistency.ts'
+      - 'lib/purchase-spec-completeness.ts'
+      - 'lib/provider-runner.ts'
   workflow_dispatch:
 
 permissions:
@@ -123,10 +129,15 @@ jobs:
           assert output['measurement'] == cv, 'Provider modified signed raw CV evidence'
           (root/'response.json').write_text(json.dumps(output,ensure_ascii=False,indent=2))
           result = output['result']
-          agreement = output['specification_evidence']['purchase_completeness']['nominal_length_agreement']
+          completeness = output['specification_evidence']['purchase_completeness']
+          length_agreement = completeness['nominal_length_agreement']
+          thread_agreement = completeness['nominal_thread_agreement']
           if output['user_guidance']['purchase_ready']:
-              assert agreement['status'] == 'consistent', 'Ready nominal length disagrees with selected CV length'
-          print('Nominal length vs CV gate:', agreement)
+              assert length_agreement['status'] == 'consistent', 'Ready nominal length disagrees with selected CV length'
+              assert thread_agreement['status'] == 'consistent', 'Ready nominal thread disagrees with CV D/P'
+          print('Nominal length vs CV gate:', length_agreement)
+          print('Nominal thread vs CV gate:', thread_agreement)
+          print('CV grounding basis:', output['specification_evidence']['cv_grounding_basis'])
           print('Frozen D API completed; CV status:',cv['measurement_status'])
           print('Purchase gate:', output['specification_evidence']['purchase_gate'])
           print('Optional drive evidence:', output['specification_evidence']['drive_evidence'])
@@ -163,6 +174,7 @@ jobs:
                   'nominal_output':result['result']['fastener_interpretation']['nominal_specification'],
                   'cv_errors':comparisons,
                   'nominal_length_agreement':result['specification_evidence']['purchase_completeness']['nominal_length_agreement'],
+                  'nominal_thread_agreement':result['specification_evidence']['purchase_completeness']['nominal_thread_agreement'],
                   'optional_B_not_a_pass_criterion':True}
           (root/'evaluation.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
           print(json.dumps(report,ensure_ascii=False,indent=2))

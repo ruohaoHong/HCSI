@@ -55,10 +55,10 @@ const result = {
     nominal_specification: 'M6 × 1.0 × 10 mm',
   },
 } as unknown as IdentificationResult
-assert.equal(assessPurchaseSpecificationCompleteness(result, gate, drive).complete, true)
+assert.equal(assessPurchaseSpecificationCompleteness(result, gate, drive, measurement).complete, true)
 const driveNotVisible = sanitizeDriveEvidence('待確認')
-assert.equal(assessPurchaseSpecificationCompleteness(result, gate, driveNotVisible).complete, true)
-assert.deepEqual(assessPurchaseSpecificationCompleteness(result, gate, driveNotVisible).optional_unconfirmed_fields,
+assert.equal(assessPurchaseSpecificationCompleteness(result, gate, driveNotVisible, measurement).complete, true)
+assert.deepEqual(assessPurchaseSpecificationCompleteness(result, gate, driveNotVisible, measurement).optional_unconfirmed_fields,
   ['drive_form', 'drive_size'])
 
 measurement.dimensions!.B = {
