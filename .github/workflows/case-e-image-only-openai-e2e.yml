@@ -1,9 +1,8 @@
 name: Case E image-only OpenAI E2E
 
-# Validation harness only. This run validates the current branch after the
-# raw bilateral head-edge primitive; it supplies no GT or expected semantics
-# to either inference stage. Ground truth is introduced only after response.json
-# has been written.
+# Validation harness only. Final regression run for the raw bilateral
+# head-edge primitive plus generic raw/contour evidence arbitration. No GT or
+# expected semantics enter either inference stage; GT loads only afterwards.
 on:
   push:
     branches: [feature/measurement-confidence-gate]
