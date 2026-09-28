@@ -10,6 +10,8 @@ on:
       - '.github/workflows/case-b-image-only-openai-e2e.yml'
       - 'app/api/measure/route.ts'
       - 'lib/provider-runner.ts'
+      - 'lib/cv-grounding-basis.ts'
+      - 'lib/cv-first-identification.ts'
       - 'lib/semantic-localizer.ts'
       - 'measurement-service/geometry_executor.py'
       - 'measurement-service/app.py'
