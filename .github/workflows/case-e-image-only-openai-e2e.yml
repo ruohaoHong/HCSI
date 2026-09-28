@@ -1,0 +1,276 @@
+name: Case E image-only OpenAI E2E
+
+# Validation harness only. The application and CV implementation remain the
+# exact tree from 7cf259f; this workflow supplies no GT or expected semantics to
+# either inference stage. Ground truth is introduced only after response.json
+# has been written.
+on:
+  push:
+    branches: [feature/measurement-confidence-gate]
+    paths:
+      - '.github/workflows/case-e-image-only-openai-e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  case-e-image-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      HCSI_MEASUREMENT_SERVICE_URL: http://127.0.0.1:8000
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: measurement-service/requirements.txt
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Reassemble and verify immutable Case E photograph derivative
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p case-e-e2e-results
+          python benchmark/measurement-poc/assemble_case_e_fixture.py \
+            --output case-e-e2e-results/case-e.webp
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+          path = Path('case-e-e2e-results/case-e.webp')
+          actual = hashlib.sha256(path.read_bytes()).hexdigest()
+          expected = 'b408b06f7cc0f70558203e90d8702680269c12fc276cf1fadf4d4f0800e3f385'
+          if actual != expected:
+              raise SystemExit(f'Case E derivative SHA mismatch: {actual} != {expected}')
+          metadata = {
+              'fixture_used': 'repository-safe WebP Q80 derivative of frozen user photograph',
+              'fixture_sha256': actual,
+              'original_uploaded_jpeg_sha256': 'f05a8ab6d3188469a1d16648bb58cc0a7348e57d367266aa836e10b114a202af',
+              'dimensions_preserved': True,
+              'inference_ground_truth_supplied': False,
+          }
+          Path('case-e-e2e-results/fixture.json').write_text(
+              json.dumps(metadata, ensure_ascii=False, indent=2))
+          print('Case E derivative SHA-256 VERIFIED:', actual)
+          print('No GT, expected head style, or expected specification has been loaded into inference.')
+          PY
+
+      - name: Install dependencies and build application
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENAI_API_KEY" || { echo "OPENAI_API_KEY unavailable"; exit 1; }
+          python -m pip install -r measurement-service/requirements.txt
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Start deterministic CV service and Next.js API
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup python -m uvicorn app:app --app-dir measurement-service --host 127.0.0.1 --port 8000 > /tmp/hcsi-e-cv.log 2>&1 < /dev/null &
+          nohup pnpm start --hostname 127.0.0.1 --port 3000 > /tmp/hcsi-e-next.log 2>&1 < /dev/null &
+          python - <<'PY'
+          import time, urllib.request
+          for url in ['http://127.0.0.1:8000/openapi.json', 'http://127.0.0.1:3000']:
+              for _ in range(100):
+                  try:
+                      with urllib.request.urlopen(url, timeout=3) as response:
+                          if response.status == 200:
+                              print('Ready:', url)
+                              break
+                  except Exception:
+                      time.sleep(2)
+              else:
+                  raise SystemExit('Service did not start: ' + url)
+          PY
+
+      - name: Image-only request through full backend E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, json, pathlib, urllib.error, urllib.request
+          root = pathlib.Path('case-e-e2e-results')
+          image = (root / 'case-e.webp').read_bytes()
+          encoded = base64.b64encode(image).decode('ascii')
+
+          def post(route, body):
+              request = urllib.request.Request(
+                  'http://127.0.0.1:3000' + route,
+                  data=json.dumps(body).encode('utf-8'),
+                  headers={'Content-Type': 'application/json'},
+                  method='POST',
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=900) as response:
+                      status, raw = response.status, response.read()
+              except urllib.error.HTTPError as error:
+                  status, raw = error.code, error.read()
+              payload = json.loads(raw)
+              if status != 200:
+                  (root / 'inference-error.json').write_text(
+                      json.dumps({'route': route, 'status': status, 'payload': payload},
+                                 ensure_ascii=False, indent=2))
+                  raise SystemExit(f'{route} HTTP {status}: ' + raw.decode(errors='replace')[:1200])
+              return payload
+
+          # Stage 1 receives the photograph only and performs real OpenAI
+          # localization before deterministic CV. No semantic ROI is injected.
+          preflight = post('/api/measure', {'image': encoded})
+          cv = preflight['measurement']
+          proof = preflight.get('measurement_proof')
+          localization = preflight.get('semantic_localization')
+          assert isinstance(proof, str) and proof
+          assert localization and localization['semantic_vision']['target_region']['present']
+          assert cv['object'].get('semantic_routing_supplied') is True
+          assert cv['image_sha256'] == 'b408b06f7cc0f70558203e90d8702680269c12fc276cf1fadf4d4f0800e3f385'
+          assert set(cv['dimensions']) == {'D','P','L_underhead','L_overall','B','K','DK'}
+          (root / 'preflight.json').write_text(json.dumps(preflight, ensure_ascii=False, indent=2))
+
+          # Stage 2 receives the same photograph plus signed CV evidence.
+          output = post('/api/analyze-openai', {
+              'image': encoded,
+              'measurement': cv,
+              'measurement_proof': proof,
+          })
+          (root / 'response.json').write_text(json.dumps(output, ensure_ascii=False, indent=2))
+          (root / 'cv.json').write_text(json.dumps(cv, ensure_ascii=False, indent=2))
+          assert output['measurement_source'] == 'signed_preflight_reused'
+          assert output.get('semantic_roi_source') == 'signed_preflight'
+          assert output['measurement'] == cv
+
+          interp = output['result']['fastener_interpretation']
+          evidence = output['specification_evidence']
+          print('CASE E FULL E2E COMPLETED')
+          print('preflight localization:', json.dumps(localization, ensure_ascii=False))
+          print('CV status:', cv['measurement_status'])
+          print('CV confidence:', cv['measurement_confidence'])
+          for key, dimension in cv['dimensions'].items():
+              print('CV dimension', key, 'status=', dimension['status'],
+                    'mm=', dimension['value_mm'], 'reasons=', dimension['reason_codes'],
+                    'risks=', dimension['risk_signals'])
+          print('CV grounding basis:', json.dumps(evidence['cv_grounding_basis'], ensure_ascii=False))
+          print('Raw LLM semantic candidate:', json.dumps(
+              evidence['llm_semantic_candidate_before_gates'], ensure_ascii=False))
+          print('Final head style:', interp['head_style'])
+          print('Thread system:', interp['thread_system'])
+          print('Nominal specification:', interp['nominal_specification'])
+          print('Selected length:', json.dumps(output['selected_length'], ensure_ascii=False))
+          print('Purchase gate:', json.dumps(evidence['purchase_gate'], ensure_ascii=False))
+          print('Purchase completeness:', json.dumps(evidence['purchase_completeness'], ensure_ascii=False))
+          print('Drive evidence:', json.dumps(evidence['drive_evidence'], ensure_ascii=False))
+          print('Purchase ready:', output['user_guidance']['purchase_ready'])
+          print('Uncertain fields:', json.dumps(output['result']['uncertain_fields'], ensure_ascii=False))
+          PY
+
+      - name: Compare with immutable Case E GT only after inference
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, pathlib, re
+          root = pathlib.Path('case-e-e2e-results')
+          output = json.loads((root / 'response.json').read_text())
+          cv = output['measurement']['dimensions']
+
+          # GT enters for the first time here, after response.json is frozen.
+          gt = {
+              'D': 3.0,
+              'P': 0.5,
+              'L_underhead': 30.0,
+              'head_style': 'socket_cap',
+              'thread_system': 'metric',
+          }
+          dimensions = {}
+          for key in ('D', 'P', 'L_underhead'):
+              dimension = cv[key]
+              measured = dimension['value_mm'] if dimension['status'] == 'measured' else None
+              expected = gt[key]
+              dimensions[key] = {
+                  'status': dimension['status'],
+                  'measured_mm': measured,
+                  'gt_mm': expected,
+                  'absolute_error_mm': abs(measured - expected) if measured is not None else None,
+                  'relative_error_pct': 100 * abs(measured - expected) / expected if measured is not None else None,
+              }
+          for key in ('K', 'DK'):
+              dimension = cv[key]
+              dimensions[key] = {
+                  'status': dimension['status'],
+                  'measured_mm': dimension['value_mm'],
+                  'gt_mm': None,
+                  'relative_error_pct': None,
+                  'note': 'No independent K/DK ground truth is recorded for frozen Case E.',
+              }
+
+          interp = output['result']['fastener_interpretation']
+          evidence = output['specification_evidence']
+          raw_candidate = evidence['llm_semantic_candidate_before_gates']
+          nominal = interp['nominal_specification']
+          compact = re.sub(r'\s+', '', nominal.lower()).replace('×', 'x')
+          nominal_core_matches = 'm3' in compact and ('0.5' in compact or '.5' in compact) and '30' in compact
+          cv_measurement_pass = all(cv[key]['status'] == 'measured' for key in ('D','P','L_underhead','K','DK'))
+          head_pass = interp['head_style'] == gt['head_style']
+          length_pass = output['selected_length']['convention'] == 'under_head'
+          complete_pass = (
+              output['user_guidance']['purchase_ready'] and head_pass and length_pass
+              and interp['thread_system'] == gt['thread_system'] and nominal_core_matches
+          )
+          report = {
+              'case': 'E',
+              'fixture_sha256': output['measurement']['image_sha256'],
+              'original_uploaded_jpeg_sha256': 'f05a8ab6d3188469a1d16648bb58cc0a7348e57d367266aa836e10b114a202af',
+              'inference_external_input': ['repository_derivative_image_only'],
+              'gt_loaded_after_response': True,
+              'workflow_execution_pass': True,
+              'cv_measurement_pass': cv_measurement_pass,
+              'llm_head_identification_pass': head_pass,
+              'complete_purchase_specification_pass': complete_pass,
+              'cv_errors': dimensions,
+              'raw_llm_semantic_candidate': raw_candidate,
+              'output_head_style': interp['head_style'],
+              'output_thread_system': interp['thread_system'],
+              'nominal_output': nominal,
+              'nominal_core_m3_0_5_x_30_matches': nominal_core_matches,
+              'expected_length_convention': 'under_head',
+              'output_length_convention': output['selected_length']['convention'],
+              'length_convention_matches_gt': length_pass,
+              'purchase_ready': output['user_guidance']['purchase_ready'],
+              'purchase_gate': evidence['purchase_gate'],
+              'purchase_completeness': evidence['purchase_completeness'],
+              'drive_evidence': evidence['drive_evidence'],
+          }
+          (root / 'evaluation.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
+          print('POST-INFERENCE CASE E GT EVALUATION')
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload raw inference and post-inference evaluation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: case-e-image-only-openai-e2e
+          path: |
+            case-e-e2e-results/*.json
+          if-no-files-found: ignore
+
+      - name: Print sanitized logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          echo 'CV service diagnostics:'
+          tail -n 70 /tmp/hcsi-e-cv.log 2>/dev/null || true
+          echo 'Next.js diagnostics:'
+          tail -n 70 /tmp/hcsi-e-next.log 2>/dev/null || true
