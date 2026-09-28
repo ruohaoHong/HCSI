@@ -13,6 +13,41 @@ function trusted(dim: CvDimensionEvidence | undefined): number | null {
     ? dim.value_mm : null
 }
 
+function gcd(a: number, b: number): number {
+  let x = Math.abs(Math.round(a))
+  let y = Math.abs(Math.round(b))
+  while (y !== 0) [x, y] = [y, x % y]
+  return x || 1
+}
+
+function nearestDyadic64(inches: number | null): {
+  label: string
+  decimal_inch: number
+  difference_mm: number
+  resolution: '1/64 in'
+} | null {
+  if (inches === null || !Number.isFinite(inches) || inches <= 0) return null
+  const numerator64 = Math.round(inches * 64)
+  if (numerator64 <= 0) return null
+  const divisor = gcd(numerator64, 64)
+  const numerator = numerator64 / divisor
+  const denominator = 64 / divisor
+  const whole = Math.floor(numerator / denominator)
+  const remainder = numerator % denominator
+  const label = remainder === 0
+    ? `${whole} in`
+    : whole > 0
+      ? `${whole} ${remainder}/${denominator} in`
+      : `${remainder}/${denominator} in`
+  const decimal = numerator64 / 64
+  return {
+    label,
+    decimal_inch: Number(decimal.toFixed(6)),
+    difference_mm: Number((Math.abs(decimal - inches) * 25.4).toFixed(6)),
+    resolution: '1/64 in',
+  }
+}
+
 export interface CvGroundingBasis {
   mode: 'cv_grounded_specification' | 'appearance_only'
   rule: string
@@ -29,6 +64,12 @@ export interface CvGroundingBasis {
     diameter_inch_decimal: number | null
     pitch_tpi_exact: number | null
     purchase_length_inch_decimal: number | null
+    purchase_length_dyadic_approx: {
+      label: string
+      decimal_inch: number
+      difference_mm: number
+      resolution: '1/64 in'
+    } | null
     note: string
   }
   head_support: {
@@ -91,7 +132,8 @@ export function buildCvGroundingBasis(
       diameter_inch_decimal: D === null ? null : Number((D / 25.4).toFixed(6)),
       pitch_tpi_exact: P === null ? null : Number((25.4 / P).toFixed(6)),
       purchase_length_inch_decimal: L === null ? null : Number((L / 25.4).toFixed(6)),
-      note: 'Pure unit conversions only. No nominal screw-size table or candidate list is applied.',
+      purchase_length_dyadic_approx: nearestDyadic64(L === null ? null : L / 25.4),
+      note: 'Pure unit conversions and a nearest 1/64-inch dyadic representation only. This is arithmetic formatting, not a nominal screw-size table or proof that a standard size exists.',
     },
     head_support: {
       height_to_width_ratio: head?.status === 'measured' ? head.height_to_width : null,

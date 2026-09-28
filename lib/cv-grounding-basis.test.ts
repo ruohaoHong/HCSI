@@ -25,6 +25,8 @@ assert.equal(protruding.hard_physical_facts.purchase_length_dimension, 'L_underh
 assert.equal(protruding.hard_physical_facts.purchase_length_mm, 10.27)
 assert.equal(protruding.unit_conversions.pitch_tpi_exact, 31.75)
 assert.equal(protruding.unit_conversions.purchase_length_inch_decimal, 0.404331)
+assert.equal(protruding.unit_conversions.purchase_length_dyadic_approx?.label, '13/32 in')
+assert.equal(protruding.unit_conversions.purchase_length_dyadic_approx?.difference_mm, 0.04875)
 assert.equal(protruding.optional_thread_extent?.role, 'support_only')
 assert.equal('arithmetic_nominal_hints' in protruding, false,
   'CV grounding must not contain nominal candidate tables or standard mappings')
