@@ -168,5 +168,6 @@ def test_bilateral_head_edges_do_not_invent_missing_source_boundary():
             "head_bilateral_edge_support_insufficient",
             "head_bilateral_edge_side_sparse",
             "head_profile_has_gaps",
+            "head_profile_centerline_drift",
         )
     )
