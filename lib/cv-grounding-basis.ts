@@ -75,12 +75,46 @@ export interface CvGroundingBasis {
   head_support: {
     height_to_width_ratio: number | null
     underside_width_ratio: number | null
+    mid_width_ratio: number | null
     top_width_ratio: number | null
+    max_width_position: number | null
+    width_trend: number | null
     quality: 'reliable' | 'degraded' | 'unusable' | 'unavailable'
+  }
+  head_shape_math: {
+    K_over_DK: number | null
+    DK_over_D: number | null
+    top_over_underside_width: number | null
+    width_drop_underside_to_top: number | null
+    lower_half_slope: number | null
+    upper_half_slope: number | null
+    slope_change: number | null
+    normalized_profile: Array<{
+      axial_fraction: number
+      width_ratio: number
+    }>
+    note: string
   }
   optional_thread_extent: { B_mm: number; role: 'support_only' } | null
   image_role: string[]
   forbidden_image_inferences: string[]
+}
+
+function ratio(numerator: number | null, denominator: number | null): number | null {
+  if (numerator === null || denominator === null || !Number.isFinite(numerator) ||
+      !Number.isFinite(denominator) || Math.abs(denominator) < 1e-9) return null
+  return Number((numerator / denominator).toFixed(6))
+}
+
+function nearestProfileWidth(
+  points: Array<{ axial_fraction: number; width_ratio: number }>,
+  target: number,
+): number | null {
+  if (points.length === 0) return null
+  const ordered = [...points].sort(
+    (a, b) => Math.abs(a.axial_fraction - target) - Math.abs(b.axial_fraction - target)
+  )
+  return Number.isFinite(ordered[0].width_ratio) ? ordered[0].width_ratio : null
 }
 
 export function buildCvGroundingBasis(
@@ -102,6 +136,28 @@ export function buildCvGroundingBasis(
   const L = lengthDimension ? trusted(dims?.[lengthDimension]) : null
   const ready = allowPreciseSpec && D !== null && P !== null &&
     K !== null && DK !== null && L !== null && headReliable
+
+  const normalizedProfile = head?.status === 'measured'
+    ? head.profile_points
+        .filter(point => Number.isFinite(point.axial_fraction) && Number.isFinite(point.width_ratio))
+        .map(point => ({
+          axial_fraction: Number(point.axial_fraction.toFixed(6)),
+          width_ratio: Number(point.width_ratio.toFixed(6)),
+        }))
+    : []
+  const lowerWidth = nearestProfileWidth(normalizedProfile, 0.08)
+  const middleWidth = nearestProfileWidth(normalizedProfile, 0.50)
+  const upperWidth = nearestProfileWidth(normalizedProfile, 0.92)
+  const lowerHalfSlope = lowerWidth !== null && middleWidth !== null
+    ? Number(((middleWidth - lowerWidth) / 0.42).toFixed(6))
+    : null
+  const upperHalfSlope = middleWidth !== null && upperWidth !== null
+    ? Number(((upperWidth - middleWidth) / 0.42).toFixed(6))
+    : null
+  const topOverUnderside = ratio(
+    head?.status === 'measured' ? head.top_width_ratio : null,
+    head?.status === 'measured' ? head.bearing_width_ratio : null,
+  )
 
   const B = dims?.B
   const bRisks = B?.risk_signals.filter(reason =>
@@ -138,8 +194,26 @@ export function buildCvGroundingBasis(
     head_support: {
       height_to_width_ratio: head?.status === 'measured' ? head.height_to_width : null,
       underside_width_ratio: head?.status === 'measured' ? head.bearing_width_ratio : null,
+      mid_width_ratio: head?.status === 'measured' ? head.mid_width_ratio : null,
       top_width_ratio: head?.status === 'measured' ? head.top_width_ratio : null,
+      max_width_position: head?.status === 'measured' ? head.max_width_position : null,
+      width_trend: head?.status === 'measured' ? head.width_trend : null,
       quality: head?.status === 'measured' ? head.quality : 'unavailable',
+    },
+    head_shape_math: {
+      K_over_DK: ratio(K, DK),
+      DK_over_D: ratio(DK, D),
+      top_over_underside_width: topOverUnderside,
+      width_drop_underside_to_top: topOverUnderside === null
+        ? null
+        : Number((1 - topOverUnderside).toFixed(6)),
+      lower_half_slope: lowerHalfSlope,
+      upper_half_slope: upperHalfSlope,
+      slope_change: lowerHalfSlope === null || upperHalfSlope === null
+        ? null
+        : Number((upperHalfSlope - lowerHalfSlope).toFixed(6)),
+      normalized_profile: normalizedProfile,
+      note: 'Dimensionless arithmetic derived only from measured head geometry. These values describe silhouette shape; they are not a head-style lookup table and do not themselves name pan/button/socket/etc.',
     },
     optional_thread_extent: optionalB,
     image_role: [
