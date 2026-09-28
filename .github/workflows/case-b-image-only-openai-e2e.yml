@@ -11,6 +11,8 @@ on:
       - 'app/api/measure/route.ts'
       - 'lib/provider-runner.ts'
       - 'lib/semantic-localizer.ts'
+      - 'measurement-service/geometry_executor.py'
+      - 'measurement-service/app.py'
   workflow_dispatch:
 
 permissions:
