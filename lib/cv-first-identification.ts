@@ -59,8 +59,11 @@ ${serviceNote}
 ${basis.mode === 'cv_grounded_specification'
   ? `hard_physical_facts 是本次規格推論的前提，不是建議：
 1. nominal diameter：以 D_mm（必要時參考純換算 diameter_inch_decimal）作為唯一尺寸基準，使用你已有的工程／五金知識推論最符合的公稱牙徑。照片不得改變 D。
+   公稱牙徑必須是你所知的真實五金規格名稱，不是把 diameter_inch_decimal 重新四捨五入後當成新規格。
 2. nominal pitch/TPI：以 P_mm 與純換算 pitch_tpi_exact 作為唯一尺寸基準，使用你已有的工程／五金知識推論最符合的公稱牙距／TPI。照片不得改變 P。
+   TPI／牙距同樣必須對應你所知的實際公稱系列，而不是單純把換算結果取整後假設它一定存在。
 3. nominal length：只使用 purchase_length_dimension 指定的 CV 長度與純換算 purchase_length_inch_decimal，使用你已有的工程／五金知識推論最符合的公稱長度。不得因某長度「比較常見」就選擇離 CV 更遠的候選。
+   公稱長度不是把 decimal inch 四捨五入後直接當商品規格；請使用你已知的實際五金公稱表示慣例。英制螺絲若通常以分數英寸標示，就從你的既有知識推論與 CV 數值最相符的真實分數公稱長度；不要創造一個只是接近測量值的任意小數英寸規格。
 4. 頭型：先服從 head_geometry_class。countersunk 不可被原圖改成突出頭；protruding 時，原圖只能在相容的突出頭候選中細分。再使用 K_mm、DK_mm、head_support 與原圖判斷具體頭型。
 5. 驅動槽：只有槽面真的看得到才判斷型式；看不到填「待確認」。禁止由頭型、K/DK 或未驗證標準知識猜驅動槽尺寸。
 6. B 只有 optional_thread_extent 時才可當全牙/半牙輔助證據，且永遠不能覆寫 D/P/L。
