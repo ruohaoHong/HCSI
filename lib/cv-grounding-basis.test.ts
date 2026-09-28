@@ -2,13 +2,14 @@ import assert from 'node:assert/strict'
 import type { MeasurementResult } from './measurement'
 import { buildCvGroundingBasis } from './cv-grounding-basis'
 
-const dim = (mm: number) => ({
+const dim = (mm: number, diagnostics: Record<string, number> = {}) => ({
   status: 'measured' as const, value_px: mm * 10, value_mm: mm,
-  confidence: 'verified' as const, risk_signals: [], reason_codes: [], diagnostics: {},
+  confidence: 'verified' as const, risk_signals: [], reason_codes: [], diagnostics,
 })
 const measurement = {
   dimensions: {
-    D: dim(4.17), P: dim(0.8), L_underhead: dim(10.27), L_overall: dim(13.08),
+    D: dim(4.17, { edge_diameter_uncertainty_mm: 0.02 }),
+    P: dim(0.8), L_underhead: dim(10.27), L_overall: dim(13.08),
     B: { ...dim(8), confidence: 'measured_with_risk' as const,
       risk_signals: ['thread_boundary_resolution_limited_by_visible_pitch'] },
     K: dim(2.84), DK: dim(8.287),
@@ -46,6 +47,9 @@ assert.equal(protruding.unit_conversions.imperial_numbered_thread_math?.diameter
 assert.equal(protruding.unit_conversions.imperial_numbered_thread_math?.nearest_integer_tpi, 32)
 assert.equal(protruding.unit_conversions.imperial_numbered_thread_math?.reconstructed_pitch_mm, 0.79375)
 assert.equal(protruding.unit_conversions.imperial_numbered_thread_math?.pitch_difference_mm, 0.00625)
+assert.equal(protruding.unit_conversions.imperial_numbered_thread_math?.diameter_cv_uncertainty_mm, 0.02)
+assert.equal(protruding.unit_conversions.imperial_numbered_thread_math?.diameter_residual_over_cv_uncertainty, 0.22)
+assert.equal(protruding.unit_conversions.imperial_numbered_thread_math?.eligible_as_numbered_size_evidence, true)
 assert.match(protruding.unit_conversions.imperial_numbered_thread_math?.note ?? '', /not a UNC\/UNF lookup table/)
 assert.equal(protruding.optional_thread_extent?.role, 'support_only')
 assert.equal(protruding.head_shape_math.K_over_DK, 0.342705)
@@ -64,4 +68,14 @@ const countersunk = buildCvGroundingBasis(measurement, true)
 assert.equal(countersunk.hard_physical_facts.purchase_length_dimension, 'L_overall')
 assert.equal(countersunk.hard_physical_facts.purchase_length_mm, 13.08)
 assert.equal(buildCvGroundingBasis(measurement, false).mode, 'appearance_only')
+
+const metricLike = structuredClone(measurement) as unknown as MeasurementResult
+metricLike.dimensions!.D = dim(5.98, { edge_diameter_uncertainty_mm: 0.045 })
+metricLike.dimensions!.P = dim(1.015)
+const metricLikeBasis = buildCvGroundingBasis(metricLike, true)
+assert.equal(metricLikeBasis.unit_conversions.imperial_numbered_thread_math?.nearest_integer_size, 13)
+assert.equal(metricLikeBasis.unit_conversions.imperial_numbered_thread_math?.diameter_difference_mm, 0.1634)
+assert.equal(metricLikeBasis.unit_conversions.imperial_numbered_thread_math?.diameter_residual_over_cv_uncertainty, 3.631111)
+assert.equal(metricLikeBasis.unit_conversions.imperial_numbered_thread_math?.eligible_as_numbered_size_evidence, false,
+  'nearest integer alone must not turn a metric-like diameter into numbered imperial evidence')
 console.log('CV grounding basis: only physical facts and reversible unit conversions precede LLM semantics')
