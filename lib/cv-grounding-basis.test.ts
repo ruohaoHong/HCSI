@@ -71,6 +71,7 @@ assert.deepEqual(dimensionCandidate.excludes,
 assert.match(dimensionCandidate.note, /not a complete purchase specification/)
 
 measurement.head_geometry!.length_convention_evidence = 'countersunk'
+measurement.head_geometry!.boundary_source = 'coarse_transition'
 const countersunk = buildCvGroundingBasis(measurement, true)
 assert.equal(countersunk.hard_physical_facts.purchase_length_dimension, 'L_overall')
 assert.equal(countersunk.hard_physical_facts.purchase_length_mm, 13.08)
