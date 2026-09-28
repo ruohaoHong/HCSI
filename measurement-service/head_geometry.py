@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 
+from edge_observation import observe_edge
 from thread_geometry import HeadUnderfaceEstimate, ThreadedShankProfile
 
 
@@ -99,10 +100,128 @@ def _band_median(values: np.ndarray, t: np.ndarray, start: float, end: float) ->
     return float(np.median(selected))
 
 
+
+@dataclass(frozen=True)
+class _BilateralHeadEdgeProfile:
+    low: np.ndarray
+    high: np.ndarray
+    valid: np.ndarray
+    positive_valid_fraction: float
+    negative_valid_fraction: float
+    bilateral_valid_fraction: float
+    rescue_count: int
+
+
+def _bilateral_raw_head_edges(
+    image_rgb: np.ndarray,
+    profile: ThreadedShankProfile,
+    s: np.ndarray,
+    coarse_low: np.ndarray,
+    coarse_high: np.ndarray,
+    t: np.ndarray,
+    underface: HeadUnderfaceEstimate,
+) -> _BilateralHeadEdgeProfile:
+    """Observe the two physical head edges independently from source pixels.
+
+    The segmentation contour is only a search prior.  If one contour side
+    collapses inward while the opposite side remains head-sized, reflect the
+    opposite radius around the bearing-region centerline *only to seed a raw
+    edge search*.  A reflected coordinate is never accepted as a measurement
+    unless source pixels independently support an object-to-background edge.
+    """
+    coarse_centers = (coarse_low + coarse_high) * 0.5
+    center_reference = _band_median(coarse_centers, t, 0.05, 0.22)
+    if not np.isfinite(center_reference):
+        center_reference = float(np.median(coarse_centers))
+
+    coarse_widths = coarse_high - coarse_low
+    robust_width = float(np.percentile(coarse_widths, 90))
+    half_length = float(np.clip(robust_width * 0.20, 8.0, 20.0))
+    minimum_radius = max(2.0, underface.shank_outer_px * 0.42)
+
+    raw_low = np.full(len(s), np.nan, dtype=np.float64)
+    raw_high = np.full(len(s), np.nan, dtype=np.float64)
+    positive_valid = np.zeros(len(s), dtype=bool)
+    negative_valid = np.zeros(len(s), dtype=bool)
+    rescue_count = 0
+
+    for index, axial in enumerate(s):
+        low = float(coarse_low[index])
+        high = float(coarse_high[index])
+        positive_radius = high - center_reference
+        negative_radius = center_reference - low
+
+        positive_seed = high
+        negative_seed = low
+        positive_rescue = (
+            negative_radius > minimum_radius
+            and positive_radius < 0.72 * negative_radius
+        )
+        negative_rescue = (
+            positive_radius > minimum_radius
+            and negative_radius < 0.72 * positive_radius
+        )
+        if positive_rescue:
+            positive_seed = center_reference + negative_radius
+        if negative_rescue:
+            negative_seed = center_reference - positive_radius
+
+        origin = profile.center + profile.axis * float(axial)
+        for sign, seed, rescue in (
+            (1.0, positive_seed, positive_rescue),
+            (-1.0, negative_seed, negative_rescue),
+        ):
+            coarse_xy = origin + profile.normal * seed
+            observation = observe_edge(
+                image_rgb,
+                coarse_xy,
+                profile.normal * sign,
+                half_length_px=half_length,
+                min_contrast=6.0 if rescue else 10.0,
+            )
+            if not observation.valid:
+                continue
+            cross = float(
+                np.dot(
+                    np.asarray(observation.position_xy, dtype=np.float64)
+                    - profile.center,
+                    profile.normal,
+                )
+            )
+            radius = (
+                cross - center_reference
+                if sign > 0
+                else center_reference - cross
+            )
+            # Raw texture inside a knurled head is not an outer silhouette.
+            if radius < minimum_radius:
+                continue
+            if sign > 0:
+                raw_high[index] = cross
+                positive_valid[index] = True
+            else:
+                raw_low[index] = cross
+                negative_valid[index] = True
+            if rescue:
+                rescue_count += 1
+
+    bilateral = positive_valid & negative_valid
+    return _BilateralHeadEdgeProfile(
+        low=raw_low,
+        high=raw_high,
+        valid=bilateral,
+        positive_valid_fraction=float(np.mean(positive_valid)) if len(s) else 0.0,
+        negative_valid_fraction=float(np.mean(negative_valid)) if len(s) else 0.0,
+        bilateral_valid_fraction=float(np.mean(bilateral)) if len(s) else 0.0,
+        rescue_count=rescue_count,
+    )
+
+
 def observe_head_profile(
     profile: ThreadedShankProfile,
     underface: HeadUnderfaceEstimate,
     boundary_source: str = "bearing_plane",
+    image_rgb: np.ndarray | None = None,
 ) -> HeadGeometryObservation:
     """Describe the observed side silhouette without assigning a catalogue head.
 
@@ -122,34 +241,70 @@ def observe_head_profile(
     if len(indices) < 8:
         return unavailable_head_geometry("head_profile_samples_insufficient")
 
-    s = np.asarray(profile.s_values[indices], dtype=np.float64)
-    widths = np.asarray(profile.widths[indices], dtype=np.float64)
-    centers = (
-        np.asarray(profile.low[indices], dtype=np.float64)
-        + np.asarray(profile.high[indices], dtype=np.float64)
-    ) * 0.5
-    finite = np.isfinite(s) & np.isfinite(widths) & np.isfinite(centers)
-    valid_fraction = float(np.mean(finite))
-    s = s[finite]
-    widths = widths[finite]
-    centers = centers[finite]
-    if len(s) < 8:
+    s_all = np.asarray(profile.s_values[indices], dtype=np.float64)
+    low_all = np.asarray(profile.low[indices], dtype=np.float64)
+    high_all = np.asarray(profile.high[indices], dtype=np.float64)
+    widths_all = high_all - low_all
+    centers_all = (low_all + high_all) * 0.5
+    finite = (
+        np.isfinite(s_all) & np.isfinite(widths_all)
+        & np.isfinite(centers_all) & np.isfinite(low_all) & np.isfinite(high_all)
+    )
+    s_all = s_all[finite]
+    low_all = low_all[finite]
+    high_all = high_all[finite]
+    widths_all = widths_all[finite]
+    centers_all = centers_all[finite]
+    if len(s_all) < 8:
         return unavailable_head_geometry("head_profile_samples_insufficient")
 
-    distance = (s - underface.s) * toward_head
-    positive = distance >= -1e-6
-    distance = distance[positive]
-    widths = widths[positive]
-    centers = centers[positive]
-    if len(distance) < 8 or float(np.max(distance)) < 6.0:
+    distance_all = (s_all - underface.s) * toward_head
+    positive = distance_all >= -1e-6
+    s_all = s_all[positive]
+    low_all = low_all[positive]
+    high_all = high_all[positive]
+    widths_all = widths_all[positive]
+    centers_all = centers_all[positive]
+    distance_all = distance_all[positive]
+    if len(distance_all) < 8 or float(np.max(distance_all)) < 6.0:
         return unavailable_head_geometry("head_axial_span_insufficient")
 
-    order = np.argsort(distance)
-    distance = distance[order]
-    widths = widths[order]
-    centers = centers[order]
-    head_height = float(distance[-1])
-    t = np.clip(distance / head_height, 0.0, 1.0)
+    order = np.argsort(distance_all)
+    s_all = s_all[order]
+    low_all = low_all[order]
+    high_all = high_all[order]
+    widths_all = widths_all[order]
+    centers_all = centers_all[order]
+    distance_all = distance_all[order]
+    head_height = float(distance_all[-1])
+    t_all = np.clip(distance_all / head_height, 0.0, 1.0)
+
+    raw_profile: _BilateralHeadEdgeProfile | None = None
+    use_raw_profile = False
+    if image_rgb is not None:
+        raw_profile = _bilateral_raw_head_edges(
+            image_rgb, profile, s_all, low_all, high_all, t_all, underface,
+        )
+        # Require broad two-sided support. Missing spans are not filled by
+        # symmetry or contour interpolation merely to make a head "reliable".
+        use_raw_profile = (
+            raw_profile.bilateral_valid_fraction >= 0.58
+            and int(np.count_nonzero(raw_profile.valid)) >= 12
+        )
+
+    if use_raw_profile and raw_profile is not None:
+        support = raw_profile.valid
+        distance = distance_all[support]
+        widths = raw_profile.high[support] - raw_profile.low[support]
+        centers = (raw_profile.high[support] + raw_profile.low[support]) * 0.5
+        t = t_all[support]
+        valid_fraction = raw_profile.bilateral_valid_fraction
+    else:
+        distance = distance_all
+        widths = widths_all
+        centers = centers_all
+        t = t_all
+        valid_fraction = float(np.mean(finite))
     width_p90 = float(np.percentile(widths, 90))
     if width_p90 <= 1.0 or width_p90 < 1.18 * underface.shank_outer_px:
         return unavailable_head_geometry("head_not_separable_from_shank")
@@ -190,6 +345,14 @@ def observe_head_profile(
         convention = "protruding"
 
     reasons: list[str] = []
+    if image_rgb is not None and raw_profile is not None:
+        if not use_raw_profile:
+            reasons.append("head_bilateral_edge_support_insufficient")
+        elif (
+            raw_profile.positive_valid_fraction < 0.72
+            or raw_profile.negative_valid_fraction < 0.72
+        ):
+            reasons.append("head_bilateral_edge_side_sparse")
     if valid_fraction < 0.95:
         reasons.append("head_profile_has_gaps")
     if len(widths) < 12:
