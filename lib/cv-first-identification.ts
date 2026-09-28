@@ -67,7 +67,7 @@ ${basis.mode === 'cv_grounded_specification'
 
 最後才把上述結果組成台灣五金行可詢問的候選購買名稱。
 CV mm 是 measured；公稱名稱/規格是 estimated。若找不到與 D/P/指定 L 同時相容的候選，nominal_specification 留空，不要硬湊。
-不要另外輸出驗證用候選表或中間推理欄位；直接把最符合 CV 物理基底的公稱規格與使用者答案放進既有 schema。
+不要另外輸出驗證用候選表或中間推理欄位；直接把最符合 CV 物理基底的公稱規格與使用者答案放進既有 schema。`
   : `CV 必要證據不足。只辨識原圖中的五金種類與可見外觀；nominal_specification 必須為空字串，不得輸出精確 D/P/L 公稱規格。`}
 
 ===== 原始照片的角色（次於 CV 物理事實） =====
