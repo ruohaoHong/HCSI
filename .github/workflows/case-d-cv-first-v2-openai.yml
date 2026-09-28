@@ -12,6 +12,8 @@ on:
       - 'lib/cv-grounding-basis.ts'
       - 'lib/purchase-spec-completeness.ts'
       - 'lib/provider-runner.ts'
+      - 'measurement-service/geometry_executor.py'
+      - 'measurement-service/app.py'
   workflow_dispatch:
 
 permissions:
