@@ -60,9 +60,11 @@ ${basis.mode === 'cv_grounded_specification'
   ? `hard_physical_facts 是本次規格推論的前提，不是建議：
 1. nominal diameter：以 D_mm（必要時參考純換算 diameter_inch_decimal）作為唯一尺寸基準，照片不得改變 D。
    若 imperial_numbered_thread_math 存在，它只是把 Unified numbered-screw 的線性直徑關係反解成 size index，再顯示 nearest integer 與 diameter residual；不是 #size 查表。
-   若 numbered_size_index_exact 很接近 nearest_integer_size，且 reconstructed_diameter 與 D 的 residual 很小，這是可用的算術證據，可由你轉譯為 numbered screw 的公稱直徑寫法；不要因沒有額外 catalog table 就把這個證據丟掉。
+   只有 eligible_as_numbered_size_evidence=true 時，才允許把 nearest_integer_size 當 numbered-screw 公稱直徑證據。這個布林值只表示「公式重建直徑殘差 ≤ CV 自己的直徑 uncertainty」。
+   若 eligible_as_numbered_size_evidence=false，禁止使用 nearest_integer_size 把物件轉成 #size；這代表美制 numbered 直徑公式與實測 D 的差距已超出 CV 可解釋範圍。
 2. nominal pitch/TPI：以 P_mm 與 pitch_tpi_exact 作為唯一尺寸基準，照片不得改變 P。
-   imperial_numbered_thread_math.nearest_integer_tpi 與 pitch_difference_mm 是純數學的最近整數 TPI 與重建誤差。若 residual 很小，可作為公稱 TPI 候選；但禁止僅憑 TPI 自行加上 UNC/UNF 系列名稱。
+   只有 numbered diameter evidence 已成立時，imperial_numbered_thread_math.nearest_integer_tpi 與 pitch_difference_mm 才可用來形成 numbered-inch thread 的 TPI 候選。禁止只因 TPI 接近整數就把 metric thread 改成 imperial。
+   禁止僅憑 TPI 自行加上 UNC/UNF 系列名稱。
 3. nominal length：只使用 purchase_length_dimension 指定的 CV 長度。不得因某長度「比較常見」就選擇離 CV 更遠的候選。
    purchase_length_dyadic_approx 是同一個 CV 長度量化到最近 1/64 英寸後再約分；difference_mm 是量化殘差。
    當這個殘差相對實測長度很小時，可以把該分數當作「CV 長度的英制購買表示候選」；這不代表庫存保證，也不需要另外查一張長度規格表才能填 nominal_specification。
