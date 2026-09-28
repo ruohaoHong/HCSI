@@ -365,7 +365,7 @@ export function buildCvGroundingBasis(
       },
       silhouette_integrity: {
         status: silhouetteStatus,
-        reason_codes: headMeasured ? [...head.reason_codes] : [],
+        reason_codes: headMeasured ? [...(head.reason_codes ?? [])] : [],
         can_constrain_head_subtype: silhouetteReliable,
       },
     },
