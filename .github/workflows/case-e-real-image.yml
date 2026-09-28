@@ -5,6 +5,7 @@ on:
     branches:
       - feature/semantic-pixel-ownership
       - feature/edge-observation-primitive
+      - feature/measurement-confidence-gate
     paths:
       - '.github/workflows/case-e-real-image.yml'
       - 'benchmark/measurement-poc/cases/case-e-m3x30-q80.part*.b64'
