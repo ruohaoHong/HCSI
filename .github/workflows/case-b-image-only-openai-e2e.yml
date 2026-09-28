@@ -1,7 +1,7 @@
 name: Case B image-only OpenAI E2E
 
-# Test harness only. Application/CV source under validation is unchanged from
-# 7cf259f51222b59d65d6fd51f95d952b47c9e1c8.
+# Test harness only. This run validates the current branch after the raw
+# bilateral head-edge primitive.
 # Inference receives exactly one external input: the immutable original Case B image.
 # Ground truth is introduced only after the final API response has been frozen.
 on:
@@ -15,6 +15,7 @@ on:
       - 'lib/cv-first-identification.ts'
       - 'lib/semantic-localizer.ts'
       - 'measurement-service/geometry_executor.py'
+      - 'measurement-service/head_geometry.py'
       - 'measurement-service/app.py'
   workflow_dispatch:
 

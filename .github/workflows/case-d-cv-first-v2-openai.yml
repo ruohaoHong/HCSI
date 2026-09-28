@@ -1,8 +1,8 @@
 name: Frozen Case D CV-first v2 OpenAI blind E2E
 
 # Follow-up diagnostic on an already-seen fixture, NOT a new independent holdout.
-# One explicitly bounded OpenAI call. Exact frozen image is SHA-checked before
-# inference; its GT is introduced only in the subsequent evaluation step.
+# This run validates the current branch after the raw bilateral head-edge primitive.
+# Exact frozen image is SHA-checked; GT enters only after inference.
 on:
   push:
     branches: [feature/measurement-confidence-gate]
@@ -13,6 +13,7 @@ on:
       - 'lib/purchase-spec-completeness.ts'
       - 'lib/provider-runner.ts'
       - 'measurement-service/geometry_executor.py'
+      - 'measurement-service/head_geometry.py'
       - 'measurement-service/app.py'
   workflow_dispatch:
 
