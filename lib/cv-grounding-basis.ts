@@ -78,6 +78,9 @@ export interface CvGroundingBasis {
       nearest_integer_tpi: number
       reconstructed_pitch_mm: number
       pitch_difference_mm: number
+      diameter_cv_uncertainty_mm: number | null
+      diameter_residual_over_cv_uncertainty: number | null
+      eligible_as_numbered_size_evidence: boolean
       formula: 'diameter_inch = 0.060 + 0.013 * size_number'
       note: string
     } | null
@@ -114,6 +117,7 @@ export interface CvGroundingBasis {
 function numberedImperialThreadMath(
   diameterMm: number | null,
   pitchMm: number | null,
+  diameterCvUncertaintyMm: number | null,
 ): CvGroundingBasis['unit_conversions']['imperial_numbered_thread_math'] {
   if (diameterMm === null || pitchMm === null) return null
   const diameterInch = diameterMm / 25.4
@@ -126,18 +130,29 @@ function numberedImperialThreadMath(
 
   const reconstructedDiameterInch = 0.060 + 0.013 * nearestSize
   const reconstructedPitchMm = 25.4 / nearestTpi
+  const diameterDifferenceMm = Math.abs(diameterInch - reconstructedDiameterInch) * 25.4
+  const residualOverUncertainty = diameterCvUncertaintyMm !== null &&
+    Number.isFinite(diameterCvUncertaintyMm) && diameterCvUncertaintyMm > 0
+      ? diameterDifferenceMm / diameterCvUncertaintyMm
+      : null
   return {
     numbered_size_index_exact: Number(numberedSizeIndex.toFixed(6)),
     nearest_integer_size: nearestSize,
     reconstructed_diameter_inch: Number(reconstructedDiameterInch.toFixed(6)),
-    diameter_difference_mm: Number(
-      (Math.abs(diameterInch - reconstructedDiameterInch) * 25.4).toFixed(6)
-    ),
+    diameter_difference_mm: Number(diameterDifferenceMm.toFixed(6)),
     nearest_integer_tpi: nearestTpi,
     reconstructed_pitch_mm: Number(reconstructedPitchMm.toFixed(6)),
     pitch_difference_mm: Number(Math.abs(pitchMm - reconstructedPitchMm).toFixed(6)),
+    diameter_cv_uncertainty_mm: diameterCvUncertaintyMm === null
+      ? null
+      : Number(diameterCvUncertaintyMm.toFixed(6)),
+    diameter_residual_over_cv_uncertainty: residualOverUncertainty === null
+      ? null
+      : Number(residualOverUncertainty.toFixed(6)),
+    eligible_as_numbered_size_evidence: residualOverUncertainty !== null &&
+      residualOverUncertainty <= 1,
     formula: 'diameter_inch = 0.060 + 0.013 * size_number',
-    note: 'Pure arithmetic inversion of the Unified numbered-screw diameter relation plus nearest-integer TPI. This is not a UNC/UNF lookup table and does not prove catalogue availability; residuals show how closely the measured D/P fit the arithmetic designation.',
+    note: 'Pure arithmetic inversion of the Unified numbered-screw diameter relation plus nearest-integer TPI. Numbered-size evidence is eligible only when its reconstructed diameter residual stays inside the CV diameter uncertainty. This is not a UNC/UNF lookup table and does not prove catalogue availability.',
   }
 }
 
@@ -171,6 +186,11 @@ export function buildCvGroundingBasis(
       : geometryClass === 'protruding' ? 'L_underhead'
         : null
   const D = trusted(dims?.D)
+  const dUncertaintyRaw = dims?.D?.diagnostics?.edge_diameter_uncertainty_mm
+  const dUncertainty = typeof dUncertaintyRaw === 'number' &&
+    Number.isFinite(dUncertaintyRaw) && dUncertaintyRaw > 0
+      ? dUncertaintyRaw
+      : null
   const P = trusted(dims?.P)
   const K = trusted(dims?.K)
   const DK = trusted(dims?.DK)
@@ -230,7 +250,7 @@ export function buildCvGroundingBasis(
       pitch_tpi_exact: P === null ? null : Number((25.4 / P).toFixed(6)),
       purchase_length_inch_decimal: L === null ? null : Number((L / 25.4).toFixed(6)),
       purchase_length_dyadic_approx: nearestDyadic64(L === null ? null : L / 25.4),
-      imperial_numbered_thread_math: numberedImperialThreadMath(D, P),
+      imperial_numbered_thread_math: numberedImperialThreadMath(D, P, dUncertainty),
       note: 'Pure unit conversions, numbered-thread arithmetic inversion, and nearest 1/64-inch length quantization only. These are mathematical transforms of CV measurements, not a nominal-size lookup table or proof that a stocked standard exists.',
     },
     head_support: {
