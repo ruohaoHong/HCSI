@@ -290,10 +290,14 @@ export function buildCvGroundingBasis(
       ? dUncertaintyRaw
       : null
 
+  // allowPreciseSpec is the non-silhouette physical preflight.  After the
+  // purchase-policy split, a false value means scale/object/capture/core
+  // dimensions are not trustworthy and must still fail closed.
   const dimensionGrounded =
+    allowPreciseSpec &&
     D !== null && P !== null && K !== null && DK !== null && L !== null &&
     (bearingPlaneSupported || silhouetteReliable)
-  const ready = allowPreciseSpec && dimensionGrounded && silhouetteReliable
+  const ready = dimensionGrounded && silhouetteReliable
   const mode: CvGroundingBasis['mode'] = ready
     ? 'cv_grounded_specification'
     : dimensionGrounded
