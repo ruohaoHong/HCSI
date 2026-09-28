@@ -34,7 +34,7 @@ FIXED_FASTENER_STEPS: tuple[GeometryStep, ...] = (
     {"operation": "axial_distance", "inputs": ["object_tip", "head_underface"], "purpose": "L under-head candidate"},
     {"operation": "axial_distance", "inputs": ["object_tip", "head_top"], "purpose": "L overall candidate"},
     {"operation": "threaded_length", "inputs": ["threaded_shank"], "purpose": "B full physical threaded extent"},
-    {"operation": "axial_distance", "inputs": ["head_underface", "head_top"], "purpose": "K head height"},
+    {"operation": "axial_distance", "inputs": ["head_start", "head_top"], "purpose": "K head axial extent"},
     {"operation": "outer_width", "inputs": ["head"], "purpose": "DK head outside diameter"},
 )
 
@@ -198,6 +198,66 @@ def _profile_underface_landmarks(
     }
 
 
+def _resolve_head_envelope(
+    profile: ThreadedShankProfile,
+    underface: HeadUnderfaceEstimate | None,
+) -> dict[str, Any] | None:
+    """Resolve a generic observed head envelope without assuming one head family.
+
+    For protruding heads, preserve the existing physical bearing-plane estimate.
+    When no bearing plane exists (notably countersunk heads), use the already
+    detected narrow-to-wide shank transition as the generic head start. This
+    fallback is only for head-envelope measurements (K/DK); it never changes the
+    strict head_underface landmark used by L_underhead.
+    """
+    if underface is not None:
+        head_start_s = float(underface.s)
+        shank_outer_px = float(underface.shank_outer_px)
+        boundary_source = "bearing_plane"
+    else:
+        shank_outer = measure_outer_width_px(profile)
+        if shank_outer is None or not np.isfinite(shank_outer) or shank_outer <= 1.0:
+            return None
+        head_start_s = float(profile.transition_s)
+        shank_outer_px = float(shank_outer)
+        boundary_source = "shank_width_transition"
+
+    toward_head = 1 if profile.transition_s > profile.tip_s else -1
+    head_top_s = float(profile.s_values[-1] if toward_head > 0 else profile.s_values[0])
+    head_span_px = abs(head_top_s - head_start_s)
+    if head_span_px < 2.0:
+        return None
+
+    head_mask = (
+        profile.s_values >= head_start_s
+        if toward_head > 0
+        else profile.s_values <= head_start_s
+    )
+    head_widths = np.asarray(profile.widths[head_mask], dtype=np.float64)
+    head_widths = head_widths[np.isfinite(head_widths)]
+    if len(head_widths) < 6:
+        return None
+
+    # Use a robust high percentile rather than max so one segmentation spike
+    # cannot become the physical head width.
+    head_width_px = float(np.percentile(head_widths, 90))
+    if head_width_px < 1.18 * shank_outer_px:
+        return None
+
+    start_xy = profile.center + profile.axis * head_start_s
+    top_xy = profile.center + profile.axis * head_top_s
+    return {
+        "head_start": (float(start_xy[0]), float(start_xy[1])),
+        "head_top": (float(top_xy[0]), float(top_xy[1])),
+        "head_span_px": head_span_px,
+        "head_width_px": head_width_px,
+        "head_width_p50_px": float(np.median(head_widths)),
+        "head_profile_samples": int(len(head_widths)),
+        "shank_reference_width_px": shank_outer_px,
+        "boundary_source": boundary_source,
+    }
+
+
 def _threaded_shank_landmarks(profile: ThreadedShankProfile) -> dict[str, dict[str, float | None]]:
     return {
         "threaded_shank_start": {
@@ -289,12 +349,35 @@ def execute_geometry_steps(
                 frozenset(("object_tip", "head_underface")),
                 frozenset(("object_tip", "head_top")),
                 frozenset(("head_underface", "head_top")),
+                frozenset(("head_start", "head_top")),
             }
             if len(inputs) != 2 or frozenset(inputs) not in supported_pairs:
                 results.append(_not_measured(step, "unsupported_landmark_combination"))
                 continue
-            diagnostics: dict[str, float] = {}
-            if "head_underface" in inputs:
+            diagnostics: dict[str, Any] = {}
+            if "head_start" in inputs:
+                if shank_profile is None:
+                    shank_profile = detect_threaded_shank(contour)
+                if shank_profile is None:
+                    results.append(_not_measured(step, "head_profile_not_found"))
+                    continue
+                if underface_estimate is None:
+                    underface_estimate = estimate_head_underface(shank_profile)
+                envelope = _resolve_head_envelope(shank_profile, underface_estimate)
+                if envelope is None:
+                    results.append(_not_measured(step, "head_envelope_not_found"))
+                    continue
+                step_landmarks = {
+                    "head_start": envelope["head_start"],
+                    "head_top": envelope["head_top"],
+                }
+                diagnostics = {
+                    "head_boundary_source": envelope["boundary_source"],
+                    "shank_reference_width_px": _round(envelope["shank_reference_width_px"]),
+                    "head_profile_samples": int(envelope["head_profile_samples"]),
+                    "head_width_p90_px": _round(envelope["head_width_px"]),
+                }
+            elif "head_underface" in inputs:
                 if shank_profile is None:
                     shank_profile = detect_threaded_shank(contour)
                 if shank_profile is None:
@@ -454,28 +537,11 @@ def execute_geometry_steps(
                 continue
             if underface_estimate is None:
                 underface_estimate = estimate_head_underface(shank_profile)
-            if underface_estimate is None:
-                results.append(_not_measured(step, "head_underface_not_found"))
+            envelope = _resolve_head_envelope(shank_profile, underface_estimate)
+            if envelope is None:
+                results.append(_not_measured(step, "head_envelope_not_found"))
                 continue
-            toward_head = 1 if shank_profile.transition_s > shank_profile.tip_s else -1
-            head_mask = (
-                (shank_profile.s_values >= underface_estimate.s)
-                if toward_head > 0
-                else (shank_profile.s_values <= underface_estimate.s)
-            )
-            head_widths = shank_profile.widths[head_mask]
-            if len(head_widths) < 6 or not np.all(np.isfinite(head_widths)):
-                results.append(_not_measured(step, "head_width_profile_insufficient"))
-                continue
-            # Robust high percentile of *observed* head silhouette widths,
-            # not an inferred ISO/ANSI catalogue dimension.
-            head_width_px = float(np.percentile(head_widths, 90))
-            if head_width_px < 1.18 * underface_estimate.shank_outer_px:
-                results.append(_not_measured(
-                    step, "head_not_separable_from_shank",
-                    {"candidate_head_width_px": _round(head_width_px)},
-                ))
-                continue
+            head_width_px = float(envelope["head_width_px"])
             results.append({
                 "operation": operation,
                 "inputs": inputs,
@@ -486,10 +552,11 @@ def execute_geometry_steps(
                 "derived_tpi": None,
                 "landmarks": {},
                 "diagnostics": {
-                    "method": "head_silhouette_width_p90",
-                    "head_profile_samples": int(len(head_widths)),
-                    "head_width_p50_px": _round(float(np.median(head_widths))),
-                    "shank_reference_width_px": _round(underface_estimate.shank_outer_px),
+                    "method": "generic_head_envelope_width_p90",
+                    "head_boundary_source": envelope["boundary_source"],
+                    "head_profile_samples": int(envelope["head_profile_samples"]),
+                    "head_width_p50_px": _round(envelope["head_width_p50_px"]),
+                    "shank_reference_width_px": _round(envelope["shank_reference_width_px"]),
                 },
                 "reason_codes": [],
             })
