@@ -353,7 +353,10 @@ def observe_head_profile(
             or raw_profile.negative_valid_fraction < 0.72
         ):
             reasons.append("head_bilateral_edge_side_sparse")
-    if valid_fraction < 0.95:
+    if (
+        (image_rgb is None and valid_fraction < 0.95)
+        or (image_rgb is not None and use_raw_profile and valid_fraction < 0.65)
+    ):
         reasons.append("head_profile_has_gaps")
     if len(widths) < 12:
         reasons.append("head_profile_samples_limited")
