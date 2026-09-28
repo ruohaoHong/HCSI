@@ -44,7 +44,7 @@ assert.equal(
 )
 const sideViewDrive = assessPurchaseSpecificationCompleteness(result, gate, {
   ...visibleDrive, display_form: '待確認', form_observed: false,
-})
+}, measurement)
 assert.equal(sideViewDrive.complete, true, 'drive face is not required for dimensional purchase evidence')
 assert.deepEqual(sideViewDrive.reason_codes, [])
 assert.deepEqual(sideViewDrive.optional_unconfirmed_fields, ['drive_form', 'drive_size'])
