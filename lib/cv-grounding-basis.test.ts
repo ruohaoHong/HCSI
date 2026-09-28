@@ -25,6 +25,10 @@ assert.equal(protruding.hard_physical_facts.purchase_length_dimension, 'L_underh
 assert.equal(protruding.hard_physical_facts.purchase_length_mm, 10.27)
 assert.equal(protruding.hard_physical_facts.derived_tpi, 31.75)
 assert.equal(protruding.optional_thread_extent?.role, 'support_only')
+assert.equal(protruding.arithmetic_nominal_hints.nearest_numbered_screw?.designation, '#8')
+assert.equal(protruding.arithmetic_nominal_hints.nearest_integer_tpi, 32)
+assert.equal(protruding.arithmetic_nominal_hints.imperial_fraction_candidates[0]?.fraction_inch, '13/32')
+assert.equal(protruding.arithmetic_nominal_hints.imperial_fraction_candidates[0]?.absolute_difference_mm, 0.04875)
 
 measurement.head_geometry!.length_convention_evidence = 'countersunk'
 const countersunk = buildCvGroundingBasis(measurement, true)

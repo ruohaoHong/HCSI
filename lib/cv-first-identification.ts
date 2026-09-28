@@ -58,9 +58,9 @@ ${serviceNote}
 
 ${basis.mode === 'cv_grounded_specification'
   ? `hard_physical_facts 是本次規格推論的前提，不是建議：
-1. nominal diameter：只從 D_mm 找最符合的公稱牙徑；照片不得改變 D。
-2. nominal pitch/TPI：只從 P_mm / derived_tpi 找最符合的公稱牙距；照片不得改變 P。
-3. nominal length：只使用 purchase_length_dimension 指定的 CV 長度。選數值最吻合的公稱長度；禁止因某長度比較常見而選擇距離 CV 更遠的候選。
+1. nominal diameter：只從 D_mm 找最符合的公稱牙徑；arithmetic_nominal_hints.nearest_numbered_screw 只是數值最近的英制號數候選，不是標準表認證。照片不得改變 D。
+2. nominal pitch/TPI：只從 P_mm / derived_tpi 找最符合的公稱牙距；可用 arithmetic_nominal_hints.nearest_integer_tpi 作數值提示，照片不得改變 P。
+3. nominal length：只使用 purchase_length_dimension 指定的 CV 長度。先比較 arithmetic_nominal_hints.imperial_fraction_candidates 的數值誤差；若使用英制分數，優先選誤差最小的候選。禁止因某長度比較常見而選擇距離 CV 更遠的候選。
 4. 頭型：先服從 head_geometry_class。countersunk 不可被原圖改成突出頭；protruding 時，原圖只能在相容的突出頭候選中細分。再使用 K_mm、DK_mm、head_support 與原圖判斷具體頭型。
 5. 驅動槽：只有槽面真的看得到才判斷型式；看不到填「待確認」。禁止由頭型、K/DK 或未驗證標準知識猜驅動槽尺寸。
 6. B 只有 optional_thread_extent 時才可當全牙/半牙輔助證據，且永遠不能覆寫 D/P/L。
