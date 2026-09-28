@@ -101,30 +101,45 @@ jobs:
           image = (root / 'case-b.jpg').read_bytes()
           encoded = base64.b64encode(image).decode('ascii')
 
-          # The ONLY request input is the raw image.
-          body = {'image': encoded}
-          req = urllib.request.Request(
-              'http://127.0.0.1:3000/api/analyze-openai',
-              data=json.dumps(body).encode('utf-8'),
-              headers={'Content-Type':'application/json'},
-              method='POST',
-          )
-          try:
-              with urllib.request.urlopen(req, timeout=900) as resp:
-                  status, raw = resp.status, resp.read()
-          except urllib.error.HTTPError as exc:
-              status, raw = exc.code, exc.read()
-          if status != 200:
-              raise SystemExit(f'/api/analyze-openai HTTP {status}: ' + raw.decode(errors='replace')[:1200])
+          # The user's ONLY external input is the raw image. Match the real UI:
+          # image -> /api/measure (semantic ROI + CV + signed proof)
+          #       -> /api/analyze-openai (reuse signed CV + final identification)
+          def post(route, body):
+              req = urllib.request.Request(
+                  'http://127.0.0.1:3000' + route,
+                  data=json.dumps(body).encode('utf-8'),
+                  headers={'Content-Type':'application/json'},
+                  method='POST',
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=900) as resp:
+                      status, raw = resp.status, resp.read()
+              except urllib.error.HTTPError as exc:
+                  status, raw = exc.code, exc.read()
+              if status != 200:
+                  raise SystemExit(f'{route} HTTP {status}: ' + raw.decode(errors='replace')[:1200])
+              return json.loads(raw)
 
-          output = json.loads(raw)
-          (root / 'response.json').write_text(json.dumps(output, ensure_ascii=False, indent=2))
-          assert output['measurement_source'] == 'server_cv_executed_with_semantic_roi', \
-              'Expected semantic ROI followed by internal server CV from image-only input'
-          assert output.get('semantic_roi_source') == 'openai_localizer'
-          cv = output['measurement']
+          preflight = post('/api/measure', {'image': encoded})
+          cv = preflight['measurement']
+          proof = preflight.get('measurement_proof')
+          localization = preflight.get('semantic_localization')
+          assert isinstance(proof, str) and proof
+          assert localization and localization['semantic_vision']['target_region']['present']
+          assert cv['object'].get('semantic_routing_supplied') is True
           assert cv['image_sha256'] == '6f18c4db1acb3879cf52f5965a53795f75dc069c428cd39af54e276bdaa02be6'
           assert set(cv['dimensions']) == {'D','P','L_underhead','L_overall','B','K','DK'}
+
+          output = post('/api/analyze-openai', {
+              'image': encoded,
+              'measurement': cv,
+              'measurement_proof': proof,
+          })
+          (root / 'response.json').write_text(json.dumps(output, ensure_ascii=False, indent=2))
+          assert output['measurement_source'] == 'signed_preflight_reused', \
+              'Expected signed semantic-ROI CV preflight to be reused'
+          assert output.get('semantic_roi_source') == 'signed_preflight'
+          assert output['measurement'] == cv
           (root / 'cv.json').write_text(json.dumps(cv, ensure_ascii=False, indent=2))
 
           print('CASE B FULL E2E COMPLETED')
@@ -132,8 +147,12 @@ jobs:
           print('schema_version:', output['schema_version'])
           print('CV status:', cv['measurement_status'])
           print('semantic_roi_source:', output.get('semantic_roi_source'))
+          print('preflight localization:', json.dumps(localization, ensure_ascii=False))
           print('semantic routing supplied:', cv['object'].get('semantic_routing_supplied'))
           print('CV confidence:', cv['measurement_confidence'])
+          for key, dim in cv['dimensions'].items():
+              print('CV dimension', key, 'status=', dim['status'], 'mm=', dim['value_mm'],
+                    'reasons=', dim['reason_codes'], 'risks=', dim['risk_signals'])
           print('CV grounding basis:', json.dumps(
               output['specification_evidence']['cv_grounding_basis'], ensure_ascii=False))
           print('Head style:', output['result']['fastener_interpretation']['head_style'])
