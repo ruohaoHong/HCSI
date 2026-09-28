@@ -70,6 +70,17 @@ export interface CvGroundingBasis {
       difference_mm: number
       resolution: '1/64 in'
     } | null
+    imperial_numbered_thread_math: {
+      numbered_size_index_exact: number
+      nearest_integer_size: number
+      reconstructed_diameter_inch: number
+      diameter_difference_mm: number
+      nearest_integer_tpi: number
+      reconstructed_pitch_mm: number
+      pitch_difference_mm: number
+      formula: 'diameter_inch = 0.060 + 0.013 * size_number'
+      note: string
+    } | null
     note: string
   }
   head_support: {
@@ -98,6 +109,36 @@ export interface CvGroundingBasis {
   optional_thread_extent: { B_mm: number; role: 'support_only' } | null
   image_role: string[]
   forbidden_image_inferences: string[]
+}
+
+function numberedImperialThreadMath(
+  diameterMm: number | null,
+  pitchMm: number | null,
+): CvGroundingBasis['unit_conversions']['imperial_numbered_thread_math'] {
+  if (diameterMm === null || pitchMm === null) return null
+  const diameterInch = diameterMm / 25.4
+  const numberedSizeIndex = (diameterInch - 0.060) / 0.013
+  const nearestSize = Math.round(numberedSizeIndex)
+  const tpiExact = 25.4 / pitchMm
+  const nearestTpi = Math.round(tpiExact)
+  if (!Number.isFinite(numberedSizeIndex) || !Number.isFinite(tpiExact) ||
+      nearestSize < 0 || nearestTpi <= 0) return null
+
+  const reconstructedDiameterInch = 0.060 + 0.013 * nearestSize
+  const reconstructedPitchMm = 25.4 / nearestTpi
+  return {
+    numbered_size_index_exact: Number(numberedSizeIndex.toFixed(6)),
+    nearest_integer_size: nearestSize,
+    reconstructed_diameter_inch: Number(reconstructedDiameterInch.toFixed(6)),
+    diameter_difference_mm: Number(
+      (Math.abs(diameterInch - reconstructedDiameterInch) * 25.4).toFixed(6)
+    ),
+    nearest_integer_tpi: nearestTpi,
+    reconstructed_pitch_mm: Number(reconstructedPitchMm.toFixed(6)),
+    pitch_difference_mm: Number(Math.abs(pitchMm - reconstructedPitchMm).toFixed(6)),
+    formula: 'diameter_inch = 0.060 + 0.013 * size_number',
+    note: 'Pure arithmetic inversion of the Unified numbered-screw diameter relation plus nearest-integer TPI. This is not a UNC/UNF lookup table and does not prove catalogue availability; residuals show how closely the measured D/P fit the arithmetic designation.',
+  }
 }
 
 function ratio(numerator: number | null, denominator: number | null): number | null {
@@ -189,7 +230,8 @@ export function buildCvGroundingBasis(
       pitch_tpi_exact: P === null ? null : Number((25.4 / P).toFixed(6)),
       purchase_length_inch_decimal: L === null ? null : Number((L / 25.4).toFixed(6)),
       purchase_length_dyadic_approx: nearestDyadic64(L === null ? null : L / 25.4),
-      note: 'Pure unit conversions and a nearest 1/64-inch dyadic representation only. This is arithmetic formatting, not a nominal screw-size table or proof that a standard size exists.',
+      imperial_numbered_thread_math: numberedImperialThreadMath(D, P),
+      note: 'Pure unit conversions, numbered-thread arithmetic inversion, and nearest 1/64-inch length quantization only. These are mathematical transforms of CV measurements, not a nominal-size lookup table or proof that a stocked standard exists.',
     },
     head_support: {
       height_to_width_ratio: head?.status === 'measured' ? head.height_to_width : null,
