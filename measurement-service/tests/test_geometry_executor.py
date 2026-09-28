@@ -459,7 +459,7 @@ def test_fixed_six_dimension_suite_uses_real_synthetic_pixel_geometry():
     by_kind = {(step["operation"], tuple(step["inputs"])): step for step in results}
     assert by_kind[("axial_distance", ("object_tip", "head_underface"))]["status"] == "measured"
     assert by_kind[("axial_distance", ("object_tip", "head_top"))]["status"] == "measured"
-    k = by_kind[("axial_distance", ("head_underface", "head_top"))]
+    k = by_kind[("axial_distance", ("head_start", "head_top"))]
     dk = by_kind[("outer_width", ("head",))]
     assert k["status"] == "measured", k
     assert 35.0 <= k["value_px"] <= 70.0
@@ -469,6 +469,93 @@ def test_fixed_six_dimension_suite_uses_real_synthetic_pixel_geometry():
     assert all(
         step["reason_codes"] != ["operation_not_implemented"] for step in results
     )
+
+
+def test_generic_head_envelope_measures_countersunk_K_DK_without_underface():
+    """K/DK must not require a protruding-head bearing shoulder."""
+    image = np.full((520, 920, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image, x0=60, x1=860, px_per_cm=50)
+
+    # Stable threaded shank to x=600.
+    xs = np.arange(180, 601)
+    radius = 14.0 + 2.0 * np.cos(2.0 * np.pi * (xs - 180) / 20.0)
+    top = np.column_stack([xs, 350.0 - radius]).astype(np.int32)
+    bottom = np.column_stack([xs[::-1], (350.0 + radius)[::-1]]).astype(np.int32)
+    cv2.fillPoly(image, [np.vstack([top, bottom])], (25, 25, 25))
+
+    # Countersunk-style head: continuous widening from shank to head top, with
+    # no abrupt bilateral bearing shoulder for estimate_head_underface().
+    head_x = np.arange(600, 701)
+    head_radius = np.linspace(16.0, 52.0, len(head_x))
+    head_top = np.column_stack([head_x, 350.0 - head_radius]).astype(np.int32)
+    head_bottom = np.column_stack(
+        [head_x[::-1], (350.0 + head_radius)[::-1]]
+    ).astype(np.int32)
+    cv2.fillPoly(image, [np.vstack([head_top, head_bottom])], (25, 25, 25))
+
+    steps = [
+        {
+            "operation": "axial_distance",
+            "inputs": ["object_tip", "head_underface"],
+            "purpose": "strict protruding-head L anchor",
+        },
+        {
+            "operation": "axial_distance",
+            "inputs": ["head_start", "head_top"],
+            "purpose": "generic K",
+        },
+        {
+            "operation": "outer_width",
+            "inputs": ["head"],
+            "purpose": "generic DK",
+        },
+    ]
+    underhead_l, k, dk = execute_geometry_steps(image, marks, 50.0, steps)
+
+    # The strict L-underhead primitive remains conservative: generic K/DK must
+    # not silently redefine this landmark.
+    assert underhead_l["status"] == "not_measured", underhead_l
+    assert underhead_l["reason_codes"] == ["head_underface_not_found"]
+
+    assert k["status"] == "measured", k
+    assert k["diagnostics"]["head_boundary_source"] == "shank_width_transition"
+    assert 85.0 <= k["value_px"] <= 115.0, k
+
+    assert dk["status"] == "measured", dk
+    assert dk["diagnostics"]["head_boundary_source"] == "shank_width_transition"
+    assert dk["diagnostics"]["method"] == "generic_head_envelope_width_p90"
+    assert 85.0 <= dk["value_px"] <= 110.0, dk
+
+
+def test_generic_head_envelope_preserves_bearing_plane_for_protruding_head():
+    image = np.full((520, 900, 3), 245, dtype=np.uint8)
+    marks = _draw_ruler(image, x0=60, x1=840, px_per_cm=50)
+
+    xs = np.arange(180, 601)
+    radius = 14.0 + 2.0 * np.cos(2.0 * np.pi * (xs - 180) / 20.0)
+    top = np.column_stack([xs, 350.0 - radius]).astype(np.int32)
+    bottom = np.column_stack([xs[::-1], (350.0 + radius)[::-1]]).astype(np.int32)
+    cv2.fillPoly(image, [np.vstack([top, bottom])], (25, 25, 25))
+    cv2.rectangle(image, (600, 300), (700, 400), (25, 25, 25), -1)
+
+    steps = [
+        {
+            "operation": "axial_distance",
+            "inputs": ["head_start", "head_top"],
+            "purpose": "generic K",
+        },
+        {
+            "operation": "outer_width",
+            "inputs": ["head"],
+            "purpose": "generic DK",
+        },
+    ]
+    k, dk = execute_geometry_steps(image, marks, 50.0, steps)
+
+    assert k["status"] == "measured", k
+    assert dk["status"] == "measured", dk
+    assert k["diagnostics"]["head_boundary_source"] == "bearing_plane"
+    assert dk["diagnostics"]["head_boundary_source"] == "bearing_plane"
 
 
 def test_B_reaches_real_periodic_edge_observation_without_crashing():
