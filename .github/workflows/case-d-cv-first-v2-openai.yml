@@ -171,15 +171,20 @@ jobs:
               cv['dimensions'][key]['status']=='measured'
               for key in ('D','P','L_underhead','K','DK')
           )
-          expected_nominal='#8-32 × 13/32 in'
+          # The public nominal may legitimately add the independently identified
+          # head style and an explicit drive caveat. Score the two required
+          # dimension tokens instead of requiring the whole sentence to equal a
+          # dimension-only string.
+          nominal_dimensions_match='#8-32' in nominal and '13/32 in' in nominal
           report={'case':'D','gt_evaluation_after_inference':True,
                   'gt_head_style':'pan','output_head_style':head,'head_matches_gt':head=='pan',
                   'workflow_execution_pass':True,
                   'cv_measurement_pass':cv_measurement_pass,
                   'llm_head_identification_pass':head=='pan',
-                  'complete_purchase_specification_pass':purchase_ready and nominal==expected_nominal,
+                  'complete_purchase_specification_pass':purchase_ready and head=='pan' and nominal_dimensions_match,
                   'purchase_ready':purchase_ready,
                   'nominal_output':nominal,
+                  'nominal_dimensions_match':nominal_dimensions_match,
                   'dimension_candidate':result['specification_evidence'].get('dimension_candidate'),
                   'cv_errors':comparisons,
                   'single_llm_cv_grounded':True,
