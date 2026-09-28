@@ -165,6 +165,7 @@ def _result(
         ("axial_distance", ("object_tip", "head_top")): "L_overall",
         ("threaded_length", ("threaded_shank",)): "B",
         ("axial_distance", ("head_underface", "head_top")): "K",
+        ("axial_distance", ("head_start", "head_top")): "K",
         ("outer_width", ("head",)): "DK",
     }
     dimensions = {}
