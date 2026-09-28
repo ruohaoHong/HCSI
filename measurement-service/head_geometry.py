@@ -345,10 +345,8 @@ def observe_head_profile(
         convention = "protruding"
 
     reasons: list[str] = []
-    if image_rgb is not None and raw_profile is not None:
-        if not use_raw_profile:
-            reasons.append("head_bilateral_edge_support_insufficient")
-        elif (
+    if image_rgb is not None and raw_profile is not None and use_raw_profile:
+        if (
             raw_profile.positive_valid_fraction < 0.72
             or raw_profile.negative_valid_fraction < 0.72
         ):
