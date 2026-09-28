@@ -1,6 +1,7 @@
 name: Case B image-only OpenAI E2E
 
-# Test harness only. Application/CV source is unchanged from parent dc9e2becd4aca4e5501b5242d2444228c32c4c46.
+# Test harness only. Application/CV source under validation is unchanged from
+# 7cf259f51222b59d65d6fd51f95d952b47c9e1c8.
 # Inference receives exactly one external input: the immutable original Case B image.
 # Ground truth is introduced only after the final API response has been frozen.
 on:
