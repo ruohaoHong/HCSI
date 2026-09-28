@@ -6,7 +6,11 @@ name: Case B image-only OpenAI E2E
 on:
   push:
     branches: [feature/measurement-confidence-gate]
-    paths: ['.github/workflows/case-b-image-only-openai-e2e.yml']
+    paths:
+      - '.github/workflows/case-b-image-only-openai-e2e.yml'
+      - 'app/api/measure/route.ts'
+      - 'lib/provider-runner.ts'
+      - 'lib/semantic-localizer.ts'
   workflow_dispatch:
 
 permissions:
@@ -115,7 +119,9 @@ jobs:
 
           output = json.loads(raw)
           (root / 'response.json').write_text(json.dumps(output, ensure_ascii=False, indent=2))
-          assert output['measurement_source'] == 'server_cv_executed',               'Expected internal server CV from image-only input'
+          assert output['measurement_source'] == 'server_cv_executed_with_semantic_roi', \
+              'Expected semantic ROI followed by internal server CV from image-only input'
+          assert output.get('semantic_roi_source') == 'openai_localizer'
           cv = output['measurement']
           assert cv['image_sha256'] == '6f18c4db1acb3879cf52f5965a53795f75dc069c428cd39af54e276bdaa02be6'
           assert set(cv['dimensions']) == {'D','P','L_underhead','L_overall','B','K','DK'}
@@ -125,6 +131,8 @@ jobs:
           print('measurement_source:', output['measurement_source'])
           print('schema_version:', output['schema_version'])
           print('CV status:', cv['measurement_status'])
+          print('semantic_roi_source:', output.get('semantic_roi_source'))
+          print('semantic routing supplied:', cv['object'].get('semantic_routing_supplied'))
           print('CV confidence:', cv['measurement_confidence'])
           print('CV grounding basis:', json.dumps(
               output['specification_evidence']['cv_grounding_basis'], ensure_ascii=False))
