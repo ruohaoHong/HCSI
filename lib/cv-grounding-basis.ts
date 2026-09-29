@@ -113,6 +113,21 @@ export interface CvGroundingBasis {
     width_trend: number | null
     quality: 'reliable' | 'degraded' | 'unusable' | 'unavailable'
   }
+  head_shape_signature: {
+    geometry_class: 'countersunk' | 'protruding' | 'ambiguous' | 'unknown'
+    axial_aspect_K_over_DK: number | null
+    radial_envelope_DK_over_D: number | null
+    global_width_cv: number | null
+    middle_width_cv: number | null
+    middle_linear_slope: number | null
+    upper_linear_slope: number | null
+    curvature_change_median: number | null
+    upper_narrowing_share: number | null
+    centerline_drift_ratio: number | null
+    profile_roughness: number | null
+    silhouette_integrity: 'reliable' | 'degraded' | 'unusable' | 'unavailable'
+    note: string
+  }
   head_shape_math: {
     K_over_DK: number | null
     DK_over_D: number | null
@@ -237,6 +252,69 @@ function nearestProfileWidth(
   return Number.isFinite(ordered[0].width_ratio) ? ordered[0].width_ratio : null
 }
 
+function mean(values: number[]): number | null {
+  if (values.length === 0 || values.some(value => !Number.isFinite(value))) return null
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+function coefficientOfVariation(values: number[]): number | null {
+  const average = mean(values)
+  if (average === null || Math.abs(average) < 1e-9) return null
+  const variance = values.reduce((sum, value) => sum + (value - average) ** 2, 0) / values.length
+  return Number((Math.sqrt(variance) / Math.abs(average)).toFixed(6))
+}
+
+function linearSlope(
+  points: Array<{ axial_fraction: number; width_ratio: number }>,
+): number | null {
+  if (points.length < 2) return null
+  const xMean = mean(points.map(point => point.axial_fraction))
+  const yMean = mean(points.map(point => point.width_ratio))
+  if (xMean === null || yMean === null) return null
+  let numerator = 0
+  let denominator = 0
+  for (const point of points) {
+    numerator += (point.axial_fraction - xMean) * (point.width_ratio - yMean)
+    denominator += (point.axial_fraction - xMean) ** 2
+  }
+  if (denominator < 1e-12) return null
+  return Number((numerator / denominator).toFixed(6))
+}
+
+function curvatureChangeMedian(
+  points: Array<{ axial_fraction: number; width_ratio: number }>,
+): number | null {
+  if (points.length < 3) return null
+  const slopes: number[] = []
+  for (let index = 1; index < points.length; index += 1) {
+    const dx = points[index].axial_fraction - points[index - 1].axial_fraction
+    if (!Number.isFinite(dx) || Math.abs(dx) < 1e-9) return null
+    slopes.push((points[index].width_ratio - points[index - 1].width_ratio) / dx)
+  }
+  const changes = slopes.slice(1).map((slope, index) => Math.abs(slope - slopes[index]))
+  if (changes.length === 0) return null
+  const sorted = [...changes].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+  const median = sorted.length % 2 === 1
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2
+  return Number(median.toFixed(6))
+}
+
+function upperNarrowingShare(
+  points: Array<{ axial_fraction: number; width_ratio: number }>,
+): number | null {
+  if (points.length < 3) return null
+  const maxWidth = Math.max(...points.map(point => point.width_ratio))
+  const topWidth = nearestProfileWidth(points, 0.92)
+  const upperStartWidth = nearestProfileWidth(points, 0.71)
+  if (topWidth === null || upperStartWidth === null) return null
+  const totalNarrowing = maxWidth - topWidth
+  if (totalNarrowing <= 1e-6) return 0
+  const upperNarrowing = Math.max(0, upperStartWidth - topWidth)
+  return Number(Math.min(1, upperNarrowing / totalNarrowing).toFixed(6))
+}
+
 export function buildCvGroundingBasis(
   measurement: MeasurementResult | null,
   allowPreciseSpec: boolean,
@@ -324,6 +402,20 @@ export function buildCvGroundingBasis(
   const topOverUnderside = silhouetteReliable
     ? ratio(head?.top_width_ratio ?? null, head?.bearing_width_ratio ?? null)
     : null
+  const middleProfile = normalizedProfile.filter(
+    point => point.axial_fraction >= 0.29 && point.axial_fraction <= 0.71,
+  )
+  const upperProfile = normalizedProfile.filter(point => point.axial_fraction >= 0.605)
+  const signatureGlobalCv = coefficientOfVariation(
+    normalizedProfile.map(point => point.width_ratio),
+  )
+  const signatureMiddleCv = coefficientOfVariation(
+    middleProfile.map(point => point.width_ratio),
+  )
+  const signatureMiddleSlope = linearSlope(middleProfile)
+  const signatureUpperSlope = linearSlope(upperProfile)
+  const signatureCurvature = curvatureChangeMedian(normalizedProfile)
+  const signatureUpperNarrowingShare = upperNarrowingShare(normalizedProfile)
 
   const B = dims?.B
   const bRisks = B?.risk_signals.filter(reason =>
@@ -389,6 +481,25 @@ export function buildCvGroundingBasis(
       max_width_position: headMeasured ? head.max_width_position : null,
       width_trend: headMeasured ? head.width_trend : null,
       quality: headMeasured ? head.quality : 'unavailable',
+    },
+    head_shape_signature: {
+      geometry_class: geometryClass,
+      axial_aspect_K_over_DK: ratio(K, DK),
+      radial_envelope_DK_over_D: ratio(DK, D),
+      global_width_cv: silhouetteReliable ? signatureGlobalCv : null,
+      middle_width_cv: silhouetteReliable ? signatureMiddleCv : null,
+      middle_linear_slope: silhouetteReliable ? signatureMiddleSlope : null,
+      upper_linear_slope: silhouetteReliable ? signatureUpperSlope : null,
+      curvature_change_median: silhouetteReliable ? signatureCurvature : null,
+      upper_narrowing_share: silhouetteReliable ? signatureUpperNarrowingShare : null,
+      centerline_drift_ratio: silhouetteReliable
+        ? (head?.centerline_drift_ratio ?? null)
+        : null,
+      profile_roughness: silhouetteReliable
+        ? (head?.profile_roughness ?? null)
+        : null,
+      silhouette_integrity: silhouetteStatus,
+      note: 'Dimensionless measured shape signature only. It contains no head-style names, catalogue mappings, or numeric thresholds that imply a semantic label.',
     },
     head_shape_math: {
       K_over_DK: ratio(K, DK),

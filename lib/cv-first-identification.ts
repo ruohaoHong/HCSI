@@ -1,6 +1,6 @@
 import type { MeasurementResult } from '@/lib/measurement'
 import { buildCvGroundingBasis } from '@/lib/cv-grounding-basis'
-import { HEAD_STYLE_SEMANTIC_GUIDANCE, HEAD_STYLE_VALUES } from '@/lib/head-style-taxonomy'
+import { HEAD_STYLE_VALUES } from '@/lib/head-style-taxonomy'
 
 export const CV_FIRST_IDENTIFICATION_JSON_SCHEMA = {
   type: 'object', additionalProperties: false,
@@ -70,17 +70,15 @@ ${basis.mode !== 'appearance_only'
    purchase_length_dyadic_approx 是同一個 CV 長度量化到最近 1/64 英寸後再約分；difference_mm 是量化殘差。
    當這個殘差相對實測長度很小時，可以把該分數當作「CV 長度的英制購買表示候選」；這不代表庫存保證，也不需要另外查一張長度規格表才能填 nominal_specification。
    不要把任意 decimal inch 四捨五入成商品尺寸；只能使用這個已提供 residual 的 dyadic quantization。
-4. 頭型：先服從 head_geometry_class。countersunk 不可被原圖改成突出頭；protruding 時，原圖只能在相容的突出頭候選中細分。
-   evidence_partition 把 bearing plane、K/DK envelope 與 detailed silhouette integrity 分開。只有 silhouette_integrity.can_constrain_head_subtype=true 時，才把 normalized_profile／silhouette slope 當成頭型限制。
-   如果 can_constrain_head_subtype=false，保留已量得的 D/P/L/K/DK 與 K/DK、DK/D 純算術比值，但不得用 degraded profile 否決或製造頭型；此時具體頭型交由原圖語義判斷。
-   當 silhouette 可靠時，具體頭型細分優先使用 head_shape_math 與 head_support 描述的「實測輪廓形狀」，再看照片語義：
-   - K_over_DK、DK_over_D、top_over_underside_width、width_drop_underside_to_top 都是純算術比值；
-   - lower_half_slope / upper_half_slope / slope_change 與 normalized_profile 描述頭部從 underside 到 top 的實際寬度變化；
-   - 這些數值不是規格表、不是型號表，也不直接等於 pan/button/socket 等名稱。禁止套用「某數值=某頭型」的硬編碼表。
-   - 你的任務是確認照片所選的語義名稱是否真的符合這組實測 silhouette；若某名稱所暗示的外形和 normalized_profile 明顯矛盾，就排除它，再從仍與實測輪廓一致的候選中命名。
-   - 不得因「某頭型常見」或某尺寸常搭配某頭型而覆蓋實測輪廓。
-
-${HEAD_STYLE_SEMANTIC_GUIDANCE}
+4. 頭型：先服從 head_geometry_class。countersunk 不可被原圖改成突出頭；protruding 時，原圖只能在相容的突出頭中做語義命名。
+   evidence_partition 把 bearing plane、K/DK envelope 與 detailed silhouette integrity 分開。
+   當 silhouette_integrity.can_constrain_head_subtype=true 時，head_shape_signature 是本次頭部外形的主要壓縮證據：
+   - 它只包含 dimensionless physical geometry：K/DK、DK/D、寬度變異、middle/upper slope、曲率變化、上段收窄占比、centerline drift 與 roughness；
+   - 它沒有任何「某數值=某頭型」規則、候選排名或商品規格表。不要自行把單一數值當 lookup key；
+   - 先把整組 signature 當成同一個幾何物體理解，再用你自己的五金知識與原圖把它翻譯成最具體的標準 head_style 名稱。
+   head_style 只描述外部頭部幾何；drive_form 是另一個獨立欄位。即使驅動槽在照片中完全看不到，也不能因此把一個外部幾何已可辨識的標準頭型降成 other/unknown。
+   如果你的自由文字已經描述出一個具體且標準的頭部外形，structured head_style 必須與該外部幾何語義一致。other 只表示你確實辨識到一種無法以現有 head_style enum 表達的外部幾何，不是「驅動槽看不到」或「名稱不確定」的替代答案。
+   如果 can_constrain_head_subtype=false，則不得用 degraded silhouette 製造頭型；只依原圖可見外形做保守命名。
 5. 驅動槽：只有槽面真的看得到才判斷型式；看不到填「待確認」。禁止由頭型、K/DK 或未驗證標準知識猜驅動槽尺寸。
 6. B 只有 optional_thread_extent 時才可當全牙/半牙輔助證據，且永遠不能覆寫 D/P/L。
 
