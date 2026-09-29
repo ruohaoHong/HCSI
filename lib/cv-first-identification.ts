@@ -1,6 +1,6 @@
 import type { MeasurementResult } from '@/lib/measurement'
 import { buildCvGroundingBasis } from '@/lib/cv-grounding-basis'
-import { HEAD_STYLE_SEMANTIC_GUIDANCE, HEAD_STYLE_VALUES } from '@/lib/head-style-taxonomy'
+import { HEAD_STYLE_VALUES } from '@/lib/head-style-taxonomy'
 
 export const CV_FIRST_IDENTIFICATION_JSON_SCHEMA = {
   type: 'object', additionalProperties: false,
@@ -47,13 +47,57 @@ export function buildCvFirstIdentificationPrompt(
   const basis = buildCvGroundingBasis(measurement, allowPreciseSpec)
   const serviceNote = measurement ? '' :
     `Measurement service unavailable: ${measurementServiceError ?? 'unknown'}.`
+  const numbered = basis.unit_conversions.imperial_numbered_thread_math
+  const groundedNumberedThread = numbered?.eligible_as_numbered_size_evidence
+    ? `#${numbered.nearest_integer_size}-${numbered.nearest_integer_tpi}`
+    : null
+  const headNamingEvidence = {
+    task: 'Name the external fastener head family from grounded engineering evidence.',
+    thread_shank_context: {
+      measured_D_mm: basis.hard_physical_facts.D_mm,
+      measured_P_mm: basis.hard_physical_facts.P_mm,
+      grounded_numbered_thread_candidate: groundedNumberedThread,
+      note: groundedNumberedThread
+        ? 'This numbered thread identity comes from reversible diameter/pitch arithmetic already validated against CV uncertainty.'
+        : 'No nominal metric/inch name is injected here. Interpret D/P as size context using your existing fastener knowledge; do not invent a catalogue row.',
+    },
+    measured_head_envelope: {
+      K_mm: basis.hard_physical_facts.K_mm,
+      DK_mm: basis.hard_physical_facts.DK_mm,
+    },
+    geometry_family: basis.hard_physical_facts.head_geometry_class,
+    drive_form_role: 'Use drive form only if actually visible in the original image. Do not infer drive from head dimensions.',
+    secondary_visual_support: basis.evidence_partition.silhouette_integrity.can_constrain_head_subtype
+      ? 'Original image and reliable silhouette may support or challenge the naming, but do not replace the D/P + K/DK + geometry-family engineering context.'
+      : 'Silhouette is not reliable enough to constrain subtype; use only clearly visible original-image appearance as secondary support.',
+    excluded_from_head_naming: [
+      'purchase_length_dimension',
+      'length_convention',
+      'catalogue popularity',
+      'case-specific thresholds',
+    ],
+  }
 
   return `你是 HCSI 的 CV-grounded 五金規格推論器。
 
 最重要規則：先接受 deterministic CV 的物理事實，再看原始照片補足 CV 無法直接命名的語義。
 不要先看照片猜一個商品，再拿 CV 去合理化它。
 
-===== STEP 0：物理推理基底（最高優先級） =====
+===== HEAD NAMING EVIDENCE（只用來命名 head_style，最高優先） =====
+${JSON.stringify(headNamingEvidence, null, 2)}
+
+對 head_style，先像工程師辨認螺絲一樣理解這一小包資料：
+1. 先理解 D/P 所代表的 thread / shank 尺寸尺度；若已有 grounded_numbered_thread_candidate 就直接接受，沒有時不要硬套查表，只用你原本的五金知識理解尺寸上下文。
+2. 在這個尺寸尺度下，同時看實測 K（頭高）與 DK（頭最大徑）。不要把 K、DK 當成孤立外觀數字；它們是 head family 的工程尺寸證據。
+3. geometry_family 是 coarse physical fact，只限制沉頭/突出頭這種大類，不直接指定具體名稱。
+4. drive_form 只有原圖真的看得到時才可輔助；看不到不能因此把可辨識的外部 head family 降成 other。
+5. 原圖與可靠 silhouette 是 secondary support。它們用來確認外觀是否與上述工程證據一致，不要讓單一視覺印象蓋過 D/P + K/DK 的整體工程條件。
+6. 不使用 length convention、purchase length、常見度或 case-specific threshold 來猜 head_style。
+7. 這不是查表任務：不要因尺寸不熟悉或超出已見案例就輸出 other/unknown。只有現有工程證據與原圖真的不足以形成合理的標準 head-family 名稱時才保守輸出 unresolved 類別。
+
+你要做的是：根據這組工程條件，用你既有的 fastener/domain knowledge 命名最合理的標準 external head family；不是從某一個比值觸發一個名稱。
+
+===== STEP 0：完整物理推理基底（尺寸規格與交叉檢查） =====
 ${JSON.stringify(basis, null, 2)}
 ${serviceNote}
 
@@ -70,17 +114,11 @@ ${basis.mode !== 'appearance_only'
    purchase_length_dyadic_approx 是同一個 CV 長度量化到最近 1/64 英寸後再約分；difference_mm 是量化殘差。
    當這個殘差相對實測長度很小時，可以把該分數當作「CV 長度的英制購買表示候選」；這不代表庫存保證，也不需要另外查一張長度規格表才能填 nominal_specification。
    不要把任意 decimal inch 四捨五入成商品尺寸；只能使用這個已提供 residual 的 dyadic quantization。
-4. 頭型：先服從 head_geometry_class。countersunk 不可被原圖改成突出頭；protruding 時，原圖只能在相容的突出頭候選中細分。
-   evidence_partition 把 bearing plane、K/DK envelope 與 detailed silhouette integrity 分開。只有 silhouette_integrity.can_constrain_head_subtype=true 時，才把 normalized_profile／silhouette slope 當成頭型限制。
-   如果 can_constrain_head_subtype=false，保留已量得的 D/P/L/K/DK 與 K/DK、DK/D 純算術比值，但不得用 degraded profile 否決或製造頭型；此時具體頭型交由原圖語義判斷。
-   當 silhouette 可靠時，具體頭型細分優先使用 head_shape_math 與 head_support 描述的「實測輪廓形狀」，再看照片語義：
-   - K_over_DK、DK_over_D、top_over_underside_width、width_drop_underside_to_top 都是純算術比值；
-   - lower_half_slope / upper_half_slope / slope_change 與 normalized_profile 描述頭部從 underside 到 top 的實際寬度變化；
-   - 這些數值不是規格表、不是型號表，也不直接等於 pan/button/socket 等名稱。禁止套用「某數值=某頭型」的硬編碼表。
-   - 你的任務是確認照片所選的語義名稱是否真的符合這組實測 silhouette；若某名稱所暗示的外形和 normalized_profile 明顯矛盾，就排除它，再從仍與實測輪廓一致的候選中命名。
-   - 不得因「某頭型常見」或某尺寸常搭配某頭型而覆蓋實測輪廓。
-
-${HEAD_STYLE_SEMANTIC_GUIDANCE}
+4. 頭型：fastener_interpretation.head_style 必須服從上方 HEAD NAMING EVIDENCE 的判斷。完整 cv_grounding_basis 中的 silhouette/profile 只做 secondary cross-check，不再作主要命名器。
+   - 不使用 K/DK、DK/D 或任何單一 ratio 當 head-style lookup key。
+   - 不從 length convention 反推頭型。
+   - 不因 drive 看不到就把已由外部幾何與工程尺寸支持的 head family 填成 other。
+   - head_style 只命名外部 head family；drive_form 是獨立觀測欄位。
 5. 驅動槽：只有槽面真的看得到才判斷型式；看不到填「待確認」。禁止由頭型、K/DK 或未驗證標準知識猜驅動槽尺寸。
 6. B 只有 optional_thread_extent 時才可當全牙/半牙輔助證據，且永遠不能覆寫 D/P/L。
 
