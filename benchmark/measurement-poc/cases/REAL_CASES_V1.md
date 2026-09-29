@@ -23,8 +23,8 @@ It does **not** mutate or discard the immutable A-E v1 fixture history below.
 | **C-ruler-contact** | **hex** | **legacy stress fixture** | Former immutable Case C. Ruler and screw are touching / too close; retained for regression and to make the capture-condition defect obvious by name. |
 | D | pan | existing | Original immutable Case D. |
 | E | socket_cap | existing | Original immutable Case E. |
-| **F** | **button** | **new candidate** | Polaris 7519774, M6 × 1.0 × 15 mm Button Head Hex Screw. Exact candidate image bytes/SHA still need to be locked. |
-| **G** | **truss** | **new candidate** | Univair AN526C1032R8, #10-32 × 1/2 in truss-head screw. Exact candidate image bytes/SHA still need to be locked. |
+| **F** | **button** | **locked fixture** | Polaris 7519774, M6 × 1.0 × 15 mm Button Head Hex Screw. `case-f-button.png`, SHA-256 `ae0bb78703b07e520e3dc7516e775aad6e627571d8e474c3d61cc924b4f0ea91`. |
+| **G** | **truss** | **locked fixture** | Univair AN526C1032R8, #10-32 × 1/2 in truss-head screw. `case-g-truss.png`, SHA-256 `fcd71e295dd2b6bf1c6aa3fe5a43be55b68df3b0bb6263f87a7e86b524e11f69`. |
 
 Naming rule: the old v1 `id: "C"` remains untouched inside the immutable historical fixture list,
 but in all new work it should be referred to as **C-ruler-contact**. The next separated Hex fixture,
@@ -62,3 +62,23 @@ See `real-cases-v1.json` for exact hashes, source provenance, semantic regions, 
 - Length convention: head underface -> tip
 - Capture condition: ruler parallel to screw and separated from it
 - Historical former Case C remains unchanged and is referred to as `C-ruler-contact`.
+
+## Active Case F fixture
+
+- Fixture: `case-f-button.png`
+- Storage: `/HCSI/benchmarks/hcsi-real-measurement-cases-v2/case-f-button.png`
+- SHA-256: `ae0bb78703b07e520e3dc7516e775aad6e627571d8e474c3d61cc924b4f0ea91`
+- GT: M6 × 1.0 × 15 mm, Button head
+- D = 6.0 mm; P = 1.0 mm; L = 15.0 mm
+- Length convention: head underface -> tip
+- Capture condition: ruler parallel to screw and separated from it
+
+## Active Case G fixture
+
+- Fixture: `case-g-truss.png`
+- Storage: `/HCSI/benchmarks/hcsi-real-measurement-cases-v2/case-g-truss.png`
+- SHA-256: `fcd71e295dd2b6bf1c6aa3fe5a43be55b68df3b0bb6263f87a7e86b524e11f69`
+- GT: #10-32 × 1/2 in, Truss head
+- D = 4.826 mm; P = 0.79375 mm; L = 12.7 mm
+- Length convention: head underface -> tip
+- Capture condition: ruler parallel to screw and separated from it
