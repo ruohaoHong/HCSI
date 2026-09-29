@@ -19,7 +19,7 @@ It does **not** mutate or discard the immutable A-E v1 fixture history below.
 |---|---|---|---|
 | A | pan | existing | Original immutable Case A. |
 | B | flat/countersunk | existing | Original immutable Case B. |
-| **C** | **hex** | **new candidate** | New ruler-parallel / separated Hex photo selected to replace the old C composition for future testing. Exact bytes/SHA must be locked before inference. |
+| **C** | **hex** | **locked fixture** | New ruler-parallel / separated Hex photo. Exact uploaded bytes locked: `case-c-hex-ruler-separated.png`, SHA-256 `98896d298c40b87388083bac6e51df0c2d6b18460e9e29a2b7be9899f6201b9f`. GT: M14 × 2.0 × 45 mm, head_style=`hex`. |
 | **C-ruler-contact** | **hex** | **legacy stress fixture** | Former immutable Case C. Ruler and screw are touching / too close; retained for regression and to make the capture-condition defect obvious by name. |
 | D | pan | existing | Original immutable Case D. |
 | E | socket_cap | existing | Original immutable Case E. |
@@ -28,7 +28,7 @@ It does **not** mutate or discard the immutable A-E v1 fixture history below.
 
 Naming rule: the old v1 `id: "C"` remains untouched inside the immutable historical fixture list,
 but in all new work it should be referred to as **C-ruler-contact**. The next separated Hex fixture,
-once its exact image bytes and SHA-256 are frozen, becomes the active **Case C**.
+its exact image bytes and SHA-256 are now frozen, so it is the active **Case C**.
 
 ## Ground Truth
 
@@ -50,3 +50,15 @@ Baseline code for the fully passing Case E workflow is commit:
 `64f8f405ff01053b2d0c8a29e8376119e9032dba`.
 
 See `real-cases-v1.json` for exact hashes, source provenance, semantic regions, and workflow artifact IDs.
+
+## Active Case C fixture
+
+- Fixture: `case-c-hex-ruler-separated.png`
+- Storage: `/HCSI/benchmarks/hcsi-real-measurement-cases-v2/case-c-hex-ruler-separated.png`
+- SHA-256: `98896d298c40b87388083bac6e51df0c2d6b18460e9e29a2b7be9899f6201b9f`
+- Image: 800 × 800 PNG, 600469 bytes
+- GT: M14 × 2.0 × 45 mm, Hex head
+- D = 14.0 mm; P = 2.0 mm; L = 45.0 mm
+- Length convention: head underface -> tip
+- Capture condition: ruler parallel to screw and separated from it
+- Historical former Case C remains unchanged and is referred to as `C-ruler-contact`.

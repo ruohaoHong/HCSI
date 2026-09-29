@@ -244,7 +244,7 @@
       {
         "id": "C",
         "head_style": "hex",
-        "status": "candidate_fixture_pending_lock",
+        "status": "locked_fixture_ready",
         "identity": "DougDeals / Nucor M14-2.0 x 45 mm hex-head bolt; new ruler-parallel/separated composition",
         "source_page": "https://www.dougdeals.com/box-of-250-nucor-m14-2-0-x-45-grade-10-9-metric-hex-head-bolts-zinc-usa-made/",
         "ground_truth": {
@@ -254,7 +254,21 @@
           "head_style": "hex"
         },
         "length_convention": "head_underface_to_tip",
-        "fixture_lock_required": true
+        "fixture_lock_required": false,
+        "fixture": "case-c-hex-ruler-separated.png",
+        "sha256": "98896d298c40b87388083bac6e51df0c2d6b18460e9e29a2b7be9899f6201b9f",
+        "image_width": 800,
+        "image_height": 800,
+        "image_format": "PNG",
+        "image_bytes": 600469,
+        "private_fixture_storage": "/HCSI/benchmarks/hcsi-real-measurement-cases-v2/case-c-hex-ruler-separated.png",
+        "capture_condition": "ruler_parallel_and_separated_from_screw",
+        "locked_at": "2026-09-29",
+        "provenance": {
+          "supplied_in_chat": true,
+          "pairing_basis": "User supplied the exact image and confirmed GT M14 x 2.0 x 45 mm Hex head; SHA-256 computed from those exact uploaded bytes.",
+          "source_page": "https://www.dougdeals.com/box-of-250-nucor-m14-2-0-x-45-grade-10-9-metric-hex-head-bolts-zinc-usa-made/"
+        }
       },
       {
         "id": "C-ruler-contact",
