@@ -224,5 +224,89 @@
         "status": "complete workflow passed; D/P/L all measured"
       }
     }
-  ]
+  ],
+  "current_case_registry": {
+    "updated_at": "2026-09-29",
+    "note": "Human-facing registry for new head-style generalization work. Immutable v1 cases[] remains unchanged for historical SHA/GT traceability.",
+    "cases": [
+      {
+        "id": "A",
+        "head_style": "pan",
+        "status": "existing",
+        "historical_v1_id": "A"
+      },
+      {
+        "id": "B",
+        "head_style": "flat_countersunk",
+        "status": "existing",
+        "historical_v1_id": "B"
+      },
+      {
+        "id": "C",
+        "head_style": "hex",
+        "status": "candidate_fixture_pending_lock",
+        "identity": "DougDeals / Nucor M14-2.0 x 45 mm hex-head bolt; new ruler-parallel/separated composition",
+        "source_page": "https://www.dougdeals.com/box-of-250-nucor-m14-2-0-x-45-grade-10-9-metric-hex-head-bolts-zinc-usa-made/",
+        "ground_truth": {
+          "D_mm": 14,
+          "P_mm": 2,
+          "L_mm": 45,
+          "head_style": "hex"
+        },
+        "length_convention": "head_underface_to_tip",
+        "fixture_lock_required": true
+      },
+      {
+        "id": "C-ruler-contact",
+        "head_style": "hex",
+        "status": "legacy_stress_fixture",
+        "historical_v1_id": "C",
+        "identity": "Former Case C — DougDeals / Nucor M14-2.0 x 45 mm hex-head bolt",
+        "capture_condition": "ruler_and_screw_touching_or_too_close",
+        "note": "Retain exact historical SHA/GT pairing; use this descriptive name in new work."
+      },
+      {
+        "id": "D",
+        "head_style": "pan",
+        "status": "existing",
+        "historical_v1_id": "D"
+      },
+      {
+        "id": "E",
+        "head_style": "socket_cap",
+        "status": "existing",
+        "historical_v1_id": "E"
+      },
+      {
+        "id": "F",
+        "head_style": "button",
+        "status": "candidate_fixture_pending_lock",
+        "identity": "Polaris 7519774, M6 x 1.0 x 15 mm Button Head Hex Screw",
+        "source_page": "https://slingshot.polaris.com/en-us/shop-parts/7519/7519774/",
+        "ground_truth": {
+          "D_mm": 6,
+          "P_mm": 1,
+          "L_mm": 15,
+          "head_style": "button"
+        },
+        "length_convention": "head_underface_to_tip",
+        "fixture_lock_required": true
+      },
+      {
+        "id": "G",
+        "head_style": "truss",
+        "status": "candidate_fixture_pending_lock",
+        "identity": "Univair AN526C1032R8, #10-32 x 1/2 in truss-head screw",
+        "source_page": "https://www.univair.com/hardware/an526c1032r8-truss-head-screw/",
+        "ground_truth": {
+          "D_mm": 4.826,
+          "P_mm": 0.79375,
+          "L_mm": 12.7,
+          "head_style": "truss"
+        },
+        "length_convention": "head_underface_to_tip",
+        "fixture_lock_required": true
+      }
+    ]
+  }
 }
