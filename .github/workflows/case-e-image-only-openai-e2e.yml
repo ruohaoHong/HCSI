@@ -1,3 +1,4 @@
+# Shape-signature semantic isolation experiment: no head-style lookup guidance.
 name: Case E image-only OpenAI E2E
 
 # Validation harness only. Final regression run for the raw bilateral
