@@ -1,0 +1,216 @@
+name: Frozen Case D CV-first v2 OpenAI blind E2E
+
+# Follow-up diagnostic on an already-seen fixture, NOT a new independent holdout.
+# This run validates the current branch after the raw bilateral head-edge primitive.
+# Exact frozen image is SHA-checked; GT enters only after inference.
+on:
+  push:
+    branches: [feature/measurement-confidence-gate]
+    paths:
+      - '.github/workflows/case-d-cv-first-v2-openai.yml'
+      - 'lib/cv-first-identification.ts'
+      - 'lib/cv-grounding-basis.ts'
+      - 'lib/purchase-spec-completeness.ts'
+      - 'lib/provider-runner.ts'
+      - 'measurement-service/geometry_executor.py'
+      - 'measurement-service/head_geometry.py'
+      - 'measurement-service/app.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  case-d-blind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      HCSI_MEASUREMENT_SERVICE_URL: http://127.0.0.1:8000
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: measurement-service/requirements.txt
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Fetch and SHA-check exact frozen D without reading GT
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/hcsi-case-d case-d-v2-results
+          gh run download 36009560609 --repo "${{ github.repository }}" --name real-case-d --dir /tmp/hcsi-case-d
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          expected = "c0c0929f03eb6b3b053b92e0b6fcee12f20e921360d4cfe31bfef44cdc721d10"
+          matches = [p for p in Path('/tmp/hcsi-case-d').rglob('*')
+                     if p.is_file() and hashlib.sha256(p.read_bytes()).hexdigest() == expected]
+          if len(matches) != 1:
+              raise SystemExit(f'Frozen Case D SHA verification failed: {len(matches)} exact matches')
+          Path('case-d-v2-results/frozen-d.jpg').write_bytes(matches[0].read_bytes())
+          print('Frozen D SHA verified; GT is not loaded before inference')
+          PY
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Install project dependencies and build unchanged application
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENAI_API_KEY" || { echo "OPENAI_API_KEY secret unavailable"; exit 1; }
+          python -m pip install -r measurement-service/requirements.txt
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Start deterministic CV service and Next.js API
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup python -m uvicorn app:app --app-dir measurement-service --host 127.0.0.1 --port 8000 > /tmp/hcsi-cv-v2.log 2>&1 < /dev/null &
+          nohup pnpm start --hostname 127.0.0.1 --port 3000 > /tmp/hcsi-next-v2.log 2>&1 < /dev/null &
+          python - <<'PY'
+          import time
+          import urllib.request
+          for url in ['http://127.0.0.1:8000/openapi.json','http://127.0.0.1:3000']:
+              for _ in range(100):
+                  try:
+                      with urllib.request.urlopen(url, timeout=3) as r:
+                          if r.status == 200:
+                              print('Ready:', url)
+                              break
+                  except Exception:
+                      time.sleep(2)
+              else:
+                  raise SystemExit('Not ready: '+url)
+          PY
+
+      - name: Blind CV preflight and one actual OpenAI purchase inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, json, pathlib, urllib.request, urllib.error
+          root = pathlib.Path('case-d-v2-results')
+          photo = (root/'frozen-d.jpg').read_bytes()
+          encoded = base64.b64encode(photo).decode('ascii')
+          def post(route, body):
+              req = urllib.request.Request('http://127.0.0.1:3000'+route,
+                  data=json.dumps(body).encode(), headers={'Content-Type':'application/json'},
+                  method='POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=900) as resp:
+                      data, status = resp.read(), resp.status
+              except urllib.error.HTTPError as exc:
+                  data, status = exc.read(), exc.code
+              if status != 200:
+                  raise SystemExit(f'{route} returned HTTP {status}: '+data.decode(errors='replace')[:600])
+              return json.loads(data)
+          preflight = post('/api/measure', {'image': encoded})
+          cv = preflight['measurement']
+          assert set(cv['dimensions']) == {'D','P','L_underhead','L_overall','B','K','DK'}
+          assert cv['image_sha256'] == 'c0c0929f03eb6b3b053b92e0b6fcee12f20e921360d4cfe31bfef44cdc721d10'
+          proof = preflight.get('measurement_proof')
+          assert isinstance(proof,str) and proof, 'Cannot reuse signed preflight'
+          (root/'cv.json').write_text(json.dumps(cv,ensure_ascii=False,indent=2))
+          # The LLM receives ONLY frozen photo, the just-executed CV, and public references.
+          # No benchmark manifest or ground truth is loaded by this stage.
+          output = post('/api/analyze-openai',
+                        {'image':encoded,'measurement':cv,'measurement_proof':proof})
+          assert output['measurement_source'] == 'signed_preflight_reused'
+          assert output['measurement'] == cv, 'Provider modified signed raw CV evidence'
+          (root/'response.json').write_text(json.dumps(output,ensure_ascii=False,indent=2))
+          result = output['result']
+          assert 'internal_nominal_mapping' not in result, 'Internal verification payload leaked into user-facing result'
+          print('CV grounding basis:', output['specification_evidence']['cv_grounding_basis'])
+          print('Frozen D API completed; CV status:',cv['measurement_status'])
+          print('Purchase gate:', output['specification_evidence']['purchase_gate'])
+          print('Optional drive evidence:', output['specification_evidence']['drive_evidence'])
+          print('OpenAI semantic candidate before gates:',
+                output['specification_evidence']['llm_semantic_candidate_before_gates'])
+          print('Independent CV dimension candidate:',
+                output['specification_evidence']['dimension_candidate'])
+          print('OpenAI inferred head:', result['fastener_interpretation']['head_style'])
+          print('OpenAI nominal inference:',result['fastener_interpretation']['nominal_specification'])
+          print('User guidance:',output['user_guidance'])
+          PY
+
+      - name: Evaluate exact D ground truth only after freezing inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          root=Path('case-d-v2-results')
+          cv=json.loads((root/'cv.json').read_text())
+          result=json.loads((root/'response.json').read_text())
+          gt={'D':4.1656,'P':0.79375,'L_underhead':10.31875}
+          comparisons={}
+          for key, expected in gt.items():
+              observed=cv['dimensions'][key]
+              measured=observed['value_mm'] if observed['status']=='measured' else None
+              comparisons[key]={
+                  'measured_mm':measured,'gt_mm':expected,
+                  'absolute_error_mm':abs(measured-expected) if measured is not None else None,
+                  'relative_error_pct':100*abs(measured-expected)/expected if measured is not None else None,
+              }
+          head=result['result']['fastener_interpretation']['head_style']
+          purchase_ready=result['user_guidance']['purchase_ready']
+          nominal=result['result']['fastener_interpretation']['nominal_specification']
+          cv_measurement_pass=all(
+              cv['dimensions'][key]['status']=='measured'
+              for key in ('D','P','L_underhead','K','DK')
+          )
+          # The public nominal may legitimately add the independently identified
+          # head style and an explicit drive caveat. Score the two required
+          # dimension tokens instead of requiring the whole sentence to equal a
+          # dimension-only string.
+          nominal_dimensions_match='#8-32' in nominal and '13/32 in' in nominal
+          report={'case':'D','gt_evaluation_after_inference':True,
+                  'gt_head_style':'pan','output_head_style':head,'head_matches_gt':head=='pan',
+                  'workflow_execution_pass':True,
+                  'cv_measurement_pass':cv_measurement_pass,
+                  'llm_head_identification_pass':head=='pan',
+                  'complete_purchase_specification_pass':purchase_ready and head=='pan' and nominal_dimensions_match,
+                  'purchase_ready':purchase_ready,
+                  'nominal_output':nominal,
+                  'nominal_dimensions_match':nominal_dimensions_match,
+                  'dimension_candidate':result['specification_evidence'].get('dimension_candidate'),
+                  'cv_errors':comparisons,
+                  'single_llm_cv_grounded':True,
+                  'internal_mapping_absent_from_public_result':'internal_nominal_mapping' not in result['result'],
+                  'optional_B_not_a_pass_criterion':True}
+          (root/'evaluation.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Upload raw inference and post-inference evaluation (not original photo)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cv-first-v2-blind-d-openai
+          path: |
+            case-d-v2-results/cv.json
+            case-d-v2-results/response.json
+            case-d-v2-results/evaluation.json
+          if-no-files-found: ignore
+
+      - name: Print sanitized application logs when unsuccessful
+        if: failure()
+        shell: bash
+        run: |
+          echo 'CV service diagnostics:'
+          tail -n 55 /tmp/hcsi-cv-v2.log 2>/dev/null || true
+          echo 'Next.js service diagnostics:'
+          tail -n 55 /tmp/hcsi-next-v2.log 2>/dev/null || true

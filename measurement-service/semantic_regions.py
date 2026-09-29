@@ -13,6 +13,7 @@ _ALLOWED_HEAD_STYLES = {
     "hex",
     "flat_countersunk",
     "pan",
+    "truss",
     "button",
     "socket_cap",
     "round",

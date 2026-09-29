@@ -1,0 +1,33 @@
+{
+  "id": "G",
+  "fixture": "case-g-truss.png",
+  "sha256": "fcd71e295dd2b6bf1c6aa3fe5a43be55b68df3b0bb6263f87a7e86b524e11f69",
+  "image": {
+    "width": 1000,
+    "height": 1000,
+    "format": "PNG",
+    "bytes": 373369
+  },
+  "identity": "Univair AN526C1032R8, #10-32 x 1/2 in truss-head screw",
+  "source_page": "https://www.univair.com/hardware/an526c1032r8-truss-head-screw/",
+  "ground_truth": {
+    "D_mm": 4.826,
+    "P_mm": 0.79375,
+    "L_mm": 12.7,
+    "head_style": "truss"
+  },
+  "length_convention": "head_underface_to_tip",
+  "capture_condition": "ruler_parallel_and_separated_from_screw",
+  "private_fixture_storage": "/HCSI/benchmarks/hcsi-real-measurement-cases-v2/case-g-truss.png",
+  "locked_at": "2026-09-29",
+  "status": "locked_fixture_ready",
+  "gt_scope": {
+    "verified": ["nominal_thread_diameter", "thread_pitch", "purchase_length", "head_style"],
+    "not_asserted_without_independent_source": ["K_mm", "DK_mm"]
+  },
+  "provenance": {
+    "supplied_in_chat": true,
+    "exact_upload_verified_against_library_copy": true,
+    "pairing_basis": "Exact uploaded image paired with user-confirmed GT AN526C1032R8, #10-32 x 1/2 in, Truss head."
+  }
+}

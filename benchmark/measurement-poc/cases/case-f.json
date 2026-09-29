@@ -1,0 +1,28 @@
+{
+  "id": "F",
+  "fixture": "case-f-button.png",
+  "sha256": "ae0bb78703b07e520e3dc7516e775aad6e627571d8e474c3d61cc924b4f0ea91",
+  "image": {
+    "width": 1500,
+    "height": 1500,
+    "format": "PNG",
+    "bytes": 525309
+  },
+  "identity": "Polaris 7519774, M6 x 1.0 x 15 mm Button Head Hex Screw",
+  "source_page": "https://slingshot.polaris.com/en-us/shop-parts/7519/7519774/",
+  "ground_truth": {
+    "D_mm": 6.0,
+    "P_mm": 1.0,
+    "L_mm": 15.0,
+    "head_style": "button"
+  },
+  "length_convention": "head_underface_to_tip",
+  "capture_condition": "ruler_parallel_and_separated_from_screw",
+  "private_fixture_storage": "/HCSI/benchmarks/hcsi-real-measurement-cases-v2/case-f-button.png",
+  "locked_at": "2026-09-29",
+  "status": "locked_fixture_ready",
+  "gt_scope": {
+    "verified": ["nominal_thread_diameter", "thread_pitch", "purchase_length", "head_style"],
+    "not_asserted_without_independent_source": ["K_mm", "DK_mm"]
+  }
+}

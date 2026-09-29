@@ -1,0 +1,90 @@
+name: B Thread Extent Real Photo Smoke
+# Re-run on the generic three-state observation-gap model, with no LLM or GT.
+
+on:
+  push:
+    branches: [feature/measurement-confidence-gate]
+    paths: ['.github/workflows/thread-extent-b-smoke.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  frozen-case-a-cv-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: measurement-service/requirements.txt
+      - name: Install CV dependencies and run generic extent tests
+        run: |
+          python -m pip install -r measurement-service/requirements.txt pytest
+          pytest -q measurement-service/tests/test_thread_extent.py measurement-service/tests/test_geometry_executor.py
+
+      - name: Retrieve the ONE original frozen Case A photograph
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/hcsi-fixtures b-real-smoke
+          gh run download 35753143674 --repo "${{ github.repository }}" \
+            --name real-acceptance-ab --dir /tmp/hcsi-fixtures
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          expected = '5d6ee9563fd9a2e0d6861d74d581d4bae38a4f9181326d568291c1981e70b988'
+          matches = [p for p in Path('/tmp/hcsi-fixtures').rglob('*')
+                     if p.is_file() and hashlib.sha256(p.read_bytes()).hexdigest() == expected]
+          if len(matches) != 1:
+              raise SystemExit(f'Original Case A SHA-256 not uniquely verified: {len(matches)} matches')
+          Path('b-real-smoke/original-case-a.jpg').write_bytes(matches[0].read_bytes())
+          print('Verified frozen real Case A original:', expected)
+          PY
+
+      - name: Actual frozen photograph through original CV-first measurement
+        run: |
+          set -euo pipefail
+          PYTHONPATH=measurement-service python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          import cv2
+          import numpy as np
+          from app import measure_rgb
+          source = Path('b-real-smoke/original-case-a.jpg').read_bytes()
+          sha = hashlib.sha256(source).hexdigest()
+          image_bgr = cv2.imdecode(np.frombuffer(source, dtype=np.uint8), cv2.IMREAD_COLOR)
+          if image_bgr is None:
+              raise SystemExit('Failed to decode verified original Case A image')
+          result = measure_rgb(cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB), sha)
+          expected = {'D', 'P', 'L_underhead', 'L_overall', 'B', 'K', 'DK'}
+          assert set(result['dimensions']) == expected
+          assert result['image_sha256'] == sha
+          Path('b-real-smoke/cv-result.json').write_text(
+              json.dumps(result, indent=2, ensure_ascii=False)
+          )
+          print('Original photo:', sha)
+          print('Global CV status:', result['measurement_status'])
+          for key in ('D','P','L_underhead','L_overall','B','K','DK'):
+              dim = result['dimensions'][key]
+              print('Real CV',key,'px=',dim['value_px'],'mm=',dim['value_mm'],
+                    'status=',dim['status'],'reasons=',dim['reason_codes'],
+                    'diagnostics=',json.dumps(dim['diagnostics'],ensure_ascii=False))
+          # This smoke test never loads any ground-truth dimension or asks an LLM.
+          # It is about correct real-photo execution, NOT B accuracy acceptance.
+          PY
+
+      - name: Upload raw CV evidence only (no image, no GT, no LLM)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: b-real-case-a-cv-only
+          path: b-real-smoke/cv-result.json
+          if-no-files-found: ignore

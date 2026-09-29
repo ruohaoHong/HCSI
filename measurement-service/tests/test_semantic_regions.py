@@ -50,6 +50,15 @@ def test_parse_semantic_vision_normalizes_valid_context():
     assert context["target_region"]["confidence"] == 0.95
 
 
+def test_truss_head_semantics_are_not_forced_to_other():
+    semantic = _semantic()
+    semantic["head_style"] = "truss"
+
+    context = normalize_semantic_vision(semantic)
+
+    assert context["head_style"] == "truss"
+
+
 def test_invalid_semantic_coordinates_are_rejected():
     context = _semantic()
     context["target_region"]["x_max"] = 1200

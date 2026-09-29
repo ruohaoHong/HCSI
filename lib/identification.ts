@@ -1,5 +1,8 @@
 import { geometryCapabilityPromptReference, type GeometryCapabilityKind } from './geometry-capabilities'
 import type { SemanticMeasurementPlan } from './measurement-plan-resolver'
+import { HEAD_STYLE_VALUES, type HeadStyle } from './head-style-taxonomy'
+
+export type { HeadStyle } from './head-style-taxonomy'
 
 export const HARDWARE_CATEGORIES = [
   'fasteners',
@@ -13,8 +16,6 @@ export const HARDWARE_CATEGORIES = [
 export type HardwareCategory = (typeof HARDWARE_CATEGORIES)[number]
 export type Provider = 'gemini' | 'openai' | 'grok'
 export type EvidenceLevel = 'measured' | 'observed' | 'estimated' | 'unconfirmed'
-export type HeadStyle = 'hex' | 'flat_countersunk' | 'pan' | 'button' | 'socket_cap' | 'round' | 'other' | 'unknown'
-
 export interface SemanticVisionRegion {
   present: boolean
   confidence: number
@@ -61,12 +62,33 @@ export interface IdentificationResult {
   typical_use: string
   purchase_description: string
   safety_note: string
+  fastener_interpretation?: {
+    head_style: HeadStyle
+    drive_form: string
+    thread_system: 'metric' | 'imperial' | 'unknown'
+    length_convention: 'under_head' | 'overall' | 'unresolved'
+    nominal_specification: string
+  }
 }
 
 export interface AnalysisResponse {
+  user_guidance?: {
+    purchase_ready: boolean
+    message: string
+    dimension_candidate?: string | null
+    dimension_candidate_status?: 'included_in_purchase_specification' | 'dimension_only_not_purchase_ready' | 'unavailable'
+    actions: string[]
+  }
+  selected_length?: {
+    convention: 'under_head' | 'overall' | 'unresolved'
+    dimension: 'L_underhead' | 'L_overall' | null
+    value_px: number | null
+    value_mm: number | null
+    source: string
+  }
   provider: Provider
   model: string
-  routing: CategoryRoutingResult
+  routing?: CategoryRoutingResult
   result: IdentificationResult
 }
 
@@ -131,7 +153,7 @@ export const ROUTING_JSON_SCHEMA = {
         reference_region: SEMANTIC_REGION_SCHEMA,
         head_style: {
           type: 'string',
-          enum: ['hex', 'flat_countersunk', 'pan', 'button', 'socket_cap', 'round', 'other', 'unknown'],
+          enum: HEAD_STYLE_VALUES,
         },
       },
       required: ['target_region', 'reference_region', 'head_style'],
@@ -228,7 +250,7 @@ ${categoryReference}
 5. 不可捏造看不到的品牌、型號、額定值、線徑、壓力等級或材質等級。
 6. 若有合理最可能答案，明確選出；confusable_candidate 只放一個最容易混淆候選。
 7. common_names 優先台灣 DIY、五金行或工地常見叫法。
-8. purchase_description 要可直接拿去五金行描述；未確認規格明確保留「需確認」。
+8. purchase_description 是主要輸出：優先用台灣五金行常用名稱，結合原圖、成功實測 D／P／L、語義頭型與正確長度量法提出最可能的購買描述；標準公稱規格是 estimated，不能取代或改寫系統實測值。缺尺或某一步失敗時不得補猜 mm，購買描述僅包含有證據的規格並註明需確認；無合理公稱規格時只描述五金種類、已有實測及待確認事項。
 9. typical_use 說明通常用途，不把照片施工情境當已知事實。
 10. safety_note 僅在電氣、承重、壓力管路、燃氣、熱水、防水等風險時給必要提醒；一般低風險零件可說實際規格仍以實物量測或標示為準。
 11. HCSI 採 one-shot identification；除非影像不可辨識，否則利用現有照片給最合理結論。
@@ -279,11 +301,11 @@ function isSemanticVisionRegion(value: unknown): value is SemanticVisionRegion {
 function isSemanticVisionContext(value: unknown): value is SemanticVisionContext {
   if (!value || typeof value !== 'object') return false
   const v = value as Record<string, unknown>
-  const headStyles: HeadStyle[] = ['hex', 'flat_countersunk', 'pan', 'button', 'socket_cap', 'round', 'other', 'unknown']
+  const headStyles = new Set<HeadStyle>(HEAD_STYLE_VALUES)
   return isSemanticVisionRegion(v.target_region) &&
     isSemanticVisionRegion(v.reference_region) &&
     typeof v.head_style === 'string' &&
-    headStyles.includes(v.head_style as HeadStyle)
+    headStyles.has(v.head_style as HeadStyle)
 }
 
 export function isRoutingResult(value: unknown): value is CategoryRoutingResult {

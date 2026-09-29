@@ -31,4 +31,41 @@ jobs:
             --skipLibCheck \
             --outDir /tmp/hcsi-resolver-test
           node /tmp/hcsi-resolver-test/benchmark/measurement-poc/test_measurement_plan_resolver.js
+      - name: CV-first length policy regression (including LLM head=other)
+        run: |
+          rm -rf /tmp/hcsi-cv-first-policy-test
+          pnpm exec tsc lib/cv-length-policy.ts lib/cv-length-policy.test.ts \
+            --target ES2022 --module commonjs --moduleResolution node \
+            --esModuleInterop --skipLibCheck --outDir /tmp/hcsi-cv-first-policy-test
+          node "$(find /tmp/hcsi-cv-first-policy-test -name cv-length-policy.test.js -print -quit)"
+      - name: CV purchase gate regression
+        run: |
+          rm -rf /tmp/hcsi-purchase-gate-test
+          pnpm exec tsc lib/cv-purchase-policy.ts lib/cv-purchase-policy.test.ts \
+            --target ES2022 --module commonjs --moduleResolution node \
+            --esModuleInterop --skipLibCheck --outDir /tmp/hcsi-purchase-gate-test
+          node "$(find /tmp/hcsi-purchase-gate-test -name cv-purchase-policy.test.js -print -quit)"
+      - name: CV-first v2 head and drive evidence regression
+        run: |
+          rm -rf /tmp/hcsi-cv-first-v2-test
+          pnpm exec tsc \
+            lib/head-style-consistency.ts \
+            lib/head-style-consistency.test.ts \
+            lib/head-style-taxonomy.ts \
+            lib/head-style-taxonomy.test.ts \
+            lib/drive-evidence.ts \
+            lib/drive-evidence.test.ts \
+            lib/purchase-spec-completeness.ts \
+            lib/purchase-spec-completeness.test.ts \
+            lib/cv-grounding-basis.ts \
+            lib/cv-grounding-basis.test.ts \
+            lib/cv-first-v2-integration.test.ts \
+            --target ES2022 --module commonjs --moduleResolution node \
+            --esModuleInterop --skipLibCheck --outDir /tmp/hcsi-cv-first-v2-test
+          node "$(find /tmp/hcsi-cv-first-v2-test -name head-style-consistency.test.js -print -quit)"
+          node "$(find /tmp/hcsi-cv-first-v2-test -name head-style-taxonomy.test.js -print -quit)"
+          node "$(find /tmp/hcsi-cv-first-v2-test -name drive-evidence.test.js -print -quit)"
+          node "$(find /tmp/hcsi-cv-first-v2-test -name purchase-spec-completeness.test.js -print -quit)"
+          node "$(find /tmp/hcsi-cv-first-v2-test -name cv-grounding-basis.test.js -print -quit)"
+          node "$(find /tmp/hcsi-cv-first-v2-test -name cv-first-v2-integration.test.js -print -quit)"
       - run: pnpm build

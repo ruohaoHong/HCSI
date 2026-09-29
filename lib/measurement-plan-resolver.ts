@@ -4,6 +4,7 @@ import {
   type ResolvedGeometryPlanStep,
   resolveGeometryPlanStep,
 } from './geometry-capabilities'
+import { PROTRUDING_HEAD_STYLES } from './head-style-taxonomy'
 
 /**
  * Open-ended semantic plan produced by the LLM. `proposed_concepts` is not an
@@ -65,14 +66,14 @@ export function resolveMeasurementPlan(
 }
 
 
-const PROTRUDING_HEAD_STYLES = new Set(['hex', 'pan', 'button', 'socket_cap', 'round'])
+const PROTRUDING_HEAD_STYLE_SET = new Set<string>(PROTRUDING_HEAD_STYLES)
 
 export function resolveFastenerLengthConvention(
   context: MeasurementResolutionContext
 ): FastenerLengthConvention {
   if (context.category !== 'fasteners') return 'unresolved'
   if (context.head_style === 'flat_countersunk') return 'overall'
-  if (context.head_style && PROTRUDING_HEAD_STYLES.has(context.head_style)) return 'under_head_to_tip'
+  if (context.head_style && PROTRUDING_HEAD_STYLE_SET.has(context.head_style)) return 'under_head_to_tip'
   return 'unresolved'
 }
 

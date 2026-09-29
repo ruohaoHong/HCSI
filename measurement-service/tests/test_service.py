@@ -55,6 +55,10 @@ def test_measure_rgb_combines_ruler_scale_and_opencv_geometry(monkeypatch):
     monkeypatch.setattr(service_app, "infer_ruler", lambda _image: fake_ruler)
     result = service_app.measure_rgb(image, "abc123")
     assert result["measurement_status"] == "valid"
+    assert result["measurement_confidence"] == "uncertain"
+    assert result["confidence_evaluation"]["measurement_state"] == "measured"
+    assert result["capture_assumptions"]["same_plane_status"] == "unknown"
+    assert "same_plane_unverified" in result["confidence_evaluation"]["reason_codes"]
     assert result["analysis_mode"] == "measurement_assisted"
     assert result["measurement_valid"] is True
     assert result["retry_recommended"] is False
@@ -63,7 +67,11 @@ def test_measure_rgb_combines_ruler_scale_and_opencv_geometry(monkeypatch):
     assert 6.0 <= result["width_mm"] <= 11.0
     assert result["scale_px_per_cm"] == 50.0
     assert result["scale_px_per_inch"] == 127.0
-    assert result["geometry_steps"] == []
+    assert len(result["geometry_steps"]) == 7
+    assert set(result["dimensions"]) == {"D", "P", "L_underhead", "L_overall", "B", "K", "DK"}
+    assert result["dimensions"]["B"]["status"] == "not_measured"
+    assert result["head_geometry"]["status"] in {"measured", "not_measured"}
+    assert result["head_geometry"]["quality"] in {"reliable", "degraded", "unusable"}
     assert result["image_sha256"] == "abc123"
 
 
@@ -119,6 +127,7 @@ def test_measure_rgb_returns_no_reference_without_blocking_identification(monkey
         [{"operation": "axial_distance", "inputs": ["object_tip", "width_transition"], "purpose": "test"}],
     )
     assert result["measurement_status"] == "no_reference"
+    assert result["measurement_confidence"] == "not_measured"
     assert result["analysis_mode"] == "appearance_only"
     assert result["measurement_valid"] is False
     assert result["retry_recommended"] is False
@@ -186,3 +195,107 @@ def _axial_step_for_service():
         "inputs": ["object_tip", "width_transition"],
         "purpose": "量測螺栓頭下有效長度",
     }
+
+
+def test_fixed_measurements_ignore_unknown_or_other_semantic_head(monkeypatch):
+    fake_ruler = _fake_ruler()
+    monkeypatch.setattr(service_app, "infer_ruler", lambda _image: fake_ruler)
+    empty_region = {
+        "present": False, "confidence": 0.0,
+        "x_min": 0, "y_min": 0, "x_max": 0, "y_max": 0,
+    }
+    for head in ("other", "unknown"):
+        result = service_app.measure_rgb(
+            _bolt_image(), "abc123",
+            semantic_vision={"head_style": head, "target_region": empty_region,
+                             "reference_region": empty_region},
+        )
+        assert set(result["dimensions"]) == {
+            "D", "P", "L_underhead", "L_overall", "B", "K", "DK",
+        }
+        assert len(result["geometry_steps"]) == 7
+        assert result["dimensions"]["B"]["status"] == "not_measured"
+        assert result["head_geometry"]["status"] == "measured"
+        assert result["head_geometry"]["quality"] == "reliable"
+        assert result["head_geometry"]["length_convention_evidence"] == "protruding"
+        assert all(
+            step["reason_codes"] != ["operation_not_implemented"]
+            for step in result["geometry_steps"]
+        )
+
+
+def test_real_http_handler_omitted_steps_runs_fixed_cv_plan(monkeypatch):
+    """Exercise the actual FastAPI endpoint handler; no LLM plan/form sent."""
+    import asyncio
+    from io import BytesIO
+    from fastapi import UploadFile
+
+    monkeypatch.setattr(service_app, "infer_ruler", lambda _img: _fake_ruler())
+    # Synthetic pixels are unit-test geometry only, never a Case A fixture.
+    ok, jpeg = cv2.imencode(
+        ".jpg", cv2.cvtColor(_bolt_image(), cv2.COLOR_RGB2BGR)
+    )
+    assert ok
+    uploaded = UploadFile(file=BytesIO(jpeg.tobytes()), filename="unit-bolt.jpg")
+    result = asyncio.run(service_app.measure(
+        file=uploaded, geometry_steps=None, semantic_vision=None,
+        authorization=None,
+    ))
+    assert len(result["geometry_steps"]) == 7
+    assert result["object"]["semantic_routing_supplied"] is False
+    checks = {c["id"]: c for c in result["confidence_evaluation"]["checks"]}
+    assert checks["semantic_target_consistency"]["status"] == "not_applicable"
+    assert checks["semantic_reference_consistency"]["status"] == "not_applicable"
+    assert set(result["dimensions"]) == {
+        "D", "P", "L_underhead", "L_overall", "B", "K", "DK",
+    }
+
+
+def test_dimension_confidence_uses_observable_cv_evidence_not_missing_capture_metadata():
+    """A failed optional B or unknown coplanarity must not contaminate D."""
+    ruler = {
+        "detected": True, "mark_count": 8, "scale_system": "metric",
+        "scale_source": "metric_ticks", "px_per_cm": 100.0,
+        "perspective_step_pct": 1.0, "perspective_ok": True,
+    }
+    obj = {
+        "detected": True, "contour_reliable": True,
+        "risk_signals": [], "semantic_routing_supplied": False,
+    }
+    d = {
+        "operation": "outer_width", "inputs": ["threaded_shank"],
+        "status": "measured", "value_px": 40.0, "value_mm": 4.0,
+        "reason_codes": [], "diagnostics": {},
+    }
+    b = {
+        "operation": "threaded_length", "inputs": ["threaded_shank"],
+        "status": "not_measured", "value_px": None, "value_mm": None,
+        "reason_codes": ["thread_tip_boundary_unresolved"],
+        "diagnostics": {},
+    }
+    common = dict(
+        image_sha256="abc123", width=100, height=100,
+        status="valid", reasons=[], ruler=ruler, obj=obj,
+        length_mm=10.0, width_mm=4.0,
+        scale_system="metric", scale_px_per_cm=100.0,
+        scale_px_per_inch=254.0, geometry_steps=[d, b],
+    )
+    result = service_app._result(**common)
+    assert result["measurement_confidence"] == "uncertain"
+    assert result["dimensions"]["D"]["confidence"] == "verified"
+    assert result["dimensions"]["D"]["risk_signals"] == []
+    assert result["dimensions"]["B"]["status"] == "not_measured"
+    assert "same_plane_unverified" in result["confidence_evaluation"]["reason_codes"]
+    rejected = service_app._result(
+        **common,
+        capture_evidence={
+            "same_plane": {"status": "rejected", "source": "manual_confirmation"},
+        },
+    )
+    assert rejected["dimensions"]["D"]["confidence"] == "measured_with_risk"
+    assert "same_plane_rejected" in rejected["dimensions"]["D"]["risk_signals"]
+    blurred = service_app._result(
+        **{**common, "ruler": {**ruler, "perspective_ok": False, "perspective_step_pct": 9.0}},
+    )
+    assert blurred["dimensions"]["D"]["confidence"] == "measured_with_risk"
+    assert "perspective_risk_detected" in blurred["dimensions"]["D"]["risk_signals"]

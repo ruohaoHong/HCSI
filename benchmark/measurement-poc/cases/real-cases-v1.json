@@ -224,5 +224,123 @@
         "status": "complete workflow passed; D/P/L all measured"
       }
     }
-  ]
+  ],
+  "current_case_registry": {
+    "updated_at": "2026-09-29",
+    "note": "Human-facing registry for current head-style generalization work. Immutable v1 cases[] remains unchanged for historical SHA/GT traceability; active C/F/G fixture details are synchronized here and in their dedicated manifests.",
+    "cases": [
+      {
+        "id": "A",
+        "head_style": "pan",
+        "status": "existing",
+        "historical_v1_id": "A"
+      },
+      {
+        "id": "B",
+        "head_style": "flat_countersunk",
+        "status": "existing",
+        "historical_v1_id": "B"
+      },
+      {
+        "id": "C",
+        "head_style": "hex",
+        "status": "locked_fixture_ready",
+        "identity": "DougDeals / Nucor M14-2.0 x 45 mm hex-head bolt; new ruler-parallel/separated composition",
+        "source_page": "https://www.dougdeals.com/box-of-250-nucor-m14-2-0-x-45-grade-10-9-metric-hex-head-bolts-zinc-usa-made/",
+        "ground_truth": {
+          "D_mm": 14,
+          "P_mm": 2,
+          "L_mm": 45,
+          "head_style": "hex"
+        },
+        "length_convention": "head_underface_to_tip",
+        "fixture_lock_required": false,
+        "fixture": "case-c-hex-ruler-separated.png",
+        "sha256": "98896d298c40b87388083bac6e51df0c2d6b18460e9e29a2b7be9899f6201b9f",
+        "image_width": 800,
+        "image_height": 800,
+        "image_format": "PNG",
+        "image_bytes": 600469,
+        "private_fixture_storage": "/HCSI/benchmarks/hcsi-real-measurement-cases-v2/case-c-hex-ruler-separated.png",
+        "capture_condition": "ruler_parallel_and_separated_from_screw",
+        "locked_at": "2026-09-29",
+        "provenance": {
+          "supplied_in_chat": true,
+          "pairing_basis": "User supplied the exact image and confirmed GT M14 x 2.0 x 45 mm Hex head; SHA-256 computed from those exact uploaded bytes.",
+          "source_page": "https://www.dougdeals.com/box-of-250-nucor-m14-2-0-x-45-grade-10-9-metric-hex-head-bolts-zinc-usa-made/"
+        }
+      },
+      {
+        "id": "C-ruler-contact",
+        "head_style": "hex",
+        "status": "legacy_stress_fixture",
+        "historical_v1_id": "C",
+        "identity": "Former Case C — DougDeals / Nucor M14-2.0 x 45 mm hex-head bolt",
+        "capture_condition": "ruler_and_screw_touching_or_too_close",
+        "note": "Retain exact historical SHA/GT pairing; use this descriptive name in new work."
+      },
+      {
+        "id": "D",
+        "head_style": "pan",
+        "status": "existing",
+        "historical_v1_id": "D"
+      },
+      {
+        "id": "E",
+        "head_style": "socket_cap",
+        "status": "existing",
+        "historical_v1_id": "E"
+      },
+      {
+        "id": "F",
+        "head_style": "button",
+        "status": "locked_fixture_ready",
+        "identity": "Polaris 7519774, M6 x 1.0 x 15 mm Button Head Hex Screw",
+        "source_page": "https://slingshot.polaris.com/en-us/shop-parts/7519/7519774/",
+        "ground_truth": {
+          "D_mm": 6,
+          "P_mm": 1,
+          "L_mm": 15,
+          "head_style": "button"
+        },
+        "length_convention": "head_underface_to_tip",
+        "fixture_lock_required": false,
+        "fixture": "case-f-button.png",
+        "sha256": "ae0bb78703b07e520e3dc7516e775aad6e627571d8e474c3d61cc924b4f0ea91",
+        "image_width": 1500,
+        "image_height": 1500,
+        "image_format": "PNG",
+        "image_bytes": 525309,
+        "private_fixture_storage": "/HCSI/benchmarks/hcsi-real-measurement-cases-v2/case-f-button.png",
+        "capture_condition": "ruler_parallel_and_separated_from_screw",
+        "locked_at": "2026-09-29",
+        "manifest": "benchmark/measurement-poc/cases/case-f.json"
+      },
+      {
+        "id": "G",
+        "head_style": "truss",
+        "status": "locked_fixture_ready",
+        "identity": "Univair AN526C1032R8, #10-32 x 1/2 in truss-head screw",
+        "source_page": "https://www.univair.com/hardware/an526c1032r8-truss-head-screw/",
+        "ground_truth": {
+          "D_mm": 4.826,
+          "P_mm": 0.79375,
+          "L_mm": 12.7,
+          "head_style": "truss"
+        },
+        "length_convention": "head_underface_to_tip",
+        "fixture_lock_required": false,
+        "fixture": "case-g-truss.png",
+        "sha256": "fcd71e295dd2b6bf1c6aa3fe5a43be55b68df3b0bb6263f87a7e86b524e11f69",
+        "image_width": 1000,
+        "image_height": 1000,
+        "image_format": "PNG",
+        "image_bytes": 373369,
+        "private_fixture_storage": "/HCSI/benchmarks/hcsi-real-measurement-cases-v2/case-g-truss.png",
+        "capture_condition": "ruler_parallel_and_separated_from_screw",
+        "locked_at": "2026-09-29",
+        "manifest": "benchmark/measurement-poc/cases/case-g.json"
+      }
+    ]
+  }
 }
