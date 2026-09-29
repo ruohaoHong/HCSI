@@ -227,7 +227,7 @@
   ],
   "current_case_registry": {
     "updated_at": "2026-09-29",
-    "note": "Human-facing registry for new head-style generalization work. Immutable v1 cases[] remains unchanged for historical SHA/GT traceability.",
+    "note": "Human-facing registry for current head-style generalization work. Immutable v1 cases[] remains unchanged for historical SHA/GT traceability; active C/F/G fixture details are synchronized here and in their dedicated manifests.",
     "cases": [
       {
         "id": "A",
@@ -294,7 +294,7 @@
       {
         "id": "F",
         "head_style": "button",
-        "status": "candidate_fixture_pending_lock",
+        "status": "locked_fixture_ready",
         "identity": "Polaris 7519774, M6 x 1.0 x 15 mm Button Head Hex Screw",
         "source_page": "https://slingshot.polaris.com/en-us/shop-parts/7519/7519774/",
         "ground_truth": {
@@ -304,12 +304,22 @@
           "head_style": "button"
         },
         "length_convention": "head_underface_to_tip",
-        "fixture_lock_required": true
+        "fixture_lock_required": false,
+        "fixture": "case-f-button.png",
+        "sha256": "ae0bb78703b07e520e3dc7516e775aad6e627571d8e474c3d61cc924b4f0ea91",
+        "image_width": 1500,
+        "image_height": 1500,
+        "image_format": "PNG",
+        "image_bytes": 525309,
+        "private_fixture_storage": "/HCSI/benchmarks/hcsi-real-measurement-cases-v2/case-f-button.png",
+        "capture_condition": "ruler_parallel_and_separated_from_screw",
+        "locked_at": "2026-09-29",
+        "manifest": "benchmark/measurement-poc/cases/case-f.json"
       },
       {
         "id": "G",
         "head_style": "truss",
-        "status": "candidate_fixture_pending_lock",
+        "status": "locked_fixture_ready",
         "identity": "Univair AN526C1032R8, #10-32 x 1/2 in truss-head screw",
         "source_page": "https://www.univair.com/hardware/an526c1032r8-truss-head-screw/",
         "ground_truth": {
@@ -319,7 +329,17 @@
           "head_style": "truss"
         },
         "length_convention": "head_underface_to_tip",
-        "fixture_lock_required": true
+        "fixture_lock_required": false,
+        "fixture": "case-g-truss.png",
+        "sha256": "fcd71e295dd2b6bf1c6aa3fe5a43be55b68df3b0bb6263f87a7e86b524e11f69",
+        "image_width": 1000,
+        "image_height": 1000,
+        "image_format": "PNG",
+        "image_bytes": 373369,
+        "private_fixture_storage": "/HCSI/benchmarks/hcsi-real-measurement-cases-v2/case-g-truss.png",
+        "capture_condition": "ruler_parallel_and_separated_from_screw",
+        "locked_at": "2026-09-29",
+        "manifest": "benchmark/measurement-poc/cases/case-g.json"
       }
     ]
   }
