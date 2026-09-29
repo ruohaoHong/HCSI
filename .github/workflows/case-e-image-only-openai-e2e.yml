@@ -1,3 +1,4 @@
+# ASCII head-glyph isolation experiment: canonical raster + numeric signature, no head-style lookup guidance.
 # Shape-signature semantic isolation experiment: no head-style lookup guidance.
 name: Case E image-only OpenAI E2E
 

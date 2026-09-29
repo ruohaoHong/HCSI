@@ -72,10 +72,12 @@ ${basis.mode !== 'appearance_only'
    不要把任意 decimal inch 四捨五入成商品尺寸；只能使用這個已提供 residual 的 dyadic quantization。
 4. 頭型：先服從 head_geometry_class。countersunk 不可被原圖改成突出頭；protruding 時，原圖只能在相容的突出頭中做語義命名。
    evidence_partition 把 bearing plane、K/DK envelope 與 detailed silhouette integrity 分開。
-   當 silhouette_integrity.can_constrain_head_subtype=true 時，head_shape_signature 是本次頭部外形的主要壓縮證據：
+   當 silhouette_integrity.can_constrain_head_subtype=true 時，head_shape_glyph 與 head_shape_signature 是本次頭部外形的主要壓縮證據：
+   - head_shape_glyph.ascii 是由可靠 normalized silhouette 直接 rasterize 的標準化黑白點陣：最上列是頭頂、最下方窄段是桿身；它不是示意圖，也沒有編碼任何頭型名稱。先把它當成一個幾何字形直接看形狀；
    - 它只包含 dimensionless physical geometry：K/DK、DK/D、寬度變異、middle/upper slope、曲率變化、上段收窄占比、centerline drift 與 roughness；
    - 它沒有任何「某數值=某頭型」規則、候選排名或商品規格表。不要自行把單一數值當 lookup key；
-   - 先把整組 signature 當成同一個幾何物體理解，再用你自己的五金知識與原圖把它翻譯成最具體的標準 head_style 名稱。
+   - 先把 glyph 與整組 signature 當成同一個幾何物體理解：glyph 保留空間形狀，signature 提供精確數值校驗。兩者若一致，不要忽略 glyph 的整體外形而只抓單一數字；
+   - 再用你自己的五金知識與原圖把這個幾何物體翻譯成最具體的標準 head_style 名稱。
    head_style 只描述外部頭部幾何；drive_form 是另一個獨立欄位。即使驅動槽在照片中完全看不到，也不能因此把一個外部幾何已可辨識的標準頭型降成 other/unknown。
    如果你的自由文字已經描述出一個具體且標準的頭部外形，structured head_style 必須與該外部幾何語義一致。other 只表示你確實辨識到一種無法以現有 head_style enum 表達的外部幾何，不是「驅動槽看不到」或「名稱不確定」的替代答案。
    如果 can_constrain_head_subtype=false，則不得用 degraded silhouette 製造頭型；只依原圖可見外形做保守命名。

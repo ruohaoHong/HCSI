@@ -113,6 +113,13 @@ export interface CvGroundingBasis {
     width_trend: number | null
     quality: 'reliable' | 'degraded' | 'unusable' | 'unavailable'
   }
+  head_shape_glyph: {
+    ascii: string | null
+    width_columns: number
+    head_rows: number
+    shank_rows: number
+    note: string
+  }
   head_shape_signature: {
     geometry_class: 'countersunk' | 'protruding' | 'ambiguous' | 'unknown'
     axial_aspect_K_over_DK: number | null
@@ -301,6 +308,59 @@ function curvatureChangeMedian(
   return Number(median.toFixed(6))
 }
 
+function interpolateProfileWidth(
+  points: Array<{ axial_fraction: number; width_ratio: number }>,
+  target: number,
+): number | null {
+  if (points.length === 0) return null
+  const sorted = [...points].sort((a, b) => a.axial_fraction - b.axial_fraction)
+  if (target <= sorted[0].axial_fraction) return sorted[0].width_ratio
+  if (target >= sorted[sorted.length - 1].axial_fraction) return sorted[sorted.length - 1].width_ratio
+  for (let index = 1; index < sorted.length; index += 1) {
+    const left = sorted[index - 1]
+    const right = sorted[index]
+    if (target > right.axial_fraction) continue
+    const span = right.axial_fraction - left.axial_fraction
+    if (span <= 1e-9) return left.width_ratio
+    const alpha = (target - left.axial_fraction) / span
+    return left.width_ratio + alpha * (right.width_ratio - left.width_ratio)
+  }
+  return null
+}
+
+function buildAsciiHeadGlyph(
+  points: Array<{ axial_fraction: number; width_ratio: number }>,
+  dkOverD: number | null,
+  widthColumns = 31,
+  headRows = 17,
+  shankRows = 5,
+): string | null {
+  if (points.length < 3 || dkOverD === null || dkOverD <= 0) return null
+  const maxHalf = Math.floor(widthColumns / 2)
+  const center = maxHalf
+  const rows: string[] = []
+  const renderWidth = (ratio: number) => {
+    const clamped = Math.max(0.05, Math.min(1, ratio))
+    const half = Math.max(1, Math.round(clamped * maxHalf))
+    const chars = Array(widthColumns).fill('·')
+    for (let column = center - half; column <= center + half; column += 1) {
+      if (column >= 0 && column < widthColumns) chars[column] = '█'
+    }
+    return chars.join('')
+  }
+  // profile axial_fraction runs from underside toward top. Render top first.
+  for (let row = 0; row < headRows; row += 1) {
+    const topToBottom = headRows === 1 ? 0.5 : row / (headRows - 1)
+    const axial = 0.92 - topToBottom * (0.92 - 0.08)
+    const width = interpolateProfileWidth(points, axial)
+    if (width === null) return null
+    rows.push(renderWidth(width))
+  }
+  const shankRatio = Math.max(0.05, Math.min(1, 1 / dkOverD))
+  for (let row = 0; row < shankRows; row += 1) rows.push(renderWidth(shankRatio))
+  return rows.join('\n')
+}
+
 function upperNarrowingShare(
   points: Array<{ axial_fraction: number; width_ratio: number }>,
 ): number | null {
@@ -481,6 +541,15 @@ export function buildCvGroundingBasis(
       max_width_position: headMeasured ? head.max_width_position : null,
       width_trend: headMeasured ? head.width_trend : null,
       quality: headMeasured ? head.quality : 'unavailable',
+    },
+    head_shape_glyph: {
+      ascii: silhouetteReliable
+        ? buildAsciiHeadGlyph(normalizedProfile, ratio(DK, D))
+        : null,
+      width_columns: 31,
+      head_rows: 17,
+      shank_rows: 5,
+      note: 'Canonical monochrome text raster reconstructed only from measured normalized silhouette and DK/D. Top is rendered first, shank last. No semantic head-style labels are encoded.',
     },
     head_shape_signature: {
       geometry_class: geometryClass,
