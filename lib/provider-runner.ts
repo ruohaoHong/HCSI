@@ -17,7 +17,6 @@ import type { MeasurementResult, FixedDimension } from '@/lib/measurement'
 import { loadReferencePack } from '@/lib/reference-loader'
 import { buildCvDimensionCandidate, buildCvGroundingBasis } from '@/lib/cv-grounding-basis'
 import { localizeForMeasurement, type SemanticLocalizationResult } from '@/lib/semantic-localizer'
-import { buildCanonicalHeadGlyphPng } from '@/lib/head-glyph-image'
 
 const MAX_IMAGE_LENGTH = 7_000_000
 const PROVIDER_CONFIG = {
@@ -78,13 +77,11 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const preflightGate = preflightPurchaseGate(measurement)
     const cvGroundingBasis = buildCvGroundingBasis(measurement, preflightGate.allowed)
     const dimensionCandidate = buildCvDimensionCandidate(cvGroundingBasis)
-    const canonicalHeadGlyph = buildCanonicalHeadGlyphPng(cvGroundingBasis)
     const reference = await loadReferencePack('fasteners')
     const providerPayload = await runStructuredProvider({
       provider, apiKey, model: config.model, image,
-      glyphImagePng: canonicalHeadGlyph?.png_base64 ?? null,
       prompt: buildCvFirstIdentificationPrompt(measurement, measurementServiceError?.code ?? null,
-        reference.core, reference.category, preflightGate.allowed, canonicalHeadGlyph !== null),
+        reference.core, reference.category, preflightGate.allowed),
       schemaName: 'hcsi_cv_first_identification',
       schema: CV_FIRST_IDENTIFICATION_JSON_SCHEMA as unknown as JsonSchema,
       maxOutputTokens: 4600,
@@ -263,16 +260,6 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
         head_style_consistency: headConsistency,
         drive_evidence: driveEvidence,
         cv_grounding_basis: cvGroundingBasis,
-        canonical_head_glyph: canonicalHeadGlyph ? {
-          transport: 'second_image',
-          width_px: canonicalHeadGlyph.width_px,
-          height_px: canonicalHeadGlyph.height_px,
-          head_max_width_px: canonicalHeadGlyph.head_max_width_px,
-          head_height_px: canonicalHeadGlyph.head_height_px,
-          shank_width_px: canonicalHeadGlyph.shank_width_px,
-          shank_height_px: canonicalHeadGlyph.shank_height_px,
-          aspect_ratio_preserved: true,
-        } : null,
         standard_table_derived: [], // No verified standards table is wired in v2.
         not_obtained: [
           ...REQUIRED_INFERENCE_DIMENSIONS.filter(key => dimensions[key]?.status !== 'measured'),
@@ -298,19 +285,15 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
   }
 }
 
-async function runStructuredProvider(args: { provider: Provider; apiKey: string; model: string; image: string; glyphImagePng?: string | null; prompt: string; schemaName: string; schema: JsonSchema; maxOutputTokens: number }) {
+async function runStructuredProvider(args: { provider: Provider; apiKey: string; model: string; image: string; prompt: string; schemaName: string; schema: JsonSchema; maxOutputTokens: number }) {
   if (args.provider === 'gemini') return runGemini(args)
   return runResponsesApi(args)
 }
 
-async function runGemini(args: { apiKey: string; model: string; image: string; glyphImagePng?: string | null; prompt: string; schemaName: string; schema: JsonSchema; maxOutputTokens: number }) {
+async function runGemini(args: { apiKey: string; model: string; image: string; prompt: string; schemaName: string; schema: JsonSchema; maxOutputTokens: number }) {
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${args.model}:generateContent`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': args.apiKey },
-    body: JSON.stringify({ contents: [{ parts: [
-      { text: args.prompt },
-      { inline_data: { mime_type: 'image/jpeg', data: args.image } },
-      ...(args.glyphImagePng ? [{ inline_data: { mime_type: 'image/png', data: args.glyphImagePng } }] : []),
-    ] }], generationConfig: { maxOutputTokens: args.maxOutputTokens, responseMimeType: 'application/json', responseJsonSchema: args.schema, thinkingConfig: { thinkingLevel: 'medium' } } }),
+    body: JSON.stringify({ contents: [{ parts: [{ text: args.prompt }, { inline_data: { mime_type: 'image/jpeg', data: args.image } }] }], generationConfig: { maxOutputTokens: args.maxOutputTokens, responseMimeType: 'application/json', responseJsonSchema: args.schema, thinkingConfig: { thinkingLevel: 'medium' } } }),
   })
   if (!response.ok) { const upstreamError = await response.text(); console.error('[HCSI] Gemini upstream error:', response.status, upstreamError.slice(0, 1600)); throw new Error('Gemini 分析服務暫時無法使用。') }
   const data = await response.json()
@@ -318,17 +301,13 @@ async function runGemini(args: { apiKey: string; model: string; image: string; g
   return parseJsonText(text, 'Gemini')
 }
 
-async function runResponsesApi(args: { provider: Provider; apiKey: string; model: string; image: string; glyphImagePng?: string | null; prompt: string; schemaName: string; schema: JsonSchema; maxOutputTokens: number }) {
+async function runResponsesApi(args: { provider: Provider; apiKey: string; model: string; image: string; prompt: string; schemaName: string; schema: JsonSchema; maxOutputTokens: number }) {
   const isGrok = args.provider === 'grok'
   const endpoint = isGrok ? 'https://api.x.ai/v1/responses' : 'https://api.openai.com/v1/responses'
   const label = isGrok ? 'Grok' : 'OpenAI'
   const response = await fetch(endpoint, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${args.apiKey}` },
-    body: JSON.stringify({ model: args.model, store: false, reasoning: { effort: 'medium' }, max_output_tokens: args.maxOutputTokens, text: { format: { type: 'json_schema', name: args.schemaName, schema: args.schema, strict: true } }, input: [{ role: 'user', content: [
-      { type: 'input_text', text: args.prompt },
-      { type: 'input_image', image_url: `data:image/jpeg;base64,${args.image}`, detail: 'high' },
-      ...(args.glyphImagePng ? [{ type: 'input_image', image_url: `data:image/png;base64,${args.glyphImagePng}`, detail: 'high' }] : []),
-    ] }] }),
+    body: JSON.stringify({ model: args.model, store: false, reasoning: { effort: 'medium' }, max_output_tokens: args.maxOutputTokens, text: { format: { type: 'json_schema', name: args.schemaName, schema: args.schema, strict: true } }, input: [{ role: 'user', content: [{ type: 'input_text', text: args.prompt }, { type: 'input_image', image_url: `data:image/jpeg;base64,${args.image}`, detail: 'high' }] }] }),
   })
   if (!response.ok) { const upstreamError = await response.text(); console.error(`[HCSI] ${label} upstream error:`, response.status, upstreamError.slice(0, 1600)); throw new Error(`${label} 分析服務暫時無法使用。`) }
   const data = await response.json()

@@ -1,6 +1,3 @@
-# PNG physical-glyph compile-fix rerun: same inference logic, workflow-only trigger.
-# PNG physical-glyph experiment: second image preserves K/DK and D/DK with square pixels; no head-style lookup guidance.
-# Shape-signature semantic isolation experiment: no head-style lookup guidance.
 name: Case E image-only OpenAI E2E
 
 # Validation harness only. Final regression run for the raw bilateral
