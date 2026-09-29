@@ -303,7 +303,7 @@ async function runStructuredProvider(args: { provider: Provider; apiKey: string;
   return runResponsesApi(args)
 }
 
-async function runGemini(args: { apiKey: string; model: string; image: string; prompt: string; schemaName: string; schema: JsonSchema; maxOutputTokens: number }) {
+async function runGemini(args: { apiKey: string; model: string; image: string; glyphImagePng?: string | null; prompt: string; schemaName: string; schema: JsonSchema; maxOutputTokens: number }) {
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${args.model}:generateContent`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': args.apiKey },
     body: JSON.stringify({ contents: [{ parts: [
