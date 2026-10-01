@@ -75,6 +75,15 @@ export function evaluateSemanticCompatibility(
   }
 
   const matches=observation.value===constraint.expected_value
+  if (observation.state==='not_observed') {
+    const explicitAbsence=/(?:_absent$|^no_|_not_observed$)/.test(observation.value)
+    if (!explicitAbsence) return {...base,compatibility_state:'uninformative'}
+    if (constraint.relation==='requires') {
+      return {...base,compatibility_state:matches ? 'supports' : 'contradicts'}
+    }
+    if (constraint.relation==='forbids' && matches) return {...base,compatibility_state:'contradicts'}
+    return {...base,compatibility_state:matches && constraint.relation==='allows' ? 'supports' : 'uninformative'}
+  }
   if (constraint.relation==='requires') {
     return {...base,compatibility_state:matches ? 'supports' : 'contradicts'}
   }
