@@ -46,3 +46,23 @@ export function projectSelectedFormalNominal(authority: StandardsAuthorityResult
 export function renderFormalDesignation(projection: FormalNominalProjection | null): string | null {
   return projection?.designation ?? null
 }
+
+export function buildPublicFormalSurfaces(
+  itemName: string,
+  projection: FormalNominalProjection | null,
+  options: { driveFormUnconfirmed: boolean },
+): {
+  nominal_specification: string | null
+  purchase_description: string | null
+  specification_item: { label: string; value: string; evidence_level: 'estimated' } | null
+} {
+  if (!projection) return { nominal_specification:null, purchase_description:null, specification_item:null }
+  const designation = projection.designation
+  return {
+    nominal_specification:designation,
+    purchase_description:options.driveFormUnconfirmed
+      ? `${itemName}：${designation}（驅動槽型式及尺寸待確認）`
+      : `${itemName}：${designation}`,
+    specification_item:{label:'標準公稱規格',value:designation,evidence_level:'estimated'},
+  }
+}
