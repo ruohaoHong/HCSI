@@ -94,6 +94,7 @@ export interface NominalCandidate {
     hypotheses: LengthComparisonHypothesis[]
   }
   score: {
+    model_id?: 'phase1-euclidean-dp-residual-v1'
     measurement_log_likelihood: number | null
     residual_distance_mm?: number | null
     status?: 'provisional_uncalibrated_no_covariance'
