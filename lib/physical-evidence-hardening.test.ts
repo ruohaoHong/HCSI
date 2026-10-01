@@ -19,6 +19,8 @@ const relevantBiasTypes: SystematicBiasComponent['type'][] = [
   'axis_projection_bias',
   'lens_distortion_residual',
   'ruler_grammar_ambiguity',
+  'occlusion',
+  'glare',
 ]
 
 function biasLedger(depthStatus: BiasStatus): SystematicBiasComponent[] {
@@ -87,6 +89,20 @@ const candidate: NominalCandidate = {
   standard_ref:{catalogue_id:'synthetic',catalogue_version:'1',record_id:'m14',provenance:'synthetic'},
   residuals:{},
   score:{measurement_log_likelihood:null,rank:null},
+}
+
+// A0 — missing required D/P bias component is itself unsafe.
+{
+  const u=uncertainty([[0.01,0],[0,0.0025]],'resolved')
+  u.systematic_bias_ledger = u.systematic_bias_ledger.filter(item => item.type !== 'glare')
+  const m=measurement(u)
+  const readiness=assessJointBiasReadiness(m.uncertainty,['D','P'])
+  assert.equal(readiness.status,'blocked_unestimated_bias')
+  assert.ok(readiness.reason_codes.includes('required_systematic_bias_component_missing'))
+  assert.ok(readiness.blocking_component_ids.includes('missing:glare'))
+  const result=evaluateCandidatePhysicalEvidence(m,candidate)
+  assert.equal(result.joint.status,'blocked_by_unestimated_systematic_bias')
+  assert.equal(result.joint.log_density,null)
 }
 
 // A — not_estimated relevant systematic bias blocks joint.
