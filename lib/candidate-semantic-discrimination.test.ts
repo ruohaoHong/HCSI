@@ -115,6 +115,9 @@ eq(evaluateSemanticCompatibility(aDrive,observation('hex_socket')).compatibility
 eq(evaluateSemanticCompatibility(aConstraint,observation('not_visible','not_visible','not_visible')).compatibility_state,'not_visible')
 eq(evaluateSemanticCompatibility(bConstraint,observation('not_visible','not_visible','not_visible')).compatibility_state,'not_visible')
 
+// not_observed is negative evidence only for an explicit visible absence value.
+eq(evaluateSemanticCompatibility(bConstraint,observation('hex_socket','not_observed','visible')).compatibility_state,'uninformative')
+
 // Test F — ambiguous cannot hard contradict.
 eq(evaluateSemanticCompatibility(bConstraint,observation('unknown','ambiguous','visible')).compatibility_state,'unknown')
 
