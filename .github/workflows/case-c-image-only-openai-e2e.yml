@@ -5,9 +5,14 @@ name: Case C locked-fixture blind OpenAI E2E
 # GT is introduced only in the final scoring step after response.json is frozen and hashed.
 on:
   push:
-    branches: [feature/measurement-confidence-gate]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1]
     paths:
       - '.github/workflows/case-c-image-only-openai-e2e.yml'
+      - 'lib/provider-runner.ts'
+      - 'lib/measurement-v2.ts'
+      - 'lib/standards-catalogue.ts'
+      - 'lib/standards-database-v1.ts'
+      - 'lib/standards-shadow-solver.ts'
   workflow_dispatch:
 
 permissions:
@@ -163,6 +168,32 @@ jobs:
           assert output['measurement_source'] == 'signed_preflight_reused'
           assert output.get('semantic_roi_source') == 'signed_preflight'
           assert output['measurement'] == cv
+          # Phase 1 standards shadow regression: architecture assertions only.
+          shadow = output['standards_solver_shadow']
+          assert shadow['mode'] == 'shadow'
+          assert shadow['purchase_ready'] is False
+          assert shadow['candidate_summary']['iso_metric'] > 0
+          assert shadow['candidate_summary']['unified_inch'] > 0
+          obs = {item['quantity']: item['value_mm'] for item in shadow['measurement_v2']['observations']}
+          for key in ('D','P','L_underhead'):
+              assert abs(obs[key] - cv['dimensions'][key]['value_mm']) < 1e-9
+          assert abs(obs['D'] - 13.700) < 0.001
+          assert abs(obs['P'] - 2.051) < 0.001
+          assert abs(obs['L_underhead'] - 47.540) < 0.001
+          designations = [item['designation'] for item in shadow['new_candidates']]
+          assert 'M14 × 2.0' in designations
+          assert '9/16-12 UNC' in designations
+          assert not any('#37-12' in item for item in designations)
+          assert shadow['legacy_nominal'] and '#37-12' in shadow['legacy_nominal']
+          m14 = next(item for item in shadow['new_candidates'] if item['designation'] == 'M14 × 2.0')
+          assert m14['nominal']['length_mm'] is None
+          assert m14['length_comparison']['observed_mm'] == obs['L_underhead']
+          assert m14['length_comparison']['product_standard_length_validation'] == 'not_implemented_phase1'
+          assert any(abs(h['nominal_mm'] - 45.0) < 1e-9 and abs(h['residual_mm'] - 2.540) < 0.001
+                     for h in m14['length_comparison']['hypotheses'])
+          assert shadow['scoring_state']['covariance_available'] is False
+          assert shadow['scoring_state']['calibrated_probability_available'] is False
+
 
           response_path = root / 'response.json'
           response_path.write_text(json.dumps(output, ensure_ascii=False, indent=2))
