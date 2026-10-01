@@ -19,7 +19,6 @@ import {
 } from './semantic-evidence-v1'
 import {
   buildSemanticEvidenceV1,
-  sanitizeRawSemanticSensorOutput,
   validateRawSemanticSensorOutput,
 } from './semantic-evidence-validator'
 
@@ -95,10 +94,9 @@ export async function extractCandidateBlindSemanticEvidence(
   const raw=provider === 'gemini'
     ? await runGemini(apiKey,config.model,request)
     : await runResponses(provider,apiKey,config.model,request)
-  const sanitized=sanitizeRawSemanticSensorOutput(raw)
-  const validation=validateRawSemanticSensorOutput(sanitized)
+  const validation=validateRawSemanticSensorOutput(raw)
   if (!validation.valid) throw new Error(`semantic_sensor_output_invalid:${validation.errors.join('|')}`)
-  return buildSemanticEvidenceV1(sanitized,request,{
+  return buildSemanticEvidenceV1(raw,request,{
     model:config.model,
     model_version:config.model,
     sensor_type:'vlm',
@@ -191,10 +189,10 @@ function parseRaw(text:unknown,label:string): RawSemanticSensorOutput {
   if (typeof text !== 'string' || !text.trim()) throw new Error(`${label}_semantic_output_empty`)
   let parsed:unknown
   try { parsed=JSON.parse(text) } catch { throw new Error(`${label}_semantic_output_invalid_json`) }
-  const sanitized=sanitizeRawSemanticSensorOutput(parsed as RawSemanticSensorOutput)
-  const validation=validateRawSemanticSensorOutput(sanitized)
+  const raw=parsed as RawSemanticSensorOutput
+  const validation=validateRawSemanticSensorOutput(raw)
   if (!validation.valid) throw new Error(`${label}_semantic_output_invalid:${validation.errors.join('|')}`)
-  return sanitized
+  return raw
 }
 
 export const CANDIDATE_BLIND_SEMANTIC_EXTRACTOR_VERSION = SEMANTIC_EXTRACTOR_VERSION
