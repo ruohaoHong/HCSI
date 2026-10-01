@@ -3,6 +3,7 @@ import type { SemanticMeasurementPlan } from './measurement-plan-resolver'
 import { HEAD_STYLE_VALUES, type HeadStyle } from './head-style-taxonomy'
 import type { StandardsAuthorityResult } from './standards-shadow-solver'
 import type { FormalNominalProjection } from './formal-nominal-projection'
+import type { SemanticEvidenceV1 } from './semantic-evidence-v1'
 
 export type { HeadStyle } from './head-style-taxonomy'
 
@@ -87,6 +88,8 @@ export interface AnalysisResponse {
   }
   standards_authority?: StandardsAuthorityResult | null
   formal_nominal_projection?: FormalNominalProjection | null
+  semantic_evidence?: SemanticEvidenceV1 | null
+  semantic_evidence_error?: string | null
   selected_length?: {
     convention: 'under_head' | 'overall' | 'unresolved'
     dimension: 'L_underhead' | 'L_overall' | null
