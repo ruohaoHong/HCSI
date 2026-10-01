@@ -33,7 +33,8 @@ assert.equal(assessPurchaseSpecificationCompleteness(result, gate, visibleDrive,
 assert.equal(assessPurchaseSpecificationCompleteness({
   ...result,
   fastener_interpretation: { ...result.fastener_interpretation!, nominal_specification: '' },
-}, gate, visibleDrive, selectedStandardsDecision).reason_codes.includes('nominal_specification_missing'), true)
+}, gate, visibleDrive, selectedStandardsDecision).complete, true,
+'legacy LLM nominal must not be required once a formal standards decision exists')
 
 const sideViewDrive = assessPurchaseSpecificationCompleteness(result, gate, {
   ...visibleDrive, display_form: '待確認', form_observed: false,
