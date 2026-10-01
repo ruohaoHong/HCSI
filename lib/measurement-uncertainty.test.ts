@@ -26,7 +26,7 @@ assert.equal(m.observations.find(x=>x.quantity==='L_underhead')?.value_mm,47.54)
 
 const d=m.uncertainty.quantities.find(x=>x.quantity==='D')!
 const p=m.uncertainty.quantities.find(x=>x.quantity==='P')!
-assert.equal(d.status,'estimated')
+assert.equal(d.status,'assumption_limited')
 assert.equal(d.standard_uncertainty_mm,0.08)
 assert.equal(p.status,'not_estimated')
 assert.equal(p.standard_uncertainty_mm,null)
