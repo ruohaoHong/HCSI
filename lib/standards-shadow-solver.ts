@@ -2,6 +2,7 @@ import type { MeasurementV2, NominalCandidate, NominalCandidateSet, StandardSyst
 import { MEASUREMENT_V2_SCHEMA, NOMINAL_CANDIDATE_SCHEMA, getObservedMm } from './measurement-v2'
 import type { StandardsCatalogue, ThreadStandardRecord } from './standards-catalogue'
 import { findCatalogueDesignation, validateStandardsCatalogue } from './standards-catalogue'
+import { evaluateCandidatePhysicalEvidence } from './physical-evidence-likelihood'
 
 const MM_PER_INCH = 25.4
 
@@ -97,7 +98,7 @@ function candidateFromRecord(catalogue: StandardsCatalogue, record: ThreadStanda
     : []
   const nearestLength = hypotheses.slice().sort((a,b) => Math.abs(a.residual_mm)-Math.abs(b.residual_mm))[0]
 
-  return {
+  const candidate: NominalCandidate = {
     candidate_id: `${catalogue.snapshot.snapshot_id}:${record.record_id}`,
     standard_system: record.standard_system,
     family: record.family,
@@ -142,6 +143,8 @@ function candidateFromRecord(catalogue: StandardsCatalogue, record: ThreadStanda
       rank: null,
     },
   }
+  candidate.physical_evidence = evaluateCandidatePhysicalEvidence(measurement,candidate)
+  return candidate
 }
 
 /**
@@ -257,9 +260,9 @@ export function buildStandardsAuthorityResult(
     scoring_state:{
       model_id:'phase1-euclidean-dp-residual-v1',
       calibrated_probability_available:false,
-      covariance_available:false,
+      covariance_available:measurement.uncertainty.covariance.status !== 'not_estimated',
       tolerance_likelihood_available:false,
-      todo:'Add covariance, systematic-bias ledger and standards tolerance likelihood before interpreting scores probabilistically.',
+      todo:'Phase 2A physical_evidence is measurement compatibility, not posterior probability. Tolerance remains unavailable until class-specific limits are versioned.',
     },
   }
 }
