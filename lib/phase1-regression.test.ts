@@ -16,7 +16,7 @@ type Case = {
 }
 
 const cases: Case[] = [
-  {id:'B',D:6,P:1,Lkey:'L_overall',L:40,expected:'M6 × 1'},
+  {id:'B',D:6,P:1,Lkey:'L_overall',L:40,expected:'M6 × 1.0'},
   {id:'D',D:4.1656,P:0.79375,Lkey:'L_underhead',L:10.31875,expected:'#8-32 UNC'},
   {id:'E',D:3,P:0.5,Lkey:'L_underhead',L:30,expected:'M3 × 0.5'},
 ]
