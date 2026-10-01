@@ -40,7 +40,7 @@ function metricRecords(): ThreadStandardRecord[] {
     standard_system: 'iso_metric',
     family: 'iso_metric_machine_thread',
     series,
-    designation: `${name} × ${p.toFixed(p % 1 === 0 ? 1 : 2).replace(/0$/,'')}`,
+    designation: `${name} × ${Number.isInteger(p) ? p.toFixed(1) : String(p)}`,
     nominal_diameter_mm: d,
     nominal_pitch_mm: p,
     tpi: null,
