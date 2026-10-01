@@ -8,6 +8,10 @@ import {
   SEMANTIC_FEATURE_DEFINITIONS,
 } from './semantic-taxonomy-v1'
 import {
+  SEMANTIC_OBSERVATION_REASON_CODES,
+  SEMANTIC_QUALITY_REASON_CODES,
+} from './semantic-reason-codes-v1'
+import {
   SEMANTIC_SENSOR_OUTPUT_JSON_SCHEMA,
   SEMANTIC_EXTRACTOR_VERSION,
   type RawSemanticSensorOutput,
@@ -52,10 +56,22 @@ STRICT BLINDNESS / RESPONSIBILITY RULES:
 - Open-set is valid. Do not force a nearest taxonomy class when morphology falls outside the finite taxonomy.
 - raw_score is not calibrated probability. For this VLM first pass, set raw_score=null unless the provider supplies an actual numeric sensor score independent of your prose.
 - calibrated_probability MUST be null and calibration_status MUST be "uncalibrated".
-- For OCR/markings, transcribe only clearly visible non-dimensional text/symbols. Never emit thread designations, nominal dimensions, TPI, or standards strings in raw_text/freeform fields. If a visible marking resembles such a claim, record marking_present and leave text null with a reason code.
+- For OCR/markings, raw_text is literal transcription only. Literal compact markings such as "10.9", "A2", "304", manufacturer/logo text are allowed as observations; do not interpret what they mean.
+- OCR raw_text must never contain your own interpretation such as "probably metric", "looks like ISO", "likely UNC", "candidate", "winner", "best match", or ranking language.
+- normalized_text is not an interpretation field. Give only a whitespace-normalized literal copy of raw_text; deterministic code will recompute it.
+- freeform_description is allowed ONLY for open_set morphology and must remain purely visual. Never mention metric/imperial/inch/Unified/UNC/UNF/UNEF/ISO/ASME, candidates, winners, ranks, nominal designations, dimensions, or TPI.
 
 Return exactly one observation for every feature_id below:
 ${taxonomyPrompt()}
+
+reason_codes are controlled metadata, not prose. Use ONLY these observation reason codes, or []:
+${SEMANTIC_OBSERVATION_REASON_CODES.join(' / ')}
+
+quality.reason_codes also use ONLY this controlled vocabulary, or []:
+${SEMANTIC_QUALITY_REASON_CODES.join(' / ')}
+
+Do not invent reason-code strings. Codes FORBIDDEN_CLAIM_REMOVED and
+UNCALIBRATED_PROBABILITY_REMOVED are reserved for deterministic sanitizer use.
 
 State/visibility consistency:
 - state=not_visible => visibility=not_visible and use that feature's not-visible taxonomy value.
