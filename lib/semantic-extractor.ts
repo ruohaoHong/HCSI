@@ -8,7 +8,7 @@ import {
   SEMANTIC_FEATURE_DEFINITIONS,
 } from './semantic-taxonomy-v1'
 import {
-  SEMANTIC_OBSERVATION_REASON_CODES,
+  SENSOR_EMITTABLE_SEMANTIC_OBSERVATION_REASON_CODES,
   SEMANTIC_QUALITY_REASON_CODES,
 } from './semantic-reason-codes-v1'
 import {
@@ -65,13 +65,12 @@ Return exactly one observation for every feature_id below:
 ${taxonomyPrompt()}
 
 reason_codes are controlled metadata, not prose. Use ONLY these observation reason codes, or []:
-${SEMANTIC_OBSERVATION_REASON_CODES.join(' / ')}
+${SENSOR_EMITTABLE_SEMANTIC_OBSERVATION_REASON_CODES.join(' / ')}
 
 quality.reason_codes also use ONLY this controlled vocabulary, or []:
 ${SEMANTIC_QUALITY_REASON_CODES.join(' / ')}
 
-Do not invent reason-code strings. Codes FORBIDDEN_CLAIM_REMOVED and
-UNCALIBRATED_PROBABILITY_REMOVED are reserved for deterministic sanitizer use.
+Do not invent reason-code strings. Deterministic postprocess reason codes are not available to this sensor schema.
 
 State/visibility consistency:
 - state=not_visible => visibility=not_visible and use that feature's not-visible taxonomy value.
