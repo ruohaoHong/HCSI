@@ -1,3 +1,4 @@
+# Standards source-of-truth final validation: formal candidates are catalogue-backed; legacy nominal is diagnostic only.
 name: Frozen Case D CV-first v2 OpenAI blind E2E
 
 # Follow-up diagnostic on an already-seen fixture, NOT a new independent holdout.
