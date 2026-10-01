@@ -1,3 +1,4 @@
+# Standards source-of-truth final validation: formal candidates are catalogue-backed; legacy nominal is diagnostic only.
 # Head-evidence packet experiment: D/P + K/DK + coarse geometry are primary head-naming evidence; no head-style lookup guidance.
 # Phase 1 shadow-mode branch regression enabled.\nname: Case E image-only OpenAI E2E
 
@@ -10,6 +11,10 @@ on:
     paths:
       - '.github/workflows/case-e-image-only-openai-e2e.yml'
       - 'lib/provider-runner.ts'
+      - 'lib/purchase-spec-completeness.ts'
+      - 'lib/cv-grounding-basis.ts'
+      - 'lib/cv-first-identification.ts'
+      - 'lib/identification.ts'
       - 'lib/measurement-v2.ts'
       - 'lib/standards-catalogue.ts'
       - 'lib/standards-database-v1.ts'
