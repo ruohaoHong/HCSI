@@ -18,7 +18,7 @@ import { loadReferencePack } from '@/lib/reference-loader'
 import { buildCvDimensionCandidate, buildCvGroundingBasis } from '@/lib/cv-grounding-basis'
 import { toMeasurementV2 } from '@/lib/measurement-v2'
 import { STANDARDS_CATALOGUE_V1 } from '@/lib/standards-database-v1'
-import { buildStandardsShadowResult } from '@/lib/standards-shadow-solver'
+import { buildStandardsAuthorityResult, buildStandardsShadowResult } from '@/lib/standards-shadow-solver'
 import { localizeForMeasurement, type SemanticLocalizationResult } from '@/lib/semantic-localizer'
 
 const MAX_IMAGE_LENGTH = 7_000_000
@@ -80,13 +80,6 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const preflightGate = preflightPurchaseGate(measurement)
     const cvGroundingBasis = buildCvGroundingBasis(measurement, preflightGate.allowed)
     const dimensionCandidate = buildCvDimensionCandidate(cvGroundingBasis)
-    const standardsSolverShadow = measurement
-      ? buildStandardsShadowResult(
-          toMeasurementV2(measurement),
-          STANDARDS_CATALOGUE_V1,
-          dimensionCandidate.status === 'candidate' ? dimensionCandidate.specification : null,
-        )
-      : null
     const reference = await loadReferencePack('fasteners')
     const providerPayload = await runStructuredProvider({
       provider, apiKey, model: config.model, image,
@@ -144,6 +137,26 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       stripUnverifiedDriveSizeClaims(identificationRaw.fastener_interpretation.nominal_specification)
     const llmNominalBeforeFinalGate =
       identificationRaw.fastener_interpretation.nominal_specification.trim() || null
+    const measurementV2 = measurement ? toMeasurementV2(measurement) : null
+    const standardsAuthority = measurementV2
+      ? buildStandardsAuthorityResult(
+          measurementV2,
+          STANDARDS_CATALOGUE_V1,
+          {
+            llmNominal: llmNominalBeforeFinalGate,
+            dimensionCandidate: dimensionCandidate.status === 'candidate'
+              ? dimensionCandidate.specification : null,
+          },
+        )
+      : null
+    // Compatibility-only Phase 1 diagnostic. It has no standards authority.
+    const standardsSolverShadow = measurementV2
+      ? buildStandardsShadowResult(
+          measurementV2,
+          STANDARDS_CATALOGUE_V1,
+          llmNominalBeforeFinalGate,
+        )
+      : null
     identificationRaw.purchase_description =
       stripUnverifiedDriveSizeClaims(identificationRaw.purchase_description)
     identificationRaw.specifications = identificationRaw.specifications.map(spec => ({
@@ -154,6 +167,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       identificationRaw,
       purchaseGate,
       driveEvidence,
+      standardsAuthority?.decision,
     )
     // Protruding geometry confirms the length-convention family, while the
     // final identification call supplies the finer semantic head label.
@@ -167,7 +181,9 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     }
     const isFastener = identificationRaw.category === 'fasteners'
     const fullFastenerSpecAllowed = isFastener &&
-      purchaseGate.allowed && purchaseCompleteness.complete
+      purchaseGate.allowed && purchaseCompleteness.complete &&
+      standardsAuthority?.decision.selected_candidate_id != null &&
+      standardsAuthority.decision.purchase_ready === true
     const optionalDrive = purchaseCompleteness.optional_unconfirmed_fields
     const baseGuidance = !isFastener
       ? '目前精確 CV 規格核驗僅支援螺絲；此結果為外觀辨識，購買前請核對實物尺寸。'
@@ -182,7 +198,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
           : publicPurchaseGuidance(purchaseGate, identificationRaw.item_name)
     const guidance = isFastener && !fullFastenerSpecAllowed &&
       dimensionCandidate.status === 'candidate'
-      ? `${baseGuidance}；可獨立保留的尺寸候選為 ${dimensionCandidate.specification}，但它不含頭型、UNC/UNF 牙系列別、驅動槽或庫存標準驗證，不能直接當成完整購買規格。`
+      ? `${baseGuidance}；舊純算術尺寸表示 ${dimensionCandidate.specification} 僅保留為 non-authoritative diagnostic。正式 nominal 候選只能來自 standards_authority.formal_candidates；目前尚未 deterministic 選出 winner。`
       : baseGuidance
     if (fullFastenerSpecAllowed && optionalDrive.includes('drive_form')) {
       // Do not turn a side-view dimension success into an unsupported claim
@@ -244,35 +260,46 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const dimensions = measurement?.dimensions ?? {}
     const response = {
       provider, model: config.model, result: identificationRaw, measurement,
-      standards_solver_shadow: standardsSolverShadow,
+      standards_authority: standardsAuthority,
+      standards_solver_shadow: standardsSolverShadow, // deprecated diagnostic compatibility only
       user_guidance: {
         purchase_ready: fullFastenerSpecAllowed,
         message: guidance,
         dimension_candidate: fullFastenerSpecAllowed ? null : dimensionCandidate.specification,
-        dimension_candidate_status: fullFastenerSpecAllowed
-          ? 'included_in_purchase_specification'
-          : dimensionCandidate.status === 'candidate'
-            ? 'dimension_only_not_purchase_ready'
-            : 'unavailable',
+        dimension_candidate_status: dimensionCandidate.status === 'candidate'
+          ? 'dimension_only_not_purchase_ready'
+          : 'unavailable',
+        formal_nominal_source: 'versioned_standards_solver',
+        selected_candidate_id: standardsAuthority?.decision.selected_candidate_id ?? null,
+        standards_decision_status: standardsAuthority?.decision.status ?? 'unavailable',
         actions: fullFastenerSpecAllowed
           ? optionalDrive.length ? ['補拍螺絲頭正面或持實物核對驅動槽'] : []
           : ['依提示補拍', '購買前以實物核對必要尺寸'],
       },
       specification_evidence: {
         cv_raw_measurements: dimensions,
-        llm_inferred_nominal: identificationRaw.fastener_interpretation.nominal_specification,
+        llm_inferred_nominal: {
+          value: llmNominalBeforeFinalGate,
+          authority: 'non_authoritative',
+          use: 'diagnostic_only',
+        },
         llm_semantic_candidate_before_gates: {
           head_style: llmHeadBeforeFinalGate,
           nominal_specification: llmNominalBeforeFinalGate,
         },
-        dimension_candidate: dimensionCandidate,
+        dimension_candidate: {
+          ...dimensionCandidate,
+          authority: 'non_authoritative',
+          use: 'diagnostic_only',
+        },
+        standards_authority: standardsAuthority,
         purchase_gate: purchaseGate,
         purchase_completeness: purchaseCompleteness,
         head_style_consistency: headConsistency,
         drive_evidence: driveEvidence,
         cv_grounding_basis: cvGroundingBasis,
-        standard_table_derived: [], // Production remains legacy in Phase 1; standards are exposed only in shadow mode.
-        standards_solver_shadow: standardsSolverShadow,
+        standard_table_derived: standardsAuthority?.formal_candidates ?? [],
+        standards_solver_shadow: standardsSolverShadow, // deprecated diagnostic compatibility only
         not_obtained: [
           ...REQUIRED_INFERENCE_DIMENSIONS.filter(key => dimensions[key]?.status !== 'measured'),
         ],
@@ -286,7 +313,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     }
     console.info('[HCSI] CV-first internal diagnostics', {
       provider, purchaseGate, purchaseCompleteness, headConsistency, driveEvidence,
-      dimensionCandidate,
+      dimensionCandidate, standardsAuthority,
       measurementServiceError, measurementReasonCodes: measurement?.reason_codes ?? [],
     })
     await logResult(provider, config.model, identificationRaw.category, identificationRaw, measurement)
