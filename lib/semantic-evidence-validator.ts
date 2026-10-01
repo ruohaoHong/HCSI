@@ -4,6 +4,7 @@ import {
   SEMANTIC_EXTRACTOR_VERSION,
   SEMANTIC_PROMPT_VERSION,
   type RawSemanticSensorOutput,
+  type PostprocessedSemanticSensorOutput,
   type SemanticEvidenceSource,
   type SemanticEvidenceV1,
   type SemanticObservation,
@@ -157,7 +158,7 @@ export function validateSemanticObservationV1(value: unknown, rawSensor = false)
   return {valid:errors.length===0,errors}
 }
 
-export function sanitizeRawSemanticSensorOutput(raw: RawSemanticSensorOutput): RawSemanticSensorOutput {
+export function sanitizeRawSemanticSensorOutput(raw: RawSemanticSensorOutput): PostprocessedSemanticSensorOutput {
   return {
     ...raw,
     observations:raw.observations.map(observation => {
