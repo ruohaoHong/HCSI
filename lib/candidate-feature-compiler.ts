@@ -100,7 +100,7 @@ export function compileCandidateFeatureMatrix(
     const feature_constraints=SEMANTIC_FEATURE_IDS.map(featureId=>constraintFor(candidate,featureId,metadata))
     return {
       candidate_id:candidate.candidate_id,
-      standards_snapshot_id:candidate.standard_ref.snapshot_id,
+      standards_snapshot_id:standardsSnapshotId,
       candidate_standard_record_id:candidate.standard_ref.record_id,
       feature_constraints,
       unsupported_or_unknown:feature_constraints
