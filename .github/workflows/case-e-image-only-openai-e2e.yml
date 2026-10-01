@@ -198,7 +198,7 @@ jobs:
                   assert abs(obs[key] - cv['dimensions'][key]['value_mm']) < 1e-9
           designations = [item['designation'] for item in shadow['new_candidates']]
           assert 'M3 × 0.5' in designations
-          assert shadow['scoring_state']['covariance_available'] is False
+          assert shadow['scoring_state']['covariance_available'] == (uncertainty['covariance']['status'] != 'not_estimated')
 
 
           interp = output['result']['fastener_interpretation']
