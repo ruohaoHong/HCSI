@@ -161,9 +161,9 @@ export function buildMeasurementUncertainty(source: MeasurementResult): Measurem
   const quantities: QuantityUncertainty[] = measured.map(quantity => {
     if (quantity === 'D' && dEstimated) return {
       quantity,
-      status:'estimated',
+      status:'assumption_limited',
       standard_uncertainty_mm:dSigma,
-      method:'direct_cv_edge_diameter_diagnostic',
+      method:'local_cv_edge_diameter_component_only',
       primitive_component_ids:['screw-edge-localization-D'],
       evidence_ref:'dimensions.D.diagnostics.edge_diameter_uncertainty_mm',
     }
@@ -278,7 +278,7 @@ export function buildMeasurementUncertainty(source: MeasurementResult): Measurem
       matrix_mm2:matrix,
       status:dEstimated ? 'partial' : 'not_estimated',
       null_semantics:'not_estimated',
-      note:'Only directly supported diagonal variance terms are populated. Unknown variances/covariances are null, never zero.',
+      note:'Only directly supported local diagonal variance components are populated; this is not total propagated covariance. Unknown variances/covariances are null, never zero.',
     },
     systematic_bias_ledger,
     systematic_bias_status:systematic_bias_ledger.some(x => x.status === 'unresolved') ? 'unresolved' : 'not_estimated',
