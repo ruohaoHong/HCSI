@@ -6,7 +6,7 @@
 # GT is introduced only in the final scoring step after response.json is frozen and hashed.
 on:
   push:
-    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak]
     paths:
       - '.github/workflows/case-c-image-only-openai-e2e.yml'
       - 'lib/provider-runner.ts'
@@ -24,6 +24,7 @@ on:
       - 'lib/standards-shadow-solver.ts'
       - 'lib/semantic-taxonomy-v1.ts'
       - 'lib/semantic-evidence-v1.ts'
+      - 'lib/semantic-reason-codes-v1.ts'
       - 'lib/candidate-blind-semantic-request.ts'
       - 'lib/semantic-evidence-validator.ts'
       - 'lib/semantic-extractor.ts'
@@ -200,6 +201,42 @@ jobs:
           assert output['semantic_evidence_error'] is None
           assert semantic['schema_version'] == 'hcsi.semantic-evidence.v1'
           assert semantic['taxonomy_version'] == 'hcsi.semantic-taxonomy.v1'
+          assert semantic['reason_code_taxonomy_version'] == 'hcsi.semantic-reason-codes.v1'
+          allowed_observation_reasons = {
+              'FEATURE_VISIBLE','FEATURE_PARTIALLY_VISIBLE','FEATURE_NOT_VISIBLE','FEATURE_NOT_OBSERVED',
+              'IMAGE_ANGLE_LIMITED','OCCLUDED','GLARE','LOW_CONTRAST','MORPHOLOGY_AMBIGUOUS',
+              'OPEN_SET_MORPHOLOGY','HEAD_PROFILE_VISIBLE','HEAD_TOP_NOT_VISIBLE',
+              'DRIVE_FACE_NOT_VISIBLE','EXTERNAL_DRIVE_SURFACES_VISIBLE','UNDERHEAD_REGION_VISIBLE',
+              'TIP_VISIBLE','THREADS_VISIBLE','THREAD_START_OR_END_NOT_VISIBLE',
+              'MARKING_SURFACE_NOT_VISIBLE','MARKING_NOT_OBSERVED','OCR_TEXT_DETECTED',
+              'OCR_UNREADABLE','OCR_PARTIAL','BACKGROUND_TEXT_EXCLUDED',
+              'FORBIDDEN_CLAIM_REMOVED','UNCALIBRATED_PROBABILITY_REMOVED',
+          }
+          allowed_quality_reasons = {
+              'TARGET_CLEAR','TARGET_PARTIALLY_VISIBLE','SIDE_PROFILE_VISIBLE','HEAD_TOP_NOT_VISIBLE',
+              'TIP_AND_THREADS_VISIBLE','DRIVE_DETAIL_LIMITED','IMAGE_LIMITED',
+              'TARGET_PARTIALLY_OCCLUDED','LOW_CONTRAST','GLARE','INSUFFICIENT_SEMANTIC_VISIBILITY',
+          }
+          assert all(set(item['reason_codes']) <= allowed_observation_reasons
+                     for item in semantic['observations'])
+          assert set(semantic['quality']['reason_codes']) <= allowed_quality_reasons
+          forbidden_non_ocr = [
+              'metric','imperial','unified','unc','unf','unef','iso','asme',
+              'candidate','winner','rank','best match',
+          ]
+          forbidden_ocr_inference = [
+              'probably','likely','looks like','appears to be','seems to be',
+              'candidate','winner','best match','rank ',
+          ]
+          for item in semantic['observations']:
+              if item['feature_id'] == 'markings.ocr':
+                  raw_text = item.get('raw_text')
+                  if raw_text:
+                      lowered = raw_text.lower()
+                      assert not any(token in lowered for token in forbidden_ocr_inference)
+              else:
+                  freeform = (item.get('freeform_description') or '').lower()
+                  assert not any(token in freeform for token in forbidden_non_ocr)
           assert semantic['extractor_version'] == 'hcsi.candidate-blind-vlm.v1'
           scope = semantic['observation_scope']
           assert scope['mode'] == 'candidate_blind_first_pass'
@@ -220,9 +257,6 @@ jobs:
           assert all(item['calibrated_probability'] is None
                      for item in semantic['observations']
                      if item['calibration_status'] == 'uncalibrated')
-          semantic_json = json.dumps(semantic, ensure_ascii=False)
-          for forbidden in ['M14 × 2.0','9/16-12 UNC','#37-12']:
-              assert forbidden not in semantic_json
           uncertainty = authority['measurement_v2']['uncertainty']
           assert uncertainty['schema_version'] == 'hcsi.measurement-uncertainty.v1'
           assert uncertainty['covariance']['null_semantics'] == 'not_estimated'
