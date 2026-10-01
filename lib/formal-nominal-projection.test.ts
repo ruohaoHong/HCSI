@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { STANDARDS_CATALOGUE_V1 } from './standards-database-v1'
 import { buildStandardsAuthorityResult, type StandardsAuthorityResult } from './standards-shadow-solver'
 import { MEASUREMENT_V2_SCHEMA, type MeasurementV2 } from './measurement-v2'
-import { projectSelectedFormalNominal, resolveSelectedFormalCandidate } from './formal-nominal-projection'
+import { buildPublicFormalSurfaces, projectSelectedFormalNominal, resolveSelectedFormalCandidate } from './formal-nominal-projection'
 
 const measurement = {
   schema_version:MEASUREMENT_V2_SCHEMA,
@@ -31,6 +31,11 @@ assert.equal(projection?.designation,'M14 × 2.0')
 assert.notEqual(projection?.designation,selected.legacy_diagnostics.llm_nominal.value)
 assert.equal(projection?.standard_ref.record_id,m14.standard_ref.record_id)
 assert.equal(projection?.standards_snapshot.snapshot_id,base.standards_snapshot.snapshot_id)
+const surfaces=buildPublicFormalSurfaces('螺絲',projection,{driveFormUnconfirmed:false})
+assert.equal(surfaces.nominal_specification,'M14 × 2.0')
+assert.equal(surfaces.purchase_description,'螺絲：M14 × 2.0')
+assert.equal(surfaces.specification_item?.value,'M14 × 2.0')
+assert.equal(surfaces.purchase_description?.includes('#37-12'),false)
 
 // Test 3: invalid selected ID fails closed.
 const invalid={...base,decision:{...base.decision,selected_candidate_id:'nonexistent-id',status:'selected' as const,purchase_ready:true}}
@@ -38,6 +43,9 @@ assert.throws(()=>projectSelectedFormalNominal(invalid),/invalid_selected_standa
 
 // Test 4: unresolved means no public formal nominal.
 assert.equal(projectSelectedFormalNominal(base),null)
+assert.deepEqual(buildPublicFormalSurfaces('螺絲',null,{driveFormUnconfirmed:false}),{
+  nominal_specification:null,purchase_description:null,specification_item:null,
+})
 
 // Duplicate IDs are also hard invalid rather than rank/fallback.
 const duplicate={...selected,formal_candidates:[...selected.formal_candidates,{...m14}]} as StandardsAuthorityResult
