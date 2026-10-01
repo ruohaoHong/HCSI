@@ -109,7 +109,7 @@ injected.observations[0].freeform_description='probably 9/16-12 UNC'
 const sanitized=sanitizeRawSemanticSensorOutput(injected)
 assert.equal(sanitized.observations[0].freeform_description,null)
 assert.ok(sanitized.observations[0].reason_codes.includes('FORBIDDEN_CLAIM_REMOVED'))
-assert.equal(JSON.stringify(buildSemanticEvidenceV1(sanitized,request,{
+assert.equal(JSON.stringify(buildSemanticEvidenceV1(injected,request,{
   model:'mock-vlm',model_version:'mock-v1',
 })).includes('9/16-12 UNC'),false)
 
