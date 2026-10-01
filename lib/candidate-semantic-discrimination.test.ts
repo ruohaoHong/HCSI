@@ -143,7 +143,7 @@ const baseRequest=buildCandidateBlindSemanticRequest({image:Buffer.from('phase2c
 const targetedRequest=buildTargetedSemanticRequest(baseRequest,'drive.form')
 assertTargetedRequestCandidateBlind(targetedRequest)
 const serialized=JSON.stringify(targetedRequest)
-for(const forbidden of ['synthetic:A','synthetic:B','M14','9/16','UNC','iso_metric','unified_inch','legacy_nominal','ground_truth']){
+for(const forbidden of ['synthetic:A','synthetic:B','M14','9/16','UNC','iso_metric','unified_inch','metric','inch','candidate_id','designation','standard_system','rank','residual','physical_likelihood','legacy_nominal','ground_truth']){
  eq(serialized.includes(forbidden),false,`targeted request leaked ${forbidden}`)
 }
 ok(targetedSemanticSensorJsonSchema(targetedRequest))
