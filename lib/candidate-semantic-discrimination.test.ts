@@ -56,7 +56,7 @@ function metadata(records:CandidateFeatureMetadataSnapshot['records']):Candidate
  return {
   schema_version:CANDIDATE_FEATURE_METADATA_SCHEMA,metadata_id:'synthetic-product-metadata',
   metadata_version:'test-v1',snapshot_id:'synthetic-product-snapshot-v1',
-  standards_snapshot_id:m14.standard_ref.snapshot_id,
+  standards_snapshot_id:authority.standards_snapshot.snapshot_id,
   authority_scope:'normative_product_semantic_constraints',
   explicitly_excluded:['market_commonness','supplier_frequency','commercial_availability','metric_inch_prior','thread_designation_to_product_morphology_inference'],
   records,
