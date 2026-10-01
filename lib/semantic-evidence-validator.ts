@@ -147,7 +147,7 @@ export function buildSemanticEvidenceV1(
   if (!rawValidation.valid) throw new Error(`invalid_semantic_sensor_output:${rawValidation.errors.join('|')}`)
   const sourceRef='semantic_first_pass_sensor_1'
   const cropRef=request.semantic_roi.crop_ref
-  const groupId='target_region_1'
+  const groupId=cropRef
   const observations:SemanticObservation[]=raw.observations.map(observation => ({
     ...observation,
     feature_family:SEMANTIC_FEATURE_DEFINITIONS[observation.feature_id].family,
@@ -185,7 +185,9 @@ export function buildSemanticEvidenceV1(
       group_id:groupId,
       crop_ref:cropRef,
       image_sha256:request.image.image_sha256,
-      description:'All observations in this first pass read the same target image/ROI and are therefore not independent evidence.',
+      description:cropRef === 'target_region_1'
+        ? 'All observations in this first pass read the same target ROI and are therefore not independent evidence.'
+        : 'All observations in this first pass read the same full image and are therefore not independent evidence.',
     }],
     quality:raw.quality,
   }
