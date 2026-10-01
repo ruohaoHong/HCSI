@@ -21,9 +21,20 @@ import { STANDARDS_CATALOGUE_V1 } from '@/lib/standards-database-v1'
 import { buildStandardsAuthorityResult, buildStandardsShadowResult } from '@/lib/standards-shadow-solver'
 import { buildPublicFormalSurfaces, projectSelectedFormalNominal } from '@/lib/formal-nominal-projection'
 import { localizeForMeasurement, type SemanticLocalizationResult } from '@/lib/semantic-localizer'
-import { buildCandidateBlindSemanticRequest } from '@/lib/candidate-blind-semantic-request'
+import { buildCandidateBlindSemanticRequest, type CandidateBlindSemanticRequest } from '@/lib/candidate-blind-semantic-request'
 import { extractCandidateBlindSemanticEvidence } from '@/lib/semantic-extractor'
-import type { SemanticEvidenceV1 } from '@/lib/semantic-evidence-v1'
+import type { RawSemanticSensorObservation, SemanticEvidenceV1 } from '@/lib/semantic-evidence-v1'
+import { CANDIDATE_FEATURE_METADATA_V1 } from '@/lib/candidate-feature-metadata-v1'
+import { compileCandidateFeatureMatrix } from '@/lib/candidate-feature-compiler'
+import { buildSemanticDiscriminationPlan } from '@/lib/semantic-discrimination-plan-v1'
+import { buildTargetedSemanticRequest, assertTargetedRequestCandidateBlind } from '@/lib/targeted-semantic-request'
+import {
+  buildTargetedSemanticEvidence,
+  buildTargetedSemanticPrompt,
+  targetedSemanticSensorJsonSchema,
+  type TargetedSemanticEvidence,
+} from '@/lib/targeted-semantic-extractor'
+import { buildCandidateSemanticDiscrimination } from '@/lib/candidate-semantic-discrimination'
 
 const MAX_IMAGE_LENGTH = 7_000_000
 const PROVIDER_CONFIG = {
@@ -86,8 +97,9 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     // can cross into this extractor.
     let semanticEvidence: SemanticEvidenceV1 | null = null
     let semanticEvidenceError: string | null = null
+    let semanticRequest: CandidateBlindSemanticRequest | null = null
     try {
-      const semanticRequest = buildCandidateBlindSemanticRequest({
+      semanticRequest = buildCandidateBlindSemanticRequest({
         image,
         target_region: semanticLocalization?.semantic_vision.target_region ?? null,
       })
@@ -168,6 +180,35 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
               ? dimensionCandidate.specification : null,
           },
         )
+      : null
+    // Phase 2C shadow-only: candidates decide which semantic feature is worth
+    // observing, but candidate identity never crosses into the visual sensor.
+    const candidateFeatureMatrix = standardsAuthority
+      ? compileCandidateFeatureMatrix(standardsAuthority.formal_candidates,CANDIDATE_FEATURE_METADATA_V1)
+      : null
+    const semanticDiscriminationPlan = candidateFeatureMatrix
+      ? buildSemanticDiscriminationPlan(candidateFeatureMatrix,semanticEvidence)
+      : null
+    const targetedSemanticEvidence: TargetedSemanticEvidence[] = []
+    if (semanticRequest && semanticDiscriminationPlan) {
+      for (const discriminator of semanticDiscriminationPlan.discriminators) {
+        if (discriminator.status !== 'targeted_observation_required') continue
+        const targetedRequest=buildTargetedSemanticRequest(semanticRequest,discriminator.feature_id)
+        assertTargetedRequestCandidateBlind(targetedRequest)
+        const rawTargeted=await runStructuredProvider({
+          provider,apiKey,model:config.model,image,
+          prompt:buildTargetedSemanticPrompt(targetedRequest),
+          schemaName:`hcsi_targeted_semantic_${discriminator.feature_id.replace(/[^a-z0-9]+/gi,'_')}`,
+          schema:targetedSemanticSensorJsonSchema(targetedRequest) as unknown as JsonSchema,
+          maxOutputTokens:1200,
+        }) as RawSemanticSensorObservation
+        targetedSemanticEvidence.push(buildTargetedSemanticEvidence(
+          rawTargeted,targetedRequest,semanticEvidence,{model:config.model,model_version:config.model},
+        ))
+      }
+    }
+    const candidateSemanticDiscrimination = candidateFeatureMatrix
+      ? buildCandidateSemanticDiscrimination(candidateFeatureMatrix,semanticEvidence,targetedSemanticEvidence)
       : null
     // This is the only standards-decision -> public formal specification seam.
     // A non-null invalid selected ID throws; there is deliberately no legacy fallback.
@@ -299,6 +340,10 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       provider, model: config.model, result: identificationRaw, measurement,
       semantic_evidence: semanticEvidence,
       semantic_evidence_error: semanticEvidenceError,
+      candidate_feature_matrix: candidateFeatureMatrix,
+      semantic_discrimination_plan: semanticDiscriminationPlan,
+      targeted_semantic_evidence: targetedSemanticEvidence,
+      candidate_semantic_discrimination: candidateSemanticDiscrimination,
       standards_authority: standardsAuthority,
       formal_nominal_projection: formalNominalProjection,
       standards_solver_shadow: standardsSolverShadow, // deprecated diagnostic compatibility only
