@@ -6,9 +6,14 @@ name: Case E image-only OpenAI E2E
 # expected semantics enter either inference stage; GT loads only afterwards.
 on:
   push:
-    branches: [feature/measurement-confidence-gate]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1]
     paths:
       - '.github/workflows/case-e-image-only-openai-e2e.yml'
+      - 'lib/provider-runner.ts'
+      - 'lib/measurement-v2.ts'
+      - 'lib/standards-catalogue.ts'
+      - 'lib/standards-database-v1.ts'
+      - 'lib/standards-shadow-solver.ts'
   workflow_dispatch:
 
 permissions:
@@ -149,6 +154,20 @@ jobs:
           assert output['measurement_source'] == 'signed_preflight_reused'
           assert output.get('semantic_roi_source') == 'signed_preflight'
           assert output['measurement'] == cv
+          # Phase 1 standards shadow regression: raw CV parity + valid candidate universe.
+          shadow = output['standards_solver_shadow']
+          assert shadow['mode'] == 'shadow'
+          assert shadow['purchase_ready'] is False
+          assert shadow['candidate_summary']['iso_metric'] > 0
+          assert shadow['candidate_summary']['unified_inch'] > 0
+          obs = {item['quantity']: item['value_mm'] for item in shadow['measurement_v2']['observations']}
+          for key in ('D','P','L_underhead'):
+              if cv['dimensions'][key]['status'] == 'measured':
+                  assert abs(obs[key] - cv['dimensions'][key]['value_mm']) < 1e-9
+          designations = [item['designation'] for item in shadow['new_candidates']]
+          assert 'M3 × 0.5' in designations
+          assert shadow['scoring_state']['covariance_available'] is False
+
 
           interp = output['result']['fastener_interpretation']
           evidence = output['specification_evidence']
