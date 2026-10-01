@@ -58,11 +58,25 @@ const result = {
     nominal_specification: 'M6 × 1.0 × 10 mm',
   },
 } as unknown as IdentificationResult
-assert.equal(assessPurchaseSpecificationCompleteness(result, gate, drive).complete, true)
+const selectedStandardsDecision = {
+  selected_candidate_id: 'hcsi-standards-v1-2026-10-01:metric-m6-p1',
+  purchase_ready: true,
+}
+const unresolvedStandardsDecision = {
+  selected_candidate_id: null,
+  purchase_ready: false,
+}
+assert.equal(assessPurchaseSpecificationCompleteness(result, gate, drive, selectedStandardsDecision).complete, true)
 const driveNotVisible = sanitizeDriveEvidence('待確認')
-assert.equal(assessPurchaseSpecificationCompleteness(result, gate, driveNotVisible).complete, true)
-assert.deepEqual(assessPurchaseSpecificationCompleteness(result, gate, driveNotVisible).optional_unconfirmed_fields,
+assert.equal(assessPurchaseSpecificationCompleteness(result, gate, driveNotVisible, selectedStandardsDecision).complete, true)
+assert.deepEqual(assessPurchaseSpecificationCompleteness(result, gate, driveNotVisible, selectedStandardsDecision).optional_unconfirmed_fields,
   ['drive_form', 'drive_size'])
+
+assert.equal(
+  assessPurchaseSpecificationCompleteness(result, gate, drive, unresolvedStandardsDecision).complete,
+  false,
+  'legacy nominal must not become purchase-ready without a selected standards candidate',
+)
 
 measurement.dimensions!.B = {
   status: 'not_measured', value_px: null, value_mm: null,
