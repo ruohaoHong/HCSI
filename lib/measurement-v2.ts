@@ -43,14 +43,30 @@ export interface MeasurementV2 {
     confidence: number
   }
   capture_assumptions: MeasurementResult['capture_assumptions']
-  source_measurement: MeasurementResult
+  uncertainty: {
+    covariance_status: 'not_available_phase1'
+    systematic_bias_status: 'legacy_risk_signals_only'
+    note: string
+  }
+  immutability: {
+    raw_measurements_are_nominally_snapped: false
+    nominal_solver_may_modify_measurement: false
+  }
 }
 
-/**
- * A normative candidate is a catalogue-backed designation, never a free-form
- * LLM proposal. The raw measurement remains in MeasurementV2 and is not
- * overwritten by any nominal value here.
- */
+export interface CandidateResidual {
+  observed_mm: number
+  nominal_mm: number
+  residual_mm: number
+  absolute_residual_mm: number
+}
+
+export interface LengthComparisonHypothesis {
+  nominal_mm: number
+  residual_mm: number
+  label: string
+}
+
 export interface NominalCandidate {
   candidate_id: string
   standard_system: StandardSystem
@@ -59,22 +75,28 @@ export interface NominalCandidate {
   nominal: {
     diameter_mm: number
     pitch_mm: number
+    tpi?: number | null
     length_mm: number | null
     length_convention: LengthConvention
   }
   standard_ref: {
     catalogue_id: string
     catalogue_version: string
+    snapshot_id?: string
     record_id: string
     provenance: string
   }
-  residuals: Partial<Record<'D' | 'P' | 'L_underhead' | 'L_overall', {
-    observed_mm: number
-    nominal_mm: number
-    residual_mm: number
-  }>>
+  residuals: Partial<Record<'D' | 'P' | 'L_underhead' | 'L_overall', CandidateResidual>>
+  length_comparison?: {
+    observed_dimension: 'L_underhead' | 'L_overall' | null
+    observed_mm: number | null
+    product_standard_length_validation: 'not_implemented_phase1'
+    hypotheses: LengthComparisonHypothesis[]
+  }
   score: {
     measurement_log_likelihood: number | null
+    residual_distance_mm?: number | null
+    status?: 'provisional_uncalibrated_no_covariance'
     rank: number | null
   }
 }
@@ -83,9 +105,15 @@ export interface NominalCandidateSet {
   schema_version: NominalCandidateSchema
   measurement_schema_version: MeasurementV2Schema
   candidates: NominalCandidate[]
+  standards_snapshot?: {
+    snapshot_id: string
+    snapshot_version: string
+    coverage_status: string
+  }
   decision: {
     selected_candidate_id: string | null
-    status: 'unresolved' | 'selected' | 'no_normative_match'
+    status: 'unresolved' | 'selected' | 'no_normative_match' | 'shadow_unresolved'
+    purchase_ready?: false
   }
 }
 
@@ -93,6 +121,17 @@ function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
+function deepFreeze<T>(value: T): T {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child)
+  return Object.freeze(value)
+}
+
+/**
+ * One-way adapter from legacy CV output to the formal measurement contract.
+ * No nominal input is accepted, so a standard candidate cannot snap or rewrite
+ * D/P/L. Phase 1 also refuses to invent covariance or bias precision.
+ */
 export function toMeasurementV2(source: MeasurementResult): MeasurementV2 {
   const observations: MeasurementObservationV2[] = []
   for (const [quantity, evidence] of Object.entries(source.dimensions ?? {})) {
@@ -108,12 +147,12 @@ export function toMeasurementV2(source: MeasurementResult): MeasurementV2 {
     })
   }
 
-  return {
+  return deepFreeze({
     schema_version: MEASUREMENT_V2_SCHEMA,
     source_schema_version: 'hcsi.measurement.v1',
     image_sha256: source.image_sha256,
     observations,
-    head_geometry: source.head_geometry,
+    head_geometry: source.head_geometry ? structuredClone(source.head_geometry) : source.head_geometry,
     scale: {
       system: source.scale_system,
       px_per_cm: source.scale_px_per_cm,
@@ -121,43 +160,48 @@ export function toMeasurementV2(source: MeasurementResult): MeasurementV2 {
       source: source.ruler.scale_source,
       confidence: source.ruler.scale_confidence,
     },
-    capture_assumptions: source.capture_assumptions,
-    source_measurement: source,
-  }
+    capture_assumptions: structuredClone(source.capture_assumptions),
+    uncertainty: {
+      covariance_status: 'not_available_phase1',
+      systematic_bias_status: 'legacy_risk_signals_only',
+      note: 'Phase 1 preserves legacy risk evidence but does not fabricate covariance, calibrated bias, tolerance likelihood, or probability.',
+    },
+    immutability: {
+      raw_measurements_are_nominally_snapped: false,
+      nominal_solver_may_modify_measurement: false,
+    },
+  })
+}
+
+export function getObservedMm(measurement: MeasurementV2, quantity: MeasurementQuantity): number | null {
+  return measurement.observations.find(item => item.quantity === quantity)?.value_mm ?? null
 }
 
 export function isNominalCandidateSet(value: unknown): value is NominalCandidateSet {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const set = value as Record<string, unknown>
-  if (set.schema_version !== NOMINAL_CANDIDATE_SCHEMA) return false
-  if (set.measurement_schema_version !== MEASUREMENT_V2_SCHEMA) return false
-  if (!Array.isArray(set.candidates)) return false
-  if (!set.decision || typeof set.decision !== 'object' || Array.isArray(set.decision)) return false
-
+  if (set.schema_version !== NOMINAL_CANDIDATE_SCHEMA || set.measurement_schema_version !== MEASUREMENT_V2_SCHEMA) return false
+  if (!Array.isArray(set.candidates) || !set.decision || typeof set.decision !== 'object') return false
   const decision = set.decision as Record<string, unknown>
-  if (!['unresolved', 'selected', 'no_normative_match'].includes(String(decision.status))) return false
+  if (!['unresolved','selected','no_normative_match','shadow_unresolved'].includes(String(decision.status))) return false
   if (decision.selected_candidate_id !== null && typeof decision.selected_candidate_id !== 'string') return false
-  if (decision.status === 'selected' && typeof decision.selected_candidate_id !== 'string') return false
-  if (decision.status !== 'selected' && decision.selected_candidate_id !== null) return false
 
   const ids = new Set<string>()
-  for (const item of set.candidates) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return false
-    const candidate = item as Record<string, unknown>
+  for (const raw of set.candidates) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false
+    const candidate = raw as Record<string, unknown>
     if (typeof candidate.candidate_id !== 'string' || ids.has(candidate.candidate_id)) return false
     ids.add(candidate.candidate_id)
-    if (!['iso_metric', 'unified_inch'].includes(String(candidate.standard_system))) return false
+    if (!['iso_metric','unified_inch'].includes(String(candidate.standard_system))) return false
     if (typeof candidate.family !== 'string' || typeof candidate.designation !== 'string') return false
-    if (!candidate.nominal || typeof candidate.nominal !== 'object' || Array.isArray(candidate.nominal)) return false
+    if (!candidate.nominal || typeof candidate.nominal !== 'object') return false
     const nominal = candidate.nominal as Record<string, unknown>
     if (!finite(nominal.diameter_mm) || !finite(nominal.pitch_mm)) return false
     if (nominal.length_mm !== null && !finite(nominal.length_mm)) return false
-    if (!['head_underface_to_tip', 'head_top_to_tip', 'set_screw_overall', 'family_specific', 'unknown'].includes(String(nominal.length_convention))) return false
-    if (!candidate.standard_ref || typeof candidate.standard_ref !== 'object' || Array.isArray(candidate.standard_ref)) return false
+    if (!candidate.standard_ref || typeof candidate.standard_ref !== 'object') return false
     const standard = candidate.standard_ref as Record<string, unknown>
-    if (!['catalogue_id', 'catalogue_version', 'record_id', 'provenance'].every(key => typeof standard[key] === 'string' && standard[key] !== '')) return false
+    if (!['catalogue_id','catalogue_version','record_id','provenance'].every(k => typeof standard[k] === 'string' && standard[k] !== '')) return false
   }
-
-  if (decision.status === 'selected' && !ids.has(String(decision.selected_candidate_id))) return false
+  if (decision.status === 'selected' && (typeof decision.selected_candidate_id !== 'string' || !ids.has(decision.selected_candidate_id))) return false
   return true
 }
