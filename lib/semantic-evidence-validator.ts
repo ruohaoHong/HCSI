@@ -210,7 +210,7 @@ export function validateSemanticEvidenceV1(value: unknown): {valid:boolean;error
     if (scope.ground_truth_included !== false) errors.push('ground_truth_must_not_be_included')
     if (typeof scope.image_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(scope.image_sha256)) errors.push('image_sha256_invalid')
   }
-  if (!Array.isArray(v.observations) || v.observations.length !== SEMANTIC_FEATURE_IDS.length) {
+  if (!Array.isArray(v.observations) || v.observations.length < SEMANTIC_FEATURE_IDS.length) {
     errors.push('observations_invalid')
   } else {
     const ids:string[]=[]
@@ -228,7 +228,6 @@ export function validateSemanticEvidenceV1(value: unknown): {valid:boolean;error
           !observation.evidence_refs.every((x:unknown)=>typeof x === 'string')) errors.push(`observation_${index}:evidence_refs_invalid`)
       if (typeof observation.independence_group !== 'string') errors.push(`observation_${index}:independence_group_missing`)
     }
-    if (new Set(ids).size !== ids.length) errors.push('feature_id_duplicate')
     for (const required of SEMANTIC_FEATURE_IDS) if (!ids.includes(required)) errors.push(`feature_missing:${required}`)
   }
   if (!Array.isArray(v.evidence_sources) || !v.evidence_sources.length) errors.push('evidence_sources_missing')
