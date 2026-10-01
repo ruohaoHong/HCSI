@@ -89,7 +89,7 @@ const allValues = [...new Set(
   SEMANTIC_FEATURE_IDS.flatMap(id => [...SEMANTIC_FEATURE_DEFINITIONS[id].values])
 )]
 
-const SENSOR_OBSERVATION_SCHEMA = {
+export const SEMANTIC_SENSOR_OBSERVATION_JSON_SCHEMA = {
   type:'object',
   additionalProperties:false,
   properties:{
@@ -121,7 +121,7 @@ export const SEMANTIC_SENSOR_OUTPUT_JSON_SCHEMA = {
       type:'array',
       minItems:SEMANTIC_FEATURE_IDS.length,
       maxItems:SEMANTIC_FEATURE_IDS.length,
-      items:SENSOR_OBSERVATION_SCHEMA,
+      items:SEMANTIC_SENSOR_OBSERVATION_JSON_SCHEMA,
     },
     quality:{
       type:'object',
