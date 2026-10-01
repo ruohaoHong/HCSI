@@ -1,4 +1,4 @@
-name: Case B image-only OpenAI E2E
+# Phase 1 shadow-mode branch regression enabled.\nname: Case B image-only OpenAI E2E
 
 # Test harness only. This run validates the current branch after the raw
 # bilateral head-edge primitive.
