@@ -1,0 +1,45 @@
+name: Standards Solver v1 Phase 1
+
+on:
+  push:
+    branches: [feature/standards-solver-v1]
+    paths:
+      - 'lib/measurement-v2.ts'
+      - 'lib/measurement-v2.test.ts'
+      - 'lib/standards-catalogue.ts'
+      - 'lib/standards-catalogue.test.ts'
+      - 'lib/standards-database-v1.ts'
+      - 'lib/standards-shadow-solver.ts'
+      - 'lib/standards-shadow-solver.test.ts'
+      - 'lib/phase1-regression.test.ts'
+      - 'lib/provider-runner.ts'
+      - '.github/workflows/standards-solver-v1-phase1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-phase1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Compile Phase 1 contracts, DB, solver and tests
+        run: |
+          rm -rf /tmp/hcsi-standards-v1
+          pnpm exec tsc             lib/measurement.ts             lib/measurement-v2.ts             lib/measurement-v2.test.ts             lib/standards-catalogue.ts             lib/standards-database-v1.ts             lib/standards-catalogue.test.ts             lib/standards-shadow-solver.ts             lib/standards-shadow-solver.test.ts             lib/phase1-regression.test.ts             --target ES2022 --module commonjs --moduleResolution node             --esModuleInterop --skipLibCheck --strict             --outDir /tmp/hcsi-standards-v1
+      - name: Run Phase 1 deterministic tests
+        run: |
+          node "$(find /tmp/hcsi-standards-v1 -name measurement-v2.test.js -print -quit)"
+          node "$(find /tmp/hcsi-standards-v1 -name standards-catalogue.test.js -print -quit)"
+          node "$(find /tmp/hcsi-standards-v1 -name standards-shadow-solver.test.js -print -quit)"
+          node "$(find /tmp/hcsi-standards-v1 -name phase1-regression.test.js -print -quit)"
