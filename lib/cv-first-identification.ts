@@ -123,11 +123,11 @@ ${basis.mode !== 'appearance_only'
 6. B 只有 optional_thread_extent 時才可當全牙/半牙輔助證據，且永遠不能覆寫 D/P/L。
 
 最後才把上述結果組成台灣五金行可詢問的候選購買名稱。
-CV mm 是 measured；公稱名稱/規格是 estimated。這裡的 nominal_specification 是「最吻合 CV 的採購候選」，不是庫存或標準文件認證。
+CV mm 是 measured。fastener_interpretation.nominal_specification 是 legacy diagnostic only：它可以記錄 LLM 對 CV 的舊式公稱猜測，但不是 formal nominal candidate、沒有 standards authority，也不得令 purchase_ready=true。正式 nominal candidate 只能由後端 versioned standards catalogue + standards solver 產生。
 ${basis.mode === 'dimension_grounded_semantic_pending'
   ? '本次尺寸已由 CV／純數學 grounding 支持，但 detailed head silhouette 未通過完整性檢查。你仍應根據原圖做頭型語義判斷，且不得因 silhouette degraded 而重算或丟棄 D/P/L/K/DK；最終是否可直接購買由後端 final gate 決定。'
   : ''}
-如果 D/P/L 的純數學表示彼此一致、殘差很小，而且沒有物理矛盾，應組成候選 nominal_specification；不要只因未查 catalog table 就留空。
+如果 D/P/L 的純數學表示彼此一致、殘差很小，可以把舊式表示寫入 nominal_specification 供 diagnostic comparison；不得把它描述成 standards-valid 或正式規格。後端會獨立以 catalogue 建立 formal candidates。
 只有在 D/P/指定 L 之間彼此不相容、數學殘差明顯、或必要物理證據缺失時才留空。
 不要另外輸出驗證用候選表或中間推理欄位；直接把最符合 CV 物理基底的公稱規格與使用者答案放進既有 schema。`
   : `CV 必要證據不足。只辨識原圖中的五金種類與可見外觀；nominal_specification 必須為空字串，不得輸出精確 D/P/L 公稱規格。`}
