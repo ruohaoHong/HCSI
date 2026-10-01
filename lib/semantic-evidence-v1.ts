@@ -155,3 +155,12 @@ export interface RawSemanticSensorOutput {
   observations: RawSemanticSensorObservation[]
   quality: SemanticEvidenceV1['quality']
 }
+
+export interface PostprocessedSemanticSensorObservation extends Omit<RawSemanticSensorObservation,'reason_codes'> {
+  reason_codes: SemanticObservationReasonCode[]
+}
+
+export interface PostprocessedSemanticSensorOutput {
+  observations: PostprocessedSemanticSensorObservation[]
+  quality: SemanticEvidenceV1['quality']
+}
