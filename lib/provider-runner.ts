@@ -16,6 +16,9 @@ import {
 import type { MeasurementResult, FixedDimension } from '@/lib/measurement'
 import { loadReferencePack } from '@/lib/reference-loader'
 import { buildCvDimensionCandidate, buildCvGroundingBasis } from '@/lib/cv-grounding-basis'
+import { toMeasurementV2 } from '@/lib/measurement-v2'
+import { STANDARDS_CATALOGUE_V1 } from '@/lib/standards-database-v1'
+import { buildStandardsShadowResult } from '@/lib/standards-shadow-solver'
 import { localizeForMeasurement, type SemanticLocalizationResult } from '@/lib/semantic-localizer'
 
 const MAX_IMAGE_LENGTH = 7_000_000
@@ -77,6 +80,13 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const preflightGate = preflightPurchaseGate(measurement)
     const cvGroundingBasis = buildCvGroundingBasis(measurement, preflightGate.allowed)
     const dimensionCandidate = buildCvDimensionCandidate(cvGroundingBasis)
+    const standardsSolverShadow = measurement
+      ? buildStandardsShadowResult(
+          toMeasurementV2(measurement),
+          STANDARDS_CATALOGUE_V1,
+          dimensionCandidate.status === 'candidate' ? dimensionCandidate.specification : null,
+        )
+      : null
     const reference = await loadReferencePack('fasteners')
     const providerPayload = await runStructuredProvider({
       provider, apiKey, model: config.model, image,
@@ -234,6 +244,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const dimensions = measurement?.dimensions ?? {}
     const response = {
       provider, model: config.model, result: identificationRaw, measurement,
+      standards_solver_shadow: standardsSolverShadow,
       user_guidance: {
         purchase_ready: fullFastenerSpecAllowed,
         message: guidance,
@@ -260,7 +271,8 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
         head_style_consistency: headConsistency,
         drive_evidence: driveEvidence,
         cv_grounding_basis: cvGroundingBasis,
-        standard_table_derived: [], // No verified standards table is wired in v2.
+        standard_table_derived: [], // Production remains legacy in Phase 1; standards are exposed only in shadow mode.
+        standards_solver_shadow: standardsSolverShadow,
         not_obtained: [
           ...REQUIRED_INFERENCE_DIMENSIONS.filter(key => dimensions[key]?.status !== 'measured'),
         ],
