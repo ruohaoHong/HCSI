@@ -1,4 +1,4 @@
-name: Case C locked-fixture blind OpenAI E2E
+# Phase 1 shadow-mode branch regression enabled.\nname: Case C locked-fixture blind OpenAI E2E
 
 # Harness only. No CV, prompt, Head Evidence, arithmetic grounding, or provider logic is modified.
 # Inference receives only the exact locked Case C image and data produced by the formal pipeline.
