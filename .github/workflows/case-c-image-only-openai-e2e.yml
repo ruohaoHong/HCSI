@@ -167,6 +167,11 @@ jobs:
           assert cv['image_sha256'] == '98896d298c40b87388083bac6e51df0c2d6b18460e9e29a2b7be9899f6201b9f'
           assert set(cv['dimensions']) == {'D','P','L_underhead','L_overall','B','K','DK'}
           (root / 'cv.json').write_text(json.dumps(cv, ensure_ascii=False, indent=2))
+          for key, expected in [('D',13.700),('P',2.051),('L_underhead',47.540)]:
+              dim = cv['dimensions'][key]
+              print('LOCKED_CV', key, 'status=', dim['status'], 'value_mm=', dim['value_mm'])
+              assert dim['status'] == 'measured'
+              assert abs(dim['value_mm'] - expected) < 1e-9
 
           # Stage 2 receives the same image plus only the signed CV produced above.
           output = post('/api/analyze-openai', {
