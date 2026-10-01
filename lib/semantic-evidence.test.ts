@@ -8,6 +8,7 @@ import {
   buildSemanticEvidenceV1,
   sanitizeRawSemanticSensorOutput,
   validateRawSemanticSensorOutput,
+  validatePostprocessedSemanticSensorOutput,
   validateSemanticEvidenceV1,
 } from './semantic-evidence-validator'
 import type { RawSemanticSensorOutput, SemanticEvidenceV1 } from './semantic-evidence-v1'
@@ -157,7 +158,7 @@ assert.ok(dimensionSanitized.observations[4].reason_codes.includes('FORBIDDEN_CL
   const sanitized=sanitizeRawSemanticSensorOutput(raw)
   assert.equal(sanitized.observations.find(x=>x.feature_id==='tip.morphology')!.freeform_description,null)
   assert.ok(sanitized.observations.find(x=>x.feature_id==='tip.morphology')!.reason_codes.includes('FORBIDDEN_CLAIM_REMOVED'))
-  assert.equal(validateRawSemanticSensorOutput(sanitized).valid,false,
+  assert.equal(validatePostprocessedSemanticSensorOutput(sanitized).valid,false,
     'open_set without safe freeform description must fail closed after sanitization')
 }
 
@@ -179,7 +180,7 @@ assert.ok(dimensionSanitized.observations[4].reason_codes.includes('FORBIDDEN_CL
     const out=sanitized.observations.find(x=>x.feature_id==='tip.morphology')!
     assert.equal(out.freeform_description,null,forbiddenText)
     assert.ok(out.reason_codes.includes('FORBIDDEN_CLAIM_REMOVED'))
-    assert.equal(validateRawSemanticSensorOutput(sanitized).valid,false,
+    assert.equal(validatePostprocessedSemanticSensorOutput(sanitized).valid,false,
       'unsafe open_set text removal must not silently turn missing description into valid evidence')
   }
 }
@@ -222,7 +223,7 @@ assert.ok(dimensionSanitized.observations[4].reason_codes.includes('FORBIDDEN_CL
   const sanitized=sanitizeRawSemanticSensorOutput(raw)
   assert.equal(sanitized.observations.find(x=>x.feature_id==='head.morphology')!.freeform_description,
     'wide low-profile head with shallow dome')
-  assert.equal(validateRawSemanticSensorOutput(sanitized).valid,true)
+  assert.equal(validatePostprocessedSemanticSensorOutput(sanitized).valid,true)
 }
 
 // 7 — OCR literal numeric marking remains observable transcription.
@@ -235,7 +236,7 @@ assert.ok(dimensionSanitized.observations[4].reason_codes.includes('FORBIDDEN_CL
   const out=sanitized.observations.find(x=>x.feature_id==='markings.ocr')!
   assert.equal(out.raw_text,'10.9')
   assert.equal(out.normalized_text,'10.9')
-  assert.equal(validateRawSemanticSensorOutput(sanitized).valid,true)
+  assert.equal(validatePostprocessedSemanticSensorOutput(sanitized).valid,true)
 }
 
 // 8 — OCR material-like literal marking remains literal; no domain interpretation is added.
@@ -249,7 +250,7 @@ assert.ok(dimensionSanitized.observations[4].reason_codes.includes('FORBIDDEN_CL
   assert.equal(out.raw_text,'A2')
   assert.equal(out.normalized_text,'A2')
   assert.equal(JSON.stringify(out).includes('stainless steel'),false)
-  assert.equal(validateRawSemanticSensorOutput(sanitized).valid,true)
+  assert.equal(validatePostprocessedSemanticSensorOutput(sanitized).valid,true)
 }
 
 // Also preserve another ordinary literal marking.
@@ -260,7 +261,7 @@ assert.ok(dimensionSanitized.observations[4].reason_codes.includes('FORBIDDEN_CL
   ocr.raw_text='304'; ocr.normalized_text='304'; ocr.character_confidence=0.7
   const sanitized=sanitizeRawSemanticSensorOutput(raw)
   assert.equal(sanitized.observations.find(x=>x.feature_id==='markings.ocr')!.raw_text,'304')
-  assert.equal(validateRawSemanticSensorOutput(sanitized).valid,true)
+  assert.equal(validatePostprocessedSemanticSensorOutput(sanitized).valid,true)
 }
 
 // 9 — OCR engineering interpretation injection is not accepted as literal evidence.
@@ -278,7 +279,7 @@ assert.ok(dimensionSanitized.observations[4].reason_codes.includes('FORBIDDEN_CL
     assert.equal(out.state,'unknown')
     assert.ok(out.reason_codes.includes('FORBIDDEN_CLAIM_REMOVED'))
     assert.equal(JSON.stringify(out).includes(injectedText),false)
-    assert.equal(validateRawSemanticSensorOutput(sanitized).valid,true)
+    assert.equal(validatePostprocessedSemanticSensorOutput(sanitized).valid,true)
   }
 }
 
@@ -291,7 +292,7 @@ assert.ok(dimensionSanitized.observations[4].reason_codes.includes('FORBIDDEN_CL
   ocr.raw_text='UNC'; ocr.normalized_text='UNC'; ocr.character_confidence=0.9
   const sanitized=sanitizeRawSemanticSensorOutput(raw)
   assert.equal(sanitized.observations.find(x=>x.feature_id==='markings.ocr')!.raw_text,'UNC')
-  assert.equal(validateRawSemanticSensorOutput(sanitized).valid,true)
+  assert.equal(validatePostprocessedSemanticSensorOutput(sanitized).valid,true)
 }
 
 // 10 — arbitrary unknown reason code proves the channel is finite, not keyword-blacklisted.
@@ -305,6 +306,18 @@ assert.ok(dimensionSanitized.observations[4].reason_codes.includes('FORBIDDEN_CL
 {
   const raw=validRaw() as any
   raw.quality.reason_codes=['MY_PRIVATE_QUALITY_NOTE']
+  assert.equal(validateRawSemanticSensorOutput(raw).valid,false)
+}
+
+// Phase 2C note — sanitizer-only reason codes are not raw-sensor emittable.
+{
+  const raw=validRaw() as any
+  raw.observations[0].reason_codes=['FORBIDDEN_CLAIM_REMOVED']
+  assert.equal(validateRawSemanticSensorOutput(raw).valid,false)
+}
+{
+  const raw=validRaw() as any
+  raw.observations[0].reason_codes=['UNCALIBRATED_PROBABILITY_REMOVED']
   assert.equal(validateRawSemanticSensorOutput(raw).valid,false)
 }
 
