@@ -194,9 +194,9 @@ export interface StandardsAuthorityResult {
   standards_snapshot: NonNullable<NominalCandidateSet['standards_snapshot']>
   formal_candidates: NominalCandidate[]
   decision: {
-    selected_candidate_id: null
-    status: 'unresolved' | 'no_normative_match'
-    purchase_ready: false
+    selected_candidate_id: string | null
+    status: 'unresolved' | 'selected' | 'no_normative_match'
+    purchase_ready: boolean
     reason: 'deterministic_selection_not_implemented'
   }
   legacy_diagnostics: {
