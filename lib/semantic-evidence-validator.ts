@@ -3,7 +3,6 @@ import {
   SEMANTIC_EVIDENCE_SCHEMA,
   SEMANTIC_EXTRACTOR_VERSION,
   SEMANTIC_PROMPT_VERSION,
-  type RawSemanticSensorObservation,
   type RawSemanticSensorOutput,
   type SemanticEvidenceSource,
   type SemanticEvidenceV1,
@@ -17,19 +16,55 @@ import {
   isSemanticFeatureId,
   isSemanticTaxonomyValue,
 } from './semantic-taxonomy-v1'
+import {
+  SEMANTIC_REASON_CODE_TAXONOMY_VERSION,
+  isSemanticObservationReasonCode,
+  isSemanticQualityReasonCode,
+  type SemanticObservationReasonCode,
+} from './semantic-reason-codes-v1'
 
-const FORBIDDEN_SEMANTIC_CLAIMS = [
+const FORBIDDEN_NON_OCR_INTERPRETATION_PATTERNS = [
   /\bM\s*\d+(?:\.\d+)?(?:\s*[x×]\s*\d+(?:\.\d+)?)?\b/i,
   /#\s*\d+\s*-\s*\d+/i,
   /\b\d+\s*\/\s*\d+\s*-\s*\d+(?:\s*(?:UNC|UNF|UNEF))?\b/i,
   /\b(?:UNC|UNF|UNEF)\b/i,
+  /\bmetric(?:[-\s]?like|\s+thread)?\b/i,
+  /\bimperial(?:[-\s]?like|\s+thread)?\b/i,
+  /\bunified(?:[-\s]?like|\s+thread)?\b/i,
+  /\b(?:inch|inch-based)\s+thread\b/i,
+  /\bISO(?:\s+thread|\s+fastener)?\b/i,
+  /\bASME\b/i,
+  /\b(?:candidate|winner|ranking|ranked|rank\s*\d+|top\s+candidate|best\s+match)\b/i,
   /\b\d+(?:\.\d+)?\s*(?:mm|cm|millimet(?:er|re)s?|inch(?:es)?|in\b|TPI)\b/i,
   /\d+(?:\.\d+)?\s*[″"]/,
 ]
 
+const OCR_INTERPRETATION_PATTERNS = [
+  /\b(?:probably|likely|maybe|apparently|presumably)\b/i,
+  /\b(?:looks?|appears?|seems?)\s+(?:like|to\s+be)\b/i,
+  /\b(?:candidate|winner|ranking|ranked|rank\s*\d+|top\s+candidate|best\s+match)\b/i,
+  /\b(?:metric|imperial|unified|inch)\s+thread\b/i,
+  /\b(?:ISO|ASME)\s+(?:thread|fastener|standard)\b/i,
+  /\b(?:likely|probably)\s+(?:UNC|UNF|UNEF|ISO|ASME|metric|imperial|unified)\b/i,
+]
+
+const OCR_LITERAL_CHARS = /^[\p{L}\p{N}\s._+\-/#×:*()]+$/u
+
 export function containsForbiddenSemanticClaim(value: unknown): boolean {
   if (typeof value !== 'string' || !value.trim()) return false
-  return FORBIDDEN_SEMANTIC_CLAIMS.some(pattern => pattern.test(value))
+  return FORBIDDEN_NON_OCR_INTERPRETATION_PATTERNS.some(pattern => pattern.test(value))
+}
+
+export function normalizeLiteralOcrText(value: string): string {
+  return value.normalize('NFKC').trim().replace(/\s+/g,' ')
+}
+
+export function isSafeLiteralOcrTranscription(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  const normalized=normalizeLiteralOcrText(value)
+  if (!normalized || normalized.length > 64 || /[\r\n]/.test(value)) return false
+  if (!OCR_LITERAL_CHARS.test(normalized)) return false
+  return !OCR_INTERPRETATION_PATTERNS.some(pattern => pattern.test(normalized))
 }
 
 function numberOrNull(value: unknown): value is number | null {
@@ -54,19 +89,48 @@ function observationErrors(value: unknown): string[] {
   }
   if (!['uncalibrated','calibrated'].includes(String(v.calibration_status))) errors.push('calibration_status_invalid')
   if (v.calibration_status === 'uncalibrated' && v.calibrated_probability !== null) errors.push('uncalibrated_probability_must_be_null')
-  if (!Array.isArray(v.reason_codes) || !v.reason_codes.every(x => typeof x === 'string')) errors.push('reason_codes_invalid')
-  for (const key of ['freeform_description','raw_text','normalized_text']) {
-    if (!(v[key] === null || typeof v[key] === 'string')) errors.push(`${key}_invalid`)
-    if (containsForbiddenSemanticClaim(v[key])) errors.push(`${key}_contains_nominal_or_dimension_claim`)
+
+  if (!Array.isArray(v.reason_codes) || !v.reason_codes.every(isSemanticObservationReasonCode)) {
+    errors.push('reason_codes_invalid_or_unrecognized')
   }
+
+  if (!(v.freeform_description === null || typeof v.freeform_description === 'string')) {
+    errors.push('freeform_description_invalid')
+  }
+  if (v.freeform_description !== null && v.state !== 'open_set') {
+    errors.push('freeform_only_allowed_for_open_set')
+  }
+  if (containsForbiddenSemanticClaim(v.freeform_description)) {
+    errors.push('freeform_description_contains_forbidden_inference')
+  }
+
   if (!numberOrNull(v.character_confidence) ||
       (typeof v.character_confidence === 'number' && (v.character_confidence < 0 || v.character_confidence > 1))) {
     errors.push('character_confidence_invalid')
   }
-  if (featureId !== 'markings.ocr' &&
-      (v.raw_text !== null || v.normalized_text !== null || v.character_confidence !== null)) {
+
+  if (featureId === 'markings.ocr') {
+    if (!(v.raw_text === null || typeof v.raw_text === 'string')) errors.push('raw_text_invalid')
+    if (!(v.normalized_text === null || typeof v.normalized_text === 'string')) errors.push('normalized_text_invalid')
+    if (typeof v.raw_text === 'string') {
+      if (!isSafeLiteralOcrTranscription(v.raw_text)) errors.push('raw_text_not_literal_transcription')
+      const expected=normalizeLiteralOcrText(v.raw_text)
+      if (v.normalized_text !== expected) errors.push('normalized_text_not_deterministic_normalization')
+    } else {
+      if (v.normalized_text !== null) errors.push('normalized_text_requires_raw_text')
+      if (v.character_confidence !== null) errors.push('character_confidence_requires_raw_text')
+    }
+    if (v.value === 'text_detected') {
+      if (typeof v.raw_text !== 'string' || !v.raw_text.trim()) errors.push('text_detected_requires_literal_raw_text')
+      if (v.state !== 'observed') errors.push('text_detected_requires_observed_state')
+      if (!['visible','partially_visible'].includes(String(v.visibility))) errors.push('text_detected_requires_visible_region')
+    } else if (v.raw_text !== null) {
+      errors.push('raw_text_requires_text_detected_value')
+    }
+  } else if (v.raw_text !== null || v.normalized_text !== null || v.character_confidence !== null) {
     errors.push('ocr_fields_only_allowed_for_markings_ocr')
   }
+
   if (v.state === 'not_visible') {
     if (v.visibility !== 'not_visible') errors.push('not_visible_state_requires_not_visible_visibility')
     if (typeof v.value === 'string' && !isNotVisibleTaxonomyValue(featureId,v.value)) {
@@ -91,17 +155,38 @@ export function sanitizeRawSemanticSensorOutput(raw: RawSemanticSensorOutput): R
   return {
     ...raw,
     observations:raw.observations.map(observation => {
-      const reasonCodes=[...observation.reason_codes]
+      const reasonCodes=[...(observation.reason_codes ?? [])] as SemanticObservationReasonCode[]
       const next={...observation}
-      for (const key of ['freeform_description','raw_text','normalized_text'] as const) {
-        if (containsForbiddenSemanticClaim(next[key])) {
-          next[key]=null
-          reasonCodes.push('forbidden_nominal_or_dimension_claim_removed')
-        }
+
+      if (containsForbiddenSemanticClaim(next.freeform_description)) {
+        next.freeform_description=null
+        reasonCodes.push('FORBIDDEN_CLAIM_REMOVED')
       }
+
+      if (next.feature_id === 'markings.ocr') {
+        if (typeof next.raw_text === 'string' && isSafeLiteralOcrTranscription(next.raw_text)) {
+          next.raw_text=next.raw_text.trim()
+          next.normalized_text=normalizeLiteralOcrText(next.raw_text)
+        } else if (next.raw_text !== null) {
+          next.raw_text=null
+          next.normalized_text=null
+          next.character_confidence=null
+          next.value='unknown'
+          next.state='unknown'
+          reasonCodes.push('FORBIDDEN_CLAIM_REMOVED')
+        } else {
+          next.normalized_text=null
+          next.character_confidence=null
+        }
+      } else {
+        next.raw_text=null
+        next.normalized_text=null
+        next.character_confidence=null
+      }
+
       if (next.calibration_status === 'uncalibrated' && next.calibrated_probability !== null) {
         next.calibrated_probability=null
-        reasonCodes.push('uncalibrated_probability_removed')
+        reasonCodes.push('UNCALIBRATED_PROBABILITY_REMOVED')
       }
       return {...next,reason_codes:[...new Set(reasonCodes)]}
     }),
@@ -132,7 +217,9 @@ export function validateRawSemanticSensorOutput(value: unknown): {valid:boolean;
   else {
     const q=quality as Record<string,unknown>
     if (!['usable','limited','insufficient'].includes(String(q.status))) errors.push('quality_status_invalid')
-    if (!Array.isArray(q.reason_codes) || !q.reason_codes.every(x => typeof x === 'string')) errors.push('quality_reason_codes_invalid')
+    if (!Array.isArray(q.reason_codes) || !q.reason_codes.every(isSemanticQualityReasonCode)) {
+      errors.push('quality_reason_codes_invalid_or_unrecognized')
+    }
   }
   return {valid:errors.length===0,errors}
 }
@@ -158,6 +245,7 @@ export function buildSemanticEvidenceV1(
   const evidence:SemanticEvidenceV1={
     schema_version:SEMANTIC_EVIDENCE_SCHEMA,
     taxonomy_version:SEMANTIC_TAXONOMY_VERSION,
+    reason_code_taxonomy_version:SEMANTIC_REASON_CODE_TAXONOMY_VERSION,
     extractor_version:SEMANTIC_EXTRACTOR_VERSION,
     observation_scope:{
       mode:'candidate_blind_first_pass',
@@ -202,6 +290,7 @@ export function validateSemanticEvidenceV1(value: unknown): {valid:boolean;error
   const v=value as Record<string,any>
   if (v.schema_version !== SEMANTIC_EVIDENCE_SCHEMA) errors.push('schema_version_invalid')
   if (v.taxonomy_version !== SEMANTIC_TAXONOMY_VERSION) errors.push('taxonomy_version_invalid')
+  if (v.reason_code_taxonomy_version !== SEMANTIC_REASON_CODE_TAXONOMY_VERSION) errors.push('reason_code_taxonomy_version_invalid')
   if (v.extractor_version !== SEMANTIC_EXTRACTOR_VERSION) errors.push('extractor_version_invalid')
   const scope=v.observation_scope
   if (!scope || scope.mode !== 'candidate_blind_first_pass') errors.push('observation_scope_invalid')
@@ -264,6 +353,8 @@ export function validateSemanticEvidenceV1(value: unknown): {valid:boolean;error
       [...expectedUnknown].some(id=>!v.unknown_or_open_set.includes(id))) errors.push('unknown_or_open_set_inconsistent')
   const quality=v.quality
   if (!quality || !['usable','limited','insufficient'].includes(quality.status) ||
-      !Array.isArray(quality.reason_codes)) errors.push('quality_invalid')
+      !Array.isArray(quality.reason_codes) || !quality.reason_codes.every(isSemanticQualityReasonCode)) {
+    errors.push('quality_invalid')
+  }
   return {valid:errors.length===0,errors}
 }
