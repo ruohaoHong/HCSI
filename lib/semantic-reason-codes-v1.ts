@@ -1,0 +1,59 @@
+export const SEMANTIC_REASON_CODE_TAXONOMY_VERSION = 'hcsi.semantic-reason-codes.v1' as const
+
+export const SEMANTIC_OBSERVATION_REASON_CODES = [
+  'FEATURE_VISIBLE',
+  'FEATURE_PARTIALLY_VISIBLE',
+  'FEATURE_NOT_VISIBLE',
+  'FEATURE_NOT_OBSERVED',
+  'IMAGE_ANGLE_LIMITED',
+  'OCCLUDED',
+  'GLARE',
+  'LOW_CONTRAST',
+  'MORPHOLOGY_AMBIGUOUS',
+  'OPEN_SET_MORPHOLOGY',
+  'HEAD_PROFILE_VISIBLE',
+  'HEAD_TOP_NOT_VISIBLE',
+  'DRIVE_FACE_NOT_VISIBLE',
+  'EXTERNAL_DRIVE_SURFACES_VISIBLE',
+  'UNDERHEAD_REGION_VISIBLE',
+  'TIP_VISIBLE',
+  'THREADS_VISIBLE',
+  'THREAD_START_OR_END_NOT_VISIBLE',
+  'MARKING_SURFACE_NOT_VISIBLE',
+  'MARKING_NOT_OBSERVED',
+  'OCR_TEXT_DETECTED',
+  'OCR_UNREADABLE',
+  'OCR_PARTIAL',
+  'BACKGROUND_TEXT_EXCLUDED',
+  'FORBIDDEN_CLAIM_REMOVED',
+  'UNCALIBRATED_PROBABILITY_REMOVED',
+] as const
+
+export type SemanticObservationReasonCode = (typeof SEMANTIC_OBSERVATION_REASON_CODES)[number]
+
+export const SEMANTIC_QUALITY_REASON_CODES = [
+  'TARGET_CLEAR',
+  'TARGET_PARTIALLY_VISIBLE',
+  'SIDE_PROFILE_VISIBLE',
+  'HEAD_TOP_NOT_VISIBLE',
+  'TIP_AND_THREADS_VISIBLE',
+  'DRIVE_DETAIL_LIMITED',
+  'IMAGE_LIMITED',
+  'TARGET_PARTIALLY_OCCLUDED',
+  'LOW_CONTRAST',
+  'GLARE',
+  'INSUFFICIENT_SEMANTIC_VISIBILITY',
+] as const
+
+export type SemanticQualityReasonCode = (typeof SEMANTIC_QUALITY_REASON_CODES)[number]
+
+const OBSERVATION_REASON_SET = new Set<string>(SEMANTIC_OBSERVATION_REASON_CODES)
+const QUALITY_REASON_SET = new Set<string>(SEMANTIC_QUALITY_REASON_CODES)
+
+export function isSemanticObservationReasonCode(value: unknown): value is SemanticObservationReasonCode {
+  return typeof value === 'string' && OBSERVATION_REASON_SET.has(value)
+}
+
+export function isSemanticQualityReasonCode(value: unknown): value is SemanticQualityReasonCode {
+  return typeof value === 'string' && QUALITY_REASON_SET.has(value)
+}
