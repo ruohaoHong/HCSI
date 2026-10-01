@@ -186,6 +186,84 @@ function counts(candidates: NominalCandidate[]): Record<StandardSystem,number> {
   }
 }
 
+
+export interface StandardsAuthorityResult {
+  mode: 'standards_authority'
+  contract_version: 'hcsi.standards-authority.v1'
+  measurement_v2: MeasurementV2
+  standards_snapshot: NonNullable<NominalCandidateSet['standards_snapshot']>
+  formal_candidates: NominalCandidate[]
+  decision: {
+    selected_candidate_id: null
+    status: 'unresolved' | 'no_normative_match'
+    purchase_ready: false
+    reason: 'deterministic_selection_not_implemented'
+  }
+  legacy_diagnostics: {
+    llm_nominal: { value: string | null; authority: 'non_authoritative'; use: 'diagnostic_only' }
+    dimension_candidate: { value: string | null; authority: 'non_authoritative'; use: 'diagnostic_only' }
+  }
+  candidate_summary: {
+    total: number
+    iso_metric: number
+    unified_inch: number
+    nearest_by_provisional_residual_candidate_id: string | null
+  }
+  scoring_state: StandardsShadowResult['scoring_state']
+}
+
+/**
+ * Formal nominal source of truth. Candidate membership is defined exclusively
+ * by the versioned catalogue. Ranking remains diagnostic: Phase 1 has no
+ * calibrated evidence model and therefore cannot select a winner.
+ */
+export function buildStandardsAuthorityResult(
+  measurement: MeasurementV2,
+  catalogue: StandardsCatalogue,
+  diagnostics: { llmNominal?: string | null; dimensionCandidate?: string | null } = {},
+): StandardsAuthorityResult {
+  const set = enumerateShadowCandidates(measurement,catalogue)
+  const c = counts(set.candidates)
+  return {
+    mode:'standards_authority',
+    contract_version:'hcsi.standards-authority.v1',
+    measurement_v2:measurement,
+    standards_snapshot:set.standards_snapshot!,
+    formal_candidates:set.candidates,
+    decision:{
+      selected_candidate_id:null,
+      status:set.candidates.length ? 'unresolved' : 'no_normative_match',
+      purchase_ready:false,
+      reason:'deterministic_selection_not_implemented',
+    },
+    legacy_diagnostics:{
+      llm_nominal:{
+        value:diagnostics.llmNominal ?? null,
+        authority:'non_authoritative',
+        use:'diagnostic_only',
+      },
+      dimension_candidate:{
+        value:diagnostics.dimensionCandidate ?? null,
+        authority:'non_authoritative',
+        use:'diagnostic_only',
+      },
+    },
+    candidate_summary:{
+      total:set.candidates.length,
+      iso_metric:c.iso_metric,
+      unified_inch:c.unified_inch,
+      nearest_by_provisional_residual_candidate_id:set.candidates[0]?.candidate_id ?? null,
+    },
+    scoring_state:{
+      model_id:'phase1-euclidean-dp-residual-v1',
+      calibrated_probability_available:false,
+      covariance_available:false,
+      tolerance_likelihood_available:false,
+      todo:'Add covariance, systematic-bias ledger and standards tolerance likelihood before interpreting scores probabilistically.',
+    },
+  }
+}
+
 export function buildStandardsShadowResult(
   measurement: MeasurementV2,
   catalogue: StandardsCatalogue,
