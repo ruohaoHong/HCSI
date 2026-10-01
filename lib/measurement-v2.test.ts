@@ -50,6 +50,9 @@ const v2 = toMeasurementV2(source)
 assert.equal(v2.schema_version, MEASUREMENT_V2_SCHEMA)
 assert.equal(v2.observations.find(item => item.quantity === 'D')?.value_mm, 13.7)
 assert.equal(v2.observations.find(item => item.quantity === 'P')?.value_mm, 2.051)
+assert.equal(v2.uncertainty.covariance_status, 'not_available_phase1')
+assert.equal(v2.immutability.raw_measurements_are_nominally_snapped, false)
+assert.equal(Object.isFrozen(v2), true)
 
 // Candidate validation is structural: the catalogue owns validity. A candidate
 // must carry provenance and a selected id must refer to an array member.
@@ -85,7 +88,7 @@ hallucinatedWithoutProvenance.candidates[0].designation = '#37-12'
 hallucinatedWithoutProvenance.candidates[0].standard_ref.record_id = ''
 assert.equal(isNominalCandidateSet(hallucinatedWithoutProvenance), false)
 
-const badSelection = structuredClone(valid)
+const badSelection: any = structuredClone(valid)
 badSelection.decision = { selected_candidate_id: 'not-in-array', status: 'selected' }
 assert.equal(isNominalCandidateSet(badSelection), false)
 
