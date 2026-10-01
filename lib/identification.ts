@@ -1,6 +1,7 @@
 import { geometryCapabilityPromptReference, type GeometryCapabilityKind } from './geometry-capabilities'
 import type { SemanticMeasurementPlan } from './measurement-plan-resolver'
 import { HEAD_STYLE_VALUES, type HeadStyle } from './head-style-taxonomy'
+import type { StandardsAuthorityResult } from './standards-shadow-solver'
 
 export type { HeadStyle } from './head-style-taxonomy'
 
@@ -67,6 +68,7 @@ export interface IdentificationResult {
     drive_form: string
     thread_system: 'metric' | 'imperial' | 'unknown'
     length_convention: 'under_head' | 'overall' | 'unresolved'
+    /** Legacy LLM diagnostic only. Formal nominal authority lives in standards_authority. */
     nominal_specification: string
   }
 }
@@ -77,8 +79,12 @@ export interface AnalysisResponse {
     message: string
     dimension_candidate?: string | null
     dimension_candidate_status?: 'included_in_purchase_specification' | 'dimension_only_not_purchase_ready' | 'unavailable'
+    formal_nominal_source?: 'versioned_standards_solver'
+    selected_candidate_id?: string | null
+    standards_decision_status?: 'unresolved' | 'selected' | 'no_normative_match' | 'unavailable'
     actions: string[]
   }
+  standards_authority?: StandardsAuthorityResult | null
   selected_length?: {
     convention: 'under_head' | 'overall' | 'unresolved'
     dimension: 'L_underhead' | 'L_overall' | null
