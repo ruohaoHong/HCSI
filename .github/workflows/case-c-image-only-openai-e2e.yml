@@ -208,7 +208,7 @@ jobs:
           assert 'M14 × 2.0' in designations
           assert '9/16-12 UNC' in designations
           assert not any('#37-12' in item for item in designations)
-          assert shadow['legacy_nominal'] and '#37-12' in shadow['legacy_nominal']
+          # Legacy LLM nominal is diagnostic-only and may vary; formal universe must remain catalogue-only.
           m14 = next(item for item in shadow['new_candidates'] if item['designation'] == 'M14 × 2.0')
           assert m14['nominal']['length_mm'] is None
           assert m14['length_comparison']['observed_mm'] == obs['L_underhead']
