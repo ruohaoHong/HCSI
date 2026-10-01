@@ -29,6 +29,12 @@ for (const c of cases) {
       {quantity:'P',value_mm:c.P},
       {quantity:c.Lkey,value_mm:c.L},
     ],
+  uncertainty:{
+    schema_version:'hcsi.measurement-uncertainty.v1',
+    quantities:[],primitives:[],
+    covariance:{quantities:[],matrix_mm2:[],status:'not_estimated',null_semantics:'not_estimated',note:'synthetic regression fixture'},
+    systematic_bias_ledger:[],systematic_bias_status:'not_estimated',
+  },
   } as MeasurementV2
   const before = JSON.stringify(measurement)
   const result = enumerateShadowCandidates(measurement,STANDARDS_CATALOGUE_V1)
