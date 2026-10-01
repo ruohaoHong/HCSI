@@ -19,6 +19,7 @@ import {
 import {
   SEMANTIC_REASON_CODE_TAXONOMY_VERSION,
   isSemanticObservationReasonCode,
+  isSensorEmittableSemanticObservationReasonCode,
   isSemanticQualityReasonCode,
   type SemanticObservationReasonCode,
 } from './semantic-reason-codes-v1'
@@ -71,7 +72,7 @@ function numberOrNull(value: unknown): value is number | null {
   return value === null || (typeof value === 'number' && Number.isFinite(value))
 }
 
-function observationErrors(value: unknown): string[] {
+function observationErrors(value: unknown, rawSensor = false): string[] {
   const errors:string[]=[]
   if (!value || typeof value !== 'object' || Array.isArray(value)) return ['observation_not_object']
   const v=value as Record<string,unknown>
@@ -90,7 +91,7 @@ function observationErrors(value: unknown): string[] {
   if (!['uncalibrated','calibrated'].includes(String(v.calibration_status))) errors.push('calibration_status_invalid')
   if (v.calibration_status === 'uncalibrated' && v.calibrated_probability !== null) errors.push('uncalibrated_probability_must_be_null')
 
-  if (!Array.isArray(v.reason_codes) || !v.reason_codes.every(isSemanticObservationReasonCode)) {
+  if (!Array.isArray(v.reason_codes) || !v.reason_codes.every(rawSensor ? isSensorEmittableSemanticObservationReasonCode : isSemanticObservationReasonCode)) {
     errors.push('reason_codes_invalid_or_unrecognized')
   }
 
@@ -202,7 +203,7 @@ export function validateRawSemanticSensorOutput(value: unknown): {valid:boolean;
     if (v.observations.length !== SEMANTIC_FEATURE_IDS.length) errors.push('observation_count_invalid')
     const ids:string[]=[]
     for (const [index,observation] of v.observations.entries()) {
-      const itemErrors=observationErrors(observation)
+      const itemErrors=observationErrors(observation,true)
       errors.push(...itemErrors.map(error => `observation_${index}:${error}`))
       if (observation && typeof observation === 'object' && !Array.isArray(observation) &&
           typeof (observation as Record<string,unknown>).feature_id === 'string') {
@@ -224,13 +225,31 @@ export function validateRawSemanticSensorOutput(value: unknown): {valid:boolean;
   return {valid:errors.length===0,errors}
 }
 
+function validatePostprocessedSemanticSensorOutput(value: unknown): {valid:boolean;errors:string[]} {
+  const errors:string[]=[]
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {valid:false,errors:['sensor_output_not_object']}
+  const v=value as Record<string,unknown>
+  if (!Array.isArray(v.observations)) errors.push('observations_missing')
+  else for (const [index,observation] of v.observations.entries()) {
+    errors.push(...observationErrors(observation,false).map(error => `observation_${index}:${error}`))
+  }
+  const quality=v.quality
+  if (!quality || typeof quality !== 'object' || Array.isArray(quality)) errors.push('quality_invalid')
+  else {
+    const q=quality as Record<string,unknown>
+    if (!['usable','limited','insufficient'].includes(String(q.status))) errors.push('quality_status_invalid')
+    if (!Array.isArray(q.reason_codes) || !q.reason_codes.every(isSemanticQualityReasonCode)) errors.push('quality_reason_codes_invalid_or_unrecognized')
+  }
+  return {valid:errors.length===0,errors}
+}
+
 export function buildSemanticEvidenceV1(
   rawInput: RawSemanticSensorOutput,
   request: CandidateBlindSemanticRequest,
   provenance: {model:string;model_version:string;sensor_type?:SemanticEvidenceSource['sensor_type']},
 ): SemanticEvidenceV1 {
   const raw=sanitizeRawSemanticSensorOutput(rawInput)
-  const rawValidation=validateRawSemanticSensorOutput(raw)
+  const rawValidation=validatePostprocessedSemanticSensorOutput(raw)
   if (!rawValidation.valid) throw new Error(`invalid_semantic_sensor_output:${rawValidation.errors.join('|')}`)
   const sourceRef='semantic_first_pass_sensor_1'
   const cropRef=request.semantic_roi.crop_ref
