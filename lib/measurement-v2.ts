@@ -1,4 +1,5 @@
 import type { FixedDimension, MeasurementResult } from './measurement'
+import { buildMeasurementUncertainty, type MeasurementUncertaintyV1 } from './measurement-uncertainty'
 
 export const MEASUREMENT_V2_SCHEMA = 'hcsi.measurement.v2' as const
 export const NOMINAL_CANDIDATE_SCHEMA = 'hcsi.nominal-candidates.v1' as const
@@ -43,11 +44,7 @@ export interface MeasurementV2 {
     confidence: number
   }
   capture_assumptions: MeasurementResult['capture_assumptions']
-  uncertainty: {
-    covariance_status: 'not_available_phase1'
-    systematic_bias_status: 'legacy_risk_signals_only'
-    note: string
-  }
+  uncertainty: MeasurementUncertaintyV1
   immutability: {
     raw_measurements_are_nominally_snapped: false
     nominal_solver_may_modify_measurement: false
@@ -131,7 +128,7 @@ function deepFreeze<T>(value: T): T {
 /**
  * One-way adapter from legacy CV output to the formal measurement contract.
  * No nominal input is accepted, so a standard candidate cannot snap or rewrite
- * D/P/L. Phase 1 also refuses to invent covariance or bias precision.
+ * D/P/L. Phase 2A records only uncertainty supported by CV evidence; missing covariance and bias magnitudes remain explicit null/unknown states.
  */
 export function toMeasurementV2(source: MeasurementResult): MeasurementV2 {
   const observations: MeasurementObservationV2[] = []
@@ -162,11 +159,7 @@ export function toMeasurementV2(source: MeasurementResult): MeasurementV2 {
       confidence: source.ruler.scale_confidence,
     },
     capture_assumptions: structuredClone(source.capture_assumptions),
-    uncertainty: {
-      covariance_status: 'not_available_phase1',
-      systematic_bias_status: 'legacy_risk_signals_only',
-      note: 'Phase 1 preserves legacy risk evidence but does not fabricate covariance, calibrated bias, tolerance likelihood, or probability.',
-    },
+    uncertainty: buildMeasurementUncertainty(source),
     immutability: {
       raw_measurements_are_nominally_snapped: false,
       nominal_solver_may_modify_measurement: false,
