@@ -34,7 +34,8 @@ const source = {
   scale_system: 'metric',
   scale_px_per_cm: 100,
   scale_px_per_inch: 254,
-  ruler: { scale_source: 'metric_ticks', scale_confidence: 0.99 },
+  ruler: { scale_source: 'metric_ticks', scale_confidence: 0.99, scale_system: 'metric' },
+  object: { risk_signals: [], principal_angle_deg: 0 },
   capture_assumptions: {
     same_plane_required: true,
     same_plane_verified: true,
@@ -50,7 +51,8 @@ const v2 = toMeasurementV2(source)
 assert.equal(v2.schema_version, MEASUREMENT_V2_SCHEMA)
 assert.equal(v2.observations.find(item => item.quantity === 'D')?.value_mm, 13.7)
 assert.equal(v2.observations.find(item => item.quantity === 'P')?.value_mm, 2.051)
-assert.equal(v2.uncertainty.covariance_status, 'not_available_phase1')
+assert.equal(v2.uncertainty.covariance.status, 'not_estimated')
+assert.equal(v2.uncertainty.covariance.matrix_mm2[0][0], null)
 assert.equal(v2.immutability.raw_measurements_are_nominally_snapped, false)
 assert.equal(Object.isFrozen(v2), true)
 
@@ -92,4 +94,4 @@ const badSelection: any = structuredClone(valid)
 badSelection.decision = { selected_candidate_id: 'not-in-array', status: 'selected' }
 assert.equal(isNominalCandidateSet(badSelection), false)
 
-console.log('measurement.v2 preserves raw observations; candidate contract requires catalogue provenance')
+console.log('measurement.v2 preserves raw observations and honest missing uncertainty; candidate contract requires catalogue provenance')
