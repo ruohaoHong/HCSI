@@ -161,6 +161,47 @@ assert.ok(dimensionSanitized.observations[4].reason_codes.includes('FORBIDDEN_CL
     'open_set without safe freeform description must fail closed after sanitization')
 }
 
+// System/standards identity language is generically forbidden in morphology freeform.
+{
+  for (const forbiddenText of [
+    'looks metric',
+    'probably imperial',
+    'Unified-like thread',
+    'likely ISO style',
+    'ASME style fastener',
+    'inch thread appearance',
+  ]) {
+    const raw=validRaw()
+    const tip=raw.observations.find(x=>x.feature_id==='tip.morphology')!
+    tip.state='open_set'; tip.value='open_set'; tip.visibility='visible'
+    tip.freeform_description=forbiddenText
+    const sanitized=sanitizeRawSemanticSensorOutput(raw)
+    const out=sanitized.observations.find(x=>x.feature_id==='tip.morphology')!
+    assert.equal(out.freeform_description,null,forbiddenText)
+    assert.ok(out.reason_codes.includes('FORBIDDEN_CLAIM_REMOVED'))
+    assert.equal(validateRawSemanticSensorOutput(sanitized).valid,false,
+      'unsafe open_set text removal must not silently turn missing description into valid evidence')
+  }
+}
+
+// Candidate / winner / ranking vocabulary is forbidden independently of any actual candidate list.
+{
+  for (const forbiddenText of [
+    'candidate A morphology',
+    'winner looks closest',
+    'rank 1 shape',
+    'top candidate',
+    'best match is this profile',
+  ]) {
+    const raw=validRaw()
+    const head=raw.observations.find(x=>x.feature_id==='head.morphology')!
+    head.state='open_set'; head.value='open_set'; head.visibility='visible'
+    head.freeform_description=forbiddenText
+    const sanitized=sanitizeRawSemanticSensorOutput(raw)
+    assert.equal(sanitized.observations.find(x=>x.feature_id==='head.morphology')!.freeform_description,null)
+  }
+}
+
 // 5 — candidate/winner language is removed generically, without seeing candidate list.
 {
   const raw=validRaw()
