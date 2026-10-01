@@ -19,6 +19,7 @@ import { buildCvDimensionCandidate, buildCvGroundingBasis } from '@/lib/cv-groun
 import { toMeasurementV2 } from '@/lib/measurement-v2'
 import { STANDARDS_CATALOGUE_V1 } from '@/lib/standards-database-v1'
 import { buildStandardsAuthorityResult, buildStandardsShadowResult } from '@/lib/standards-shadow-solver'
+import { projectSelectedFormalNominal, renderFormalDesignation } from '@/lib/formal-nominal-projection'
 import { localizeForMeasurement, type SemanticLocalizationResult } from '@/lib/semantic-localizer'
 
 const MAX_IMAGE_LENGTH = 7_000_000
@@ -149,7 +150,13 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
           },
         )
       : null
-    // Compatibility-only Phase 1 diagnostic. It has no standards authority.
+    // This is the only standards-decision -> public formal specification seam.
+    // A non-null invalid selected ID throws; there is deliberately no legacy fallback.
+    const formalNominalProjection = standardsAuthority
+      ? projectSelectedFormalNominal(standardsAuthority)
+      : null
+    const publicFormalDesignation = renderFormalDesignation(formalNominalProjection)
+    // Compatibility-only diagnostic. It has no standards authority.
     const standardsSolverShadow = measurementV2
       ? buildStandardsShadowResult(
           measurementV2,
@@ -182,8 +189,8 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const isFastener = identificationRaw.category === 'fasteners'
     const fullFastenerSpecAllowed = isFastener &&
       purchaseGate.allowed && purchaseCompleteness.complete &&
-      standardsAuthority?.decision.selected_candidate_id != null &&
-      standardsAuthority.decision.purchase_ready === true
+      formalNominalProjection != null &&
+      standardsAuthority?.decision.purchase_ready === true
     const optionalDrive = purchaseCompleteness.optional_unconfirmed_fields
     const baseGuidance = !isFastener
       ? '目前精確 CV 規格核驗僅支援螺絲；此結果為外觀辨識，購買前請核對實物尺寸。'
@@ -200,11 +207,16 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       dimensionCandidate.status === 'candidate'
       ? `${baseGuidance}；舊純算術尺寸表示 ${dimensionCandidate.specification} 僅保留為 non-authoritative diagnostic。正式 nominal 候選只能來自 standards_authority.formal_candidates；目前尚未 deterministic 選出 winner。`
       : baseGuidance
-    if (fullFastenerSpecAllowed && optionalDrive.includes('drive_form')) {
+    if (fullFastenerSpecAllowed && publicFormalDesignation) {
+      // The legacy field remains in the response shape for compatibility, but
+      // once public it is overwritten exclusively from the selected catalogue candidate.
+      identificationRaw.fastener_interpretation.nominal_specification = publicFormalDesignation
+    }
+    if (fullFastenerSpecAllowed && optionalDrive.includes('drive_form') && publicFormalDesignation) {
       // Do not turn a side-view dimension success into an unsupported claim
       // that a specific screwdriver recess was actually photographed.
       identificationRaw.purchase_description =
-        `${identificationRaw.item_name}：${identificationRaw.fastener_interpretation.nominal_specification}（驅動槽型式及尺寸待確認）`
+        `${identificationRaw.item_name}：${publicFormalDesignation}（驅動槽型式及尺寸待確認）`
     }
     if (isFastener && !fullFastenerSpecAllowed) {
       identificationRaw.fastener_interpretation.nominal_specification = ''
@@ -261,6 +273,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const response = {
       provider, model: config.model, result: identificationRaw, measurement,
       standards_authority: standardsAuthority,
+      formal_nominal_projection: formalNominalProjection,
       standards_solver_shadow: standardsSolverShadow, // deprecated diagnostic compatibility only
       user_guidance: {
         purchase_ready: fullFastenerSpecAllowed,
@@ -293,6 +306,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
           use: 'diagnostic_only',
         },
         standards_authority: standardsAuthority,
+        formal_nominal_projection: formalNominalProjection,
         purchase_gate: purchaseGate,
         purchase_completeness: purchaseCompleteness,
         head_style_consistency: headConsistency,
