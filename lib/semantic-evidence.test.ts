@@ -46,6 +46,15 @@ for (const secretValue of ['M14 × 2.0','9/16-12 UNC','#37-12','13.700','2.051',
 assert.deepEqual(candidateBlindSemanticPromptContext(request).semantic_roi.target_region,{
   present:true,x_min:100,y_min:100,x_max:900,y_max:800,
 })
+assert.equal(request.semantic_roi.crop_ref,'target_region_1')
+const fullImageRequest=buildCandidateBlindSemanticRequest({image})
+assert.equal(fullImageRequest.semantic_roi.target_region,null)
+assert.equal(fullImageRequest.semantic_roi.crop_ref,'full_image_1')
+const fullImageEvidence=buildSemanticEvidenceV1(validRaw(),fullImageRequest,{
+  model:'mock-vlm',model_version:'mock-v1',
+})
+assert.equal(fullImageEvidence.evidence_sources[0].crop_ref,'full_image_1')
+assert.equal(fullImageEvidence.independence_groups[0].group_id,'full_image_1')
 
 function baseObservation(feature_id:string,value:string,state:string,visibility:string) {
   return {
