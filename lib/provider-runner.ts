@@ -19,7 +19,7 @@ import { buildCvDimensionCandidate, buildCvGroundingBasis } from '@/lib/cv-groun
 import { toMeasurementV2 } from '@/lib/measurement-v2'
 import { STANDARDS_CATALOGUE_V1 } from '@/lib/standards-database-v1'
 import { buildStandardsAuthorityResult, buildStandardsShadowResult } from '@/lib/standards-shadow-solver'
-import { projectSelectedFormalNominal, renderFormalDesignation } from '@/lib/formal-nominal-projection'
+import { buildPublicFormalSurfaces, projectSelectedFormalNominal } from '@/lib/formal-nominal-projection'
 import { localizeForMeasurement, type SemanticLocalizationResult } from '@/lib/semantic-localizer'
 
 const MAX_IMAGE_LENGTH = 7_000_000
@@ -155,7 +155,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const formalNominalProjection = standardsAuthority
       ? projectSelectedFormalNominal(standardsAuthority)
       : null
-    const publicFormalDesignation = renderFormalDesignation(formalNominalProjection)
+    const publicFormalDesignation = formalNominalProjection?.designation ?? null
     // Compatibility-only diagnostic. It has no standards authority.
     const standardsSolverShadow = measurementV2
       ? buildStandardsShadowResult(
@@ -207,18 +207,21 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       dimensionCandidate.status === 'candidate'
       ? `${baseGuidance}；舊純算術尺寸表示 ${dimensionCandidate.specification} 僅保留為 non-authoritative diagnostic。正式 nominal 候選只能來自 standards_authority.formal_candidates；目前尚未 deterministic 選出 winner。`
       : baseGuidance
-    if (fullFastenerSpecAllowed && publicFormalDesignation) {
+    if (fullFastenerSpecAllowed && formalNominalProjection) {
       // Legacy LLM text is never reused across the authority seam. All public
-      // formal nominal strings are rebuilt from the selected catalogue record.
-      identificationRaw.fastener_interpretation.nominal_specification = publicFormalDesignation
-      identificationRaw.purchase_description = optionalDrive.includes('drive_form')
-        ? `${identificationRaw.item_name}：${publicFormalDesignation}（驅動槽型式及尺寸待確認）`
-        : `${identificationRaw.item_name}：${publicFormalDesignation}`
+      // formal nominal surfaces are rebuilt by the deterministic projection helper.
+      const publicFormal = buildPublicFormalSurfaces(
+        identificationRaw.item_name,
+        formalNominalProjection,
+        { driveFormUnconfirmed:optionalDrive.includes('drive_form') },
+      )
+      identificationRaw.fastener_interpretation.nominal_specification = publicFormal.nominal_specification!
+      identificationRaw.purchase_description = publicFormal.purchase_description!
       identificationRaw.specifications = [
         ...identificationRaw.specifications.filter(spec =>
           spec.evidence_level !== 'estimated' || !/\\d/.test(spec.value)
         ),
-        { label:'標準公稱規格', value:publicFormalDesignation, evidence_level:'estimated' },
+        publicFormal.specification_item!,
       ]
     }
     if (isFastener && !fullFastenerSpecAllowed) {
