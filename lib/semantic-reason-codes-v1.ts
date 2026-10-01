@@ -1,6 +1,6 @@
 export const SEMANTIC_REASON_CODE_TAXONOMY_VERSION = 'hcsi.semantic-reason-codes.v1' as const
 
-export const SEMANTIC_OBSERVATION_REASON_CODES = [
+export const SENSOR_EMITTABLE_SEMANTIC_OBSERVATION_REASON_CODES = [
   'FEATURE_VISIBLE',
   'FEATURE_PARTIALLY_VISIBLE',
   'FEATURE_NOT_VISIBLE',
@@ -25,10 +25,20 @@ export const SEMANTIC_OBSERVATION_REASON_CODES = [
   'OCR_UNREADABLE',
   'OCR_PARTIAL',
   'BACKGROUND_TEXT_EXCLUDED',
+] as const
+
+export const DETERMINISTIC_POSTPROCESS_SEMANTIC_OBSERVATION_REASON_CODES = [
   'FORBIDDEN_CLAIM_REMOVED',
   'UNCALIBRATED_PROBABILITY_REMOVED',
 ] as const
 
+export const SEMANTIC_OBSERVATION_REASON_CODES = [
+  ...SENSOR_EMITTABLE_SEMANTIC_OBSERVATION_REASON_CODES,
+  ...DETERMINISTIC_POSTPROCESS_SEMANTIC_OBSERVATION_REASON_CODES,
+] as const
+
+export type SensorEmittableSemanticObservationReasonCode =
+  (typeof SENSOR_EMITTABLE_SEMANTIC_OBSERVATION_REASON_CODES)[number]
 export type SemanticObservationReasonCode = (typeof SEMANTIC_OBSERVATION_REASON_CODES)[number]
 
 export const SEMANTIC_QUALITY_REASON_CODES = [
@@ -47,8 +57,13 @@ export const SEMANTIC_QUALITY_REASON_CODES = [
 
 export type SemanticQualityReasonCode = (typeof SEMANTIC_QUALITY_REASON_CODES)[number]
 
+const SENSOR_OBSERVATION_REASON_SET = new Set<string>(SENSOR_EMITTABLE_SEMANTIC_OBSERVATION_REASON_CODES)
 const OBSERVATION_REASON_SET = new Set<string>(SEMANTIC_OBSERVATION_REASON_CODES)
 const QUALITY_REASON_SET = new Set<string>(SEMANTIC_QUALITY_REASON_CODES)
+
+export function isSensorEmittableSemanticObservationReasonCode(value: unknown): value is SensorEmittableSemanticObservationReasonCode {
+  return typeof value === 'string' && SENSOR_OBSERVATION_REASON_SET.has(value)
+}
 
 export function isSemanticObservationReasonCode(value: unknown): value is SemanticObservationReasonCode {
   return typeof value === 'string' && OBSERVATION_REASON_SET.has(value)
