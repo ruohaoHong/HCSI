@@ -208,15 +208,18 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       ? `${baseGuidance}；舊純算術尺寸表示 ${dimensionCandidate.specification} 僅保留為 non-authoritative diagnostic。正式 nominal 候選只能來自 standards_authority.formal_candidates；目前尚未 deterministic 選出 winner。`
       : baseGuidance
     if (fullFastenerSpecAllowed && publicFormalDesignation) {
-      // The legacy field remains in the response shape for compatibility, but
-      // once public it is overwritten exclusively from the selected catalogue candidate.
+      // Legacy LLM text is never reused across the authority seam. All public
+      // formal nominal strings are rebuilt from the selected catalogue record.
       identificationRaw.fastener_interpretation.nominal_specification = publicFormalDesignation
-    }
-    if (fullFastenerSpecAllowed && optionalDrive.includes('drive_form') && publicFormalDesignation) {
-      // Do not turn a side-view dimension success into an unsupported claim
-      // that a specific screwdriver recess was actually photographed.
-      identificationRaw.purchase_description =
-        `${identificationRaw.item_name}：${publicFormalDesignation}（驅動槽型式及尺寸待確認）`
+      identificationRaw.purchase_description = optionalDrive.includes('drive_form')
+        ? `${identificationRaw.item_name}：${publicFormalDesignation}（驅動槽型式及尺寸待確認）`
+        : `${identificationRaw.item_name}：${publicFormalDesignation}`
+      identificationRaw.specifications = [
+        ...identificationRaw.specifications.filter(spec =>
+          spec.evidence_level !== 'estimated' || !/\\d/.test(spec.value)
+        ),
+        { label:'標準公稱規格', value:publicFormalDesignation, evidence_level:'estimated' },
+      ]
     }
     if (isFastener && !fullFastenerSpecAllowed) {
       identificationRaw.fastener_interpretation.nominal_specification = ''
