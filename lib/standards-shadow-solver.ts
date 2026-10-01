@@ -299,9 +299,9 @@ export function buildStandardsShadowResult(
     scoring_state:{
       model_id:'phase1-euclidean-dp-residual-v1',
       calibrated_probability_available:false,
-      covariance_available:false,
+      covariance_available:measurement.uncertainty.covariance.status !== 'not_estimated',
       tolerance_likelihood_available:false,
-      todo:'Add covariance, systematic-bias ledger and standards tolerance likelihood before interpreting scores probabilistically.',
+      todo:'Phase 2A physical_evidence is measurement compatibility, not posterior probability. Tolerance remains unavailable until class-specific limits are versioned.',
     },
   }
 }
