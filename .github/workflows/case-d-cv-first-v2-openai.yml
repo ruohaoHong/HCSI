@@ -6,7 +6,7 @@ name: Frozen Case D CV-first v2 OpenAI blind E2E
 # Exact frozen image is SHA-checked; GT enters only after inference.
 on:
   push:
-    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening]
     paths:
       - '.github/workflows/case-d-cv-first-v2-openai.yml'
       - 'lib/cv-first-identification.ts'
@@ -152,8 +152,17 @@ jobs:
           assert uncertainty['covariance']['null_semantics'] == 'not_estimated'
           assert isinstance(uncertainty['systematic_bias_ledger'], list)
           assert any(item['type'] == 'depth_parallax' for item in uncertainty['systematic_bias_ledger'])
-          assert all(item.get('physical_evidence',{}).get('semantics') == 'measurement_compatibility_not_posterior_probability' for item in authority['formal_candidates'])
+          assert all(item.get('physical_evidence',{}).get('semantics') == 'random_measurement_nominal_proximity_not_standards_likelihood_or_posterior' for item in authority['formal_candidates'])
           assert all(item.get('physical_evidence',{}).get('tolerance',{}).get('status') in ['available','unavailable'] for item in authority['formal_candidates'])
+          for item in authority['formal_candidates']:
+              pe = item['physical_evidence']
+              assert pe['standards_likelihood']['available'] is False
+              if pe['joint']['status'] == 'available':
+                  assert pe['bias_readiness']['status'] == 'ready'
+                  assert pe['covariance_readiness']['status'] == 'complete'
+                  assert isinstance(pe['joint']['log_density'], (int,float))
+              else:
+                  assert pe['joint']['log_density'] is None
           assert output['user_guidance']['purchase_ready'] is False
           assert output['user_guidance']['formal_nominal_source'] == 'versioned_standards_solver'
           assert output['user_guidance']['selected_candidate_id'] is None
