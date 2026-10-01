@@ -152,6 +152,11 @@ function observationErrors(value: unknown, rawSensor = false): string[] {
   return errors
 }
 
+export function validateSemanticObservationV1(value: unknown, rawSensor = false): {valid:boolean;errors:string[]} {
+  const errors=observationErrors(value,rawSensor)
+  return {valid:errors.length===0,errors}
+}
+
 export function sanitizeRawSemanticSensorOutput(raw: RawSemanticSensorOutput): RawSemanticSensorOutput {
   return {
     ...raw,
