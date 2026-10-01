@@ -60,12 +60,143 @@ export interface MeasurementUncertaintyV1 {
   covariance: {
     quantities: FixedDimension[]
     matrix_mm2: Array<Array<number | null>>
-    status: 'partial' | 'not_estimated'
+    status: 'complete' | 'partial' | 'not_estimated'
     null_semantics: 'not_estimated'
     note: string
   }
   systematic_bias_ledger: SystematicBiasComponent[]
   systematic_bias_status: 'unresolved' | 'resolved' | 'not_estimated'
+}
+
+export type BiasReadinessStatus =
+  | 'ready'
+  | 'blocked_unresolved_bias'
+  | 'blocked_unestimated_bias'
+
+export interface BiasReadinessAssessment {
+  status: BiasReadinessStatus
+  quantities: FixedDimension[]
+  relevant_component_ids: string[]
+  blocking_component_ids: string[]
+  reason_codes: string[]
+}
+
+export type CovarianceReadinessStatus = 'complete' | 'partial' | 'not_estimated' | 'invalid'
+
+export interface CovarianceReadinessAssessment {
+  status: CovarianceReadinessStatus
+  quantities: FixedDimension[]
+  matrix_mm2: number[][] | null
+  reason_codes: string[]
+}
+
+function intersects<T>(a: T[], b: T[]): boolean {
+  return a.some(value => b.includes(value))
+}
+
+/**
+ * Positive authorization gate for decision-relevant systematic bias.
+ * Only resolved/not_applicable components are safe. Missing knowledge is never safe.
+ */
+export function assessJointBiasReadiness(
+  uncertainty: MeasurementUncertaintyV1,
+  quantities: FixedDimension[],
+): BiasReadinessAssessment {
+  const relevant = uncertainty.systematic_bias_ledger.filter(component =>
+    intersects(component.affected_quantities, quantities)
+  )
+  const unresolved = relevant.filter(component => component.status === 'unresolved')
+  const unestimated = relevant.filter(component => component.status === 'not_estimated')
+  const status: BiasReadinessStatus = unresolved.length > 0
+    ? 'blocked_unresolved_bias'
+    : unestimated.length > 0
+      ? 'blocked_unestimated_bias'
+      : 'ready'
+  return {
+    status,
+    quantities:[...quantities],
+    relevant_component_ids:relevant.map(component => component.bias_component_id),
+    blocking_component_ids:(unresolved.length > 0 ? unresolved : unestimated).map(component => component.bias_component_id),
+    reason_codes:[
+      ...(unresolved.length > 0 ? ['relevant_systematic_bias_unresolved'] : []),
+      ...(unestimated.length > 0 ? ['relevant_systematic_bias_not_estimated'] : []),
+    ],
+  }
+}
+
+function positiveDefinite(matrix: number[][]): boolean {
+  const n = matrix.length
+  const lower = Array.from({length:n}, () => Array(n).fill(0))
+  for (let i=0;i<n;i++) {
+    for (let j=0;j<=i;j++) {
+      let sum = 0
+      for (let k=0;k<j;k++) sum += lower[i][k] * lower[j][k]
+      if (i === j) {
+        const value = matrix[i][i] - sum
+        if (!(value > 0) || !Number.isFinite(value)) return false
+        lower[i][j] = Math.sqrt(value)
+      } else {
+        if (!(lower[j][j] > 0)) return false
+        lower[i][j] = (matrix[i][j] - sum) / lower[j][j]
+      }
+    }
+  }
+  return true
+}
+
+/**
+ * Completeness is assessed for the exact quantities to be fused.
+ * Explicit numeric zero covariance is known; null means unknown.
+ */
+export function assessCovarianceReadiness(
+  uncertainty: MeasurementUncertaintyV1,
+  quantities: FixedDimension[],
+): CovarianceReadinessAssessment {
+  const covariance = uncertainty.covariance
+  const indexes = quantities.map(quantity => covariance.quantities.indexOf(quantity))
+  if (indexes.some(index => index < 0)) {
+    return {
+      status:'not_estimated',
+      quantities:[...quantities],
+      matrix_mm2:null,
+      reason_codes:['covariance_quantity_missing'],
+    }
+  }
+  if (covariance.matrix_mm2.length !== covariance.quantities.length ||
+      covariance.matrix_mm2.some(row => row.length !== covariance.quantities.length)) {
+    return {
+      status:'invalid',
+      quantities:[...quantities],
+      matrix_mm2:null,
+      reason_codes:['covariance_matrix_shape_invalid'],
+    }
+  }
+  const raw = indexes.map(i => indexes.map(j => covariance.matrix_mm2[i][j]))
+  const known = raw.flat().filter(value => value !== null).length
+  if (known === 0) {
+    return {status:'not_estimated',quantities:[...quantities],matrix_mm2:null,reason_codes:['covariance_not_estimated']}
+  }
+  if (raw.some(row => row.some(value => value === null))) {
+    return {status:'partial',quantities:[...quantities],matrix_mm2:null,reason_codes:['covariance_entries_missing']}
+  }
+  const matrix = raw as number[][]
+  if (matrix.some(row => row.some(value => !Number.isFinite(value)))) {
+    return {status:'invalid',quantities:[...quantities],matrix_mm2:null,reason_codes:['covariance_nonfinite']}
+  }
+  for (let i=0;i<matrix.length;i++) {
+    if (!(matrix[i][i] > 0)) {
+      return {status:'invalid',quantities:[...quantities],matrix_mm2:null,reason_codes:['covariance_variance_nonpositive']}
+    }
+    for (let j=i+1;j<matrix.length;j++) {
+      if (Math.abs(matrix[i][j]-matrix[j][i]) > 1e-12) {
+        return {status:'invalid',quantities:[...quantities],matrix_mm2:null,reason_codes:['covariance_not_symmetric']}
+      }
+    }
+  }
+  if (!positiveDefinite(matrix)) {
+    return {status:'invalid',quantities:[...quantities],matrix_mm2:null,reason_codes:['covariance_not_positive_definite']}
+  }
+  return {status:'complete',quantities:[...quantities],matrix_mm2:matrix,reason_codes:[]}
 }
 
 function finitePositive(value: unknown): value is number {
@@ -281,6 +412,10 @@ export function buildMeasurementUncertainty(source: MeasurementResult): Measurem
       note:'Only directly supported local diagonal variance components are populated; this is not total propagated covariance. Unknown variances/covariances are null, never zero.',
     },
     systematic_bias_ledger,
-    systematic_bias_status:systematic_bias_ledger.some(x => x.status === 'unresolved') ? 'unresolved' : 'not_estimated',
+    systematic_bias_status:systematic_bias_ledger.some(x => x.status === 'unresolved')
+      ? 'unresolved'
+      : systematic_bias_ledger.some(x => x.status === 'not_estimated')
+        ? 'not_estimated'
+        : 'resolved',
   }
 }
