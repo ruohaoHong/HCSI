@@ -54,7 +54,7 @@ export interface SemanticObservation {
   source: string
   evidence_refs: string[]
   independence_group: string
-  reason_codes: SensorEmittableSemanticObservationReasonCode[]
+  reason_codes: SemanticObservationReasonCode[]
   freeform_description: string | null
   raw_text: string | null
   normalized_text: string | null
@@ -144,7 +144,7 @@ export interface RawSemanticSensorObservation {
   raw_score: number | null
   calibrated_probability: number | null
   calibration_status: 'uncalibrated'
-  reason_codes: SemanticObservationReasonCode[]
+  reason_codes: SensorEmittableSemanticObservationReasonCode[]
   freeform_description: string | null
   raw_text: string | null
   normalized_text: string | null
