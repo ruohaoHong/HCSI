@@ -173,7 +173,7 @@ jobs:
                   assert abs(obs[key] - cv['dimensions'][key]['value_mm']) < 1e-9
           designations = [item['designation'] for item in shadow['new_candidates']]
           assert '#8-32 UNC' in designations
-          assert shadow['scoring_state']['covariance_available'] is False
+          assert shadow['scoring_state']['covariance_available'] == (uncertainty['covariance']['status'] != 'not_estimated')
           (root/'response.json').write_text(json.dumps(output,ensure_ascii=False,indent=2))
           result = output['result']
           assert 'internal_nominal_mapping' not in result, 'Internal verification payload leaked into user-facing result'
