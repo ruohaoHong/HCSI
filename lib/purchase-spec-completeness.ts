@@ -7,6 +7,7 @@ export type PurchaseCompletenessReason =
   | 'head_style_unresolved'
   | 'thread_system_unresolved'
   | 'nominal_specification_missing'
+  | 'standards_candidate_not_selected'
 
 export interface PurchaseSpecificationCompleteness {
   complete: boolean
@@ -18,6 +19,7 @@ export function assessPurchaseSpecificationCompleteness(
   result: IdentificationResult,
   gate: PurchaseGate,
   drive: DriveEvidence,
+  standardsDecision?: { selected_candidate_id: string | null; purchase_ready: boolean },
 ): PurchaseSpecificationCompleteness {
   const reasons: PurchaseCompletenessReason[] = []
   const fastener = result.fastener_interpretation
@@ -30,6 +32,9 @@ export function assessPurchaseSpecificationCompleteness(
   }
   if (!(fastener?.nominal_specification.trim())) {
     reasons.push('nominal_specification_missing')
+  }
+  if (!standardsDecision?.selected_candidate_id || standardsDecision.purchase_ready !== true) {
+    reasons.push('standards_candidate_not_selected')
   }
 
   const noRecess = /^(none|no drive|不適用|外六角)$/i.test(drive.display_form)
