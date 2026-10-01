@@ -6,7 +6,7 @@
 # GT is introduced only in the final scoring step after response.json is frozen and hashed.
 on:
   push:
-    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1]
     paths:
       - '.github/workflows/case-c-image-only-openai-e2e.yml'
       - 'lib/provider-runner.ts'
@@ -22,6 +22,11 @@ on:
       - 'lib/standards-catalogue.ts'
       - 'lib/standards-database-v1.ts'
       - 'lib/standards-shadow-solver.ts'
+      - 'lib/semantic-taxonomy-v1.ts'
+      - 'lib/semantic-evidence-v1.ts'
+      - 'lib/candidate-blind-semantic-request.ts'
+      - 'lib/semantic-evidence-validator.ts'
+      - 'lib/semantic-extractor.ts'
   workflow_dispatch:
 
 permissions:
@@ -191,6 +196,33 @@ jobs:
           assert authority['decision']['selected_candidate_id'] is None
           assert authority['decision']['purchase_ready'] is False
           assert output['formal_nominal_projection'] is None
+          semantic = output['semantic_evidence']
+          assert output['semantic_evidence_error'] is None
+          assert semantic['schema_version'] == 'hcsi.semantic-evidence.v1'
+          assert semantic['taxonomy_version'] == 'hcsi.semantic-taxonomy.v1'
+          assert semantic['extractor_version'] == 'hcsi.candidate-blind-vlm.v1'
+          scope = semantic['observation_scope']
+          assert scope['mode'] == 'candidate_blind_first_pass'
+          assert scope['physical_measurements_included'] is False
+          assert scope['standards_candidates_included'] is False
+          assert scope['legacy_nominal_included'] is False
+          assert scope['ground_truth_included'] is False
+          expected_features = {
+              'head.profile','head.morphology','drive.form','flange_washer.feature',
+              'tip.morphology','thread.extent','thread.morphology',
+              'markings.presence','markings.ocr',
+          }
+          assert {item['feature_id'] for item in semantic['observations']} == expected_features
+          assert semantic['evidence_sources']
+          assert semantic['independence_groups']
+          assert all(item['evidence_refs'] for item in semantic['observations'])
+          assert all(item['independence_group'] for item in semantic['observations'])
+          assert all(item['calibrated_probability'] is None
+                     for item in semantic['observations']
+                     if item['calibration_status'] == 'uncalibrated')
+          semantic_json = json.dumps(semantic, ensure_ascii=False)
+          for forbidden in ['M14 × 2.0','9/16-12 UNC','#37-12']:
+              assert forbidden not in semantic_json
           uncertainty = authority['measurement_v2']['uncertainty']
           assert uncertainty['schema_version'] == 'hcsi.measurement-uncertainty.v1'
           assert uncertainty['covariance']['null_semantics'] == 'not_estimated'
@@ -264,6 +296,7 @@ jobs:
           response_path.chmod(0o444)
 
           print('CASE C BLIND E2E INFERENCE COMPLETED')
+          print('PHASE2B_SEMANTIC_EVIDENCE:', json.dumps(semantic, ensure_ascii=False, sort_keys=True))
           print('PHASE2A_UNCERTAINTY:', json.dumps(uncertainty, ensure_ascii=False, sort_keys=True))
           au = next(item for item in authority['formal_candidates'] if item['designation'] == '9/16-12 UNC')
           print('PHASE2A_M14_PHYSICAL:', json.dumps(am14['physical_evidence'], ensure_ascii=False, sort_keys=True))
