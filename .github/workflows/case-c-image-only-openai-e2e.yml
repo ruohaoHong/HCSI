@@ -5,7 +5,7 @@
 # GT is introduced only in the final scoring step after response.json is frozen and hashed.
 on:
   push:
-    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth]
     paths:
       - '.github/workflows/case-c-image-only-openai-e2e.yml'
       - 'lib/provider-runner.ts'
@@ -170,6 +170,30 @@ jobs:
           assert output['measurement'] == cv
           # Phase 1 standards shadow regression: architecture assertions only.
           shadow = output['standards_solver_shadow']
+          authority = output['standards_authority']
+          assert authority['mode'] == 'standards_authority'
+          assert authority['contract_version'] == 'hcsi.standards-authority.v1'
+          assert authority['decision']['status'] == 'unresolved'
+          assert authority['decision']['selected_candidate_id'] is None
+          assert authority['decision']['purchase_ready'] is False
+          assert output['user_guidance']['purchase_ready'] is False
+          assert output['user_guidance']['formal_nominal_source'] == 'versioned_standards_solver'
+          assert output['user_guidance']['selected_candidate_id'] is None
+          formal_designations = [item['designation'] for item in authority['formal_candidates']]
+          assert "M14 × 2.0" in formal_designations
+          assert '9/16-12 UNC' in formal_designations
+          assert not any('#37-12' in item for item in formal_designations)
+          aobs = {item['quantity']: item['value_mm'] for item in authority['measurement_v2']['observations']}
+          assert abs(aobs['D'] - 13.700) < 1e-9
+          assert abs(aobs['P'] - 2.051) < 1e-9
+          assert abs(aobs['L_underhead'] - 47.540) < 1e-9
+          am14 = next(item for item in authority['formal_candidates'] if item['designation'] == 'M14 × 2.0')
+          al45 = next(item for item in am14['length_comparison']['hypotheses'] if abs(item['nominal_mm'] - 45.0) < 1e-9)
+          assert abs(al45['residual_mm'] - 2.540) < 1e-9
+          assert any(item['standard_system'] == 'iso_metric' for item in authority['formal_candidates'])
+          assert any(item['standard_system'] == 'unified_inch' for item in authority['formal_candidates'])
+          assert authority['legacy_diagnostics']['llm_nominal']['authority'] == 'non_authoritative'
+          assert authority['legacy_diagnostics']['dimension_candidate']['authority'] == 'non_authoritative'
           assert shadow['mode'] == 'shadow'
           assert shadow['purchase_ready'] is False
           assert shadow['candidate_summary']['iso_metric'] > 0
