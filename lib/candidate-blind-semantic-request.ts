@@ -18,7 +18,7 @@ export interface CandidateBlindSemanticRequest {
     image_sha256: string
   }
   semantic_roi: {
-    crop_ref: 'target_region_1'
+    crop_ref: 'target_region_1' | 'full_image_1'
     target_region: CandidateBlindSemanticRegion | null
   }
   visibility_context: {
@@ -73,7 +73,7 @@ export function buildCandidateBlindSemanticRequest(input: unknown): CandidateBli
       image_sha256:createHash('sha256').update(bytes).digest('hex'),
     },
     semantic_roi:{
-      crop_ref:'target_region_1',
+      crop_ref:targetRegion?.present === true ? 'target_region_1' : 'full_image_1',
       target_region:targetRegion,
     },
     visibility_context:{
