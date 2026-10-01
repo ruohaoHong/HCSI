@@ -230,7 +230,7 @@ export function validateRawSemanticSensorOutput(value: unknown): {valid:boolean;
   return {valid:errors.length===0,errors}
 }
 
-function validatePostprocessedSemanticSensorOutput(value: unknown): {valid:boolean;errors:string[]} {
+export function validatePostprocessedSemanticSensorOutput(value: unknown): {valid:boolean;errors:string[]} {
   const errors:string[]=[]
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {valid:false,errors:['sensor_output_not_object']}
   const v=value as Record<string,unknown>
