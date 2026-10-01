@@ -137,6 +137,8 @@ export interface CvDimensionCandidate {
   specification: string | null
   source: 'imperial_numbered_arithmetic' | null
   evidence_level: 'estimated' | 'unconfirmed'
+  authority: 'non_authoritative'
+  use: 'diagnostic_only'
   excludes: Array<'head_style' | 'drive_form' | 'drive_size' | 'thread_series'>
   reason_codes: string[]
   note: string
@@ -158,6 +160,8 @@ export function buildCvDimensionCandidate(basis: CvGroundingBasis): CvDimensionC
       specification: null,
       source: null,
       evidence_level: 'unconfirmed',
+      authority: 'non_authoritative',
+      use: 'diagnostic_only',
       excludes: ['head_style', 'drive_form', 'drive_size', 'thread_series'],
       reason_codes: ['cv_dimension_candidate_not_supported'],
       note: 'No independent dimension-only nominal candidate is exposed.',
@@ -168,13 +172,15 @@ export function buildCvDimensionCandidate(basis: CvGroundingBasis): CvDimensionC
     specification: `#${numbered.nearest_integer_size}-${numbered.nearest_integer_tpi} × ${length.label}`,
     source: 'imperial_numbered_arithmetic',
     evidence_level: 'estimated',
+    authority: 'non_authoritative',
+    use: 'diagnostic_only',
     excludes: ['head_style', 'drive_form', 'drive_size', 'thread_series'],
     reason_codes: [
       'numbered_diameter_residual_within_cv_uncertainty',
       'nearest_integer_tpi_from_measured_pitch',
       'length_quantized_to_nearest_1_64_inch',
     ],
-    note: 'Dimension-only CV arithmetic candidate; not a complete purchase specification and not proof of catalogue availability.',
+    note: 'Legacy arithmetic diagnostic only; never a formal nominal candidate, purchase specification, or proof of catalogue availability.',
   }
 }
 
