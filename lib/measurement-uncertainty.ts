@@ -193,6 +193,17 @@ export function assessCovarianceReadiness(
       }
     }
   }
+  if (matrix.length === 2) {
+    const determinant = matrix[0][0]*matrix[1][1] - matrix[0][1]*matrix[1][0]
+    const scale = Math.max(
+      Math.abs(matrix[0][0]*matrix[1][1]),
+      Math.abs(matrix[0][1]*matrix[1][0]),
+      Number.MIN_VALUE,
+    )
+    if (!(determinant > Number.EPSILON * scale * 64)) {
+      return {status:'invalid',quantities:[...quantities],matrix_mm2:null,reason_codes:['covariance_singular_or_near_singular']}
+    }
+  }
   if (!positiveDefinite(matrix)) {
     return {status:'invalid',quantities:[...quantities],matrix_mm2:null,reason_codes:['covariance_not_positive_definite']}
   }
