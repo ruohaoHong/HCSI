@@ -6,7 +6,7 @@ name: Frozen Case D CV-first v2 OpenAI blind E2E
 # Exact frozen image is SHA-checked; GT enters only after inference.
 on:
   push:
-    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak, feature/candidate-semantic-discrimination]
     paths:
       - '.github/workflows/case-d-cv-first-v2-openai.yml'
       - 'lib/cv-first-identification.ts'
@@ -24,6 +24,12 @@ on:
       - 'lib/semantic-taxonomy-v1.ts'
       - 'lib/semantic-evidence-v1.ts'
       - 'lib/semantic-reason-codes-v1.ts'
+      - 'lib/candidate-feature-metadata-v1.ts'
+      - 'lib/candidate-feature-compiler.ts'
+      - 'lib/semantic-discrimination-plan-v1.ts'
+      - 'lib/targeted-semantic-request.ts'
+      - 'lib/targeted-semantic-extractor.ts'
+      - 'lib/candidate-semantic-discrimination.ts'
       - 'lib/candidate-blind-semantic-request.ts'
       - 'lib/semantic-evidence-validator.ts'
       - 'lib/semantic-extractor.ts'
@@ -154,6 +160,32 @@ jobs:
           assert authority['decision']['purchase_ready'] is False
           assert output['formal_nominal_projection'] is None
           semantic = output['semantic_evidence']
+          matrix = output['candidate_feature_matrix']
+          plan = output['semantic_discrimination_plan']
+          targeted = output['targeted_semantic_evidence']
+          discrimination = output['candidate_semantic_discrimination']
+          authority = output['standards_authority']
+          assert matrix['schema_version'] == 'hcsi.candidate-feature-compiler.v1'
+          assert matrix['candidate_ids'] == [c['candidate_id'] for c in authority['formal_candidates']]
+          assert matrix['discriminative_features'] == []
+          for profile in matrix['profiles']:
+              for constraint in profile['feature_constraints']:
+                  assert constraint['relation'] == 'not_specified'
+                  assert constraint['support_status'] == 'unavailable'
+                  assert constraint['provenance']['source_type'] == 'candidate_metadata_unavailable'
+          assert plan['schema_version'] == 'hcsi.semantic-discrimination-plan.v1'
+          assert plan['status'] == 'no_semantic_discriminator_available'
+          assert plan['discriminators'] == []
+          assert targeted == []
+          assert discrimination['schema_version'] == 'hcsi.candidate-semantic-discrimination.v1'
+          assert discrimination['candidate_ids_before'] == matrix['candidate_ids']
+          assert discrimination['candidate_ids_after'] == matrix['candidate_ids']
+          assert discrimination['decision']['selected_candidate_id'] is None
+          assert discrimination['decision']['purchase_ready'] is False
+          assert discrimination['numeric_score'] is None
+          assert discrimination['posterior_probability'] is None
+          assert authority['decision']['selected_candidate_id'] is None
+          assert authority['decision']['purchase_ready'] is False
           assert output['semantic_evidence_error'] is None
           assert semantic['schema_version'] == 'hcsi.semantic-evidence.v1'
           assert semantic['taxonomy_version'] == 'hcsi.semantic-taxonomy.v1'
