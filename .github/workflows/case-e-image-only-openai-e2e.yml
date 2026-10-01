@@ -6,7 +6,7 @@
 # expected semantics enter either inference stage; GT loads only afterwards.
 on:
   push:
-    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth]
     paths:
       - '.github/workflows/case-e-image-only-openai-e2e.yml'
       - 'lib/provider-runner.ts'
@@ -156,6 +156,21 @@ jobs:
           assert output['measurement'] == cv
           # Phase 1 standards shadow regression: raw CV parity + valid candidate universe.
           shadow = output['standards_solver_shadow']
+          authority = output['standards_authority']
+          assert authority['mode'] == 'standards_authority'
+          assert authority['contract_version'] == 'hcsi.standards-authority.v1'
+          assert authority['decision']['status'] == 'unresolved'
+          assert authority['decision']['selected_candidate_id'] is None
+          assert authority['decision']['purchase_ready'] is False
+          assert output['user_guidance']['purchase_ready'] is False
+          assert output['user_guidance']['formal_nominal_source'] == 'versioned_standards_solver'
+          assert output['user_guidance']['selected_candidate_id'] is None
+          formal_designations = [item['designation'] for item in authority['formal_candidates']]
+          assert "M3 × 0.5" in formal_designations
+          assert any(item['standard_system'] == 'iso_metric' for item in authority['formal_candidates'])
+          assert any(item['standard_system'] == 'unified_inch' for item in authority['formal_candidates'])
+          assert authority['legacy_diagnostics']['llm_nominal']['authority'] == 'non_authoritative'
+          assert authority['legacy_diagnostics']['dimension_candidate']['authority'] == 'non_authoritative'
           assert shadow['mode'] == 'shadow'
           assert shadow['purchase_ready'] is False
           assert shadow['candidate_summary']['iso_metric'] > 0
