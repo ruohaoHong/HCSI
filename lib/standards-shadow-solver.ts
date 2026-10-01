@@ -25,8 +25,8 @@ export interface StandardsShadowResult {
   scoring_state: {
     model_id: 'phase1-euclidean-dp-residual-v1'
     calibrated_probability_available: false
-    covariance_available: false
-    tolerance_likelihood_available: false
+    covariance_available: boolean
+    tolerance_likelihood_available: boolean
     todo: string
   }
 }
