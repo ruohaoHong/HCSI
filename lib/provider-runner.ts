@@ -21,6 +21,9 @@ import { STANDARDS_CATALOGUE_V1 } from '@/lib/standards-database-v1'
 import { buildStandardsAuthorityResult, buildStandardsShadowResult } from '@/lib/standards-shadow-solver'
 import { buildPublicFormalSurfaces, projectSelectedFormalNominal } from '@/lib/formal-nominal-projection'
 import { localizeForMeasurement, type SemanticLocalizationResult } from '@/lib/semantic-localizer'
+import { buildCandidateBlindSemanticRequest } from '@/lib/candidate-blind-semantic-request'
+import { extractCandidateBlindSemanticEvidence } from '@/lib/semantic-extractor'
+import type { SemanticEvidenceV1 } from '@/lib/semantic-evidence-v1'
 
 const MAX_IMAGE_LENGTH = 7_000_000
 const PROVIDER_CONFIG = {
@@ -77,6 +80,22 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     }
     const cvComplete = !!measurement?.dimensions && REQUIRED_INFERENCE_DIMENSIONS.every(key => !!measurement?.dimensions?.[key])
     if (measurement && !cvComplete) throw new Error('CV-first 回傳缺少推論所需的固定尺寸槽位')
+
+    // Phase 2B shadow-only semantic first pass. The request builder is a runtime
+    // allowlist: no measurement mm, standards candidates, legacy nominal or GT
+    // can cross into this extractor.
+    let semanticEvidence: SemanticEvidenceV1 | null = null
+    let semanticEvidenceError: string | null = null
+    try {
+      const semanticRequest = buildCandidateBlindSemanticRequest({
+        image,
+        target_region: semanticLocalization?.semantic_vision.target_region ?? null,
+      })
+      semanticEvidence = await extractCandidateBlindSemanticEvidence(semanticRequest, provider)
+    } catch (error) {
+      semanticEvidenceError = error instanceof Error ? error.message : 'semantic_evidence_unavailable'
+      console.warn('[HCSI] candidate-blind semantic evidence unavailable:', semanticEvidenceError)
+    }
 
     const preflightGate = preflightPurchaseGate(measurement)
     const cvGroundingBasis = buildCvGroundingBasis(measurement, preflightGate.allowed)
@@ -278,6 +297,8 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const dimensions = measurement?.dimensions ?? {}
     const response = {
       provider, model: config.model, result: identificationRaw, measurement,
+      semantic_evidence: semanticEvidence,
+      semantic_evidence_error: semanticEvidenceError,
       standards_authority: standardsAuthority,
       formal_nominal_projection: formalNominalProjection,
       standards_solver_shadow: standardsSolverShadow, // deprecated diagnostic compatibility only
@@ -334,6 +355,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     console.info('[HCSI] CV-first internal diagnostics', {
       provider, purchaseGate, purchaseCompleteness, headConsistency, driveEvidence,
       dimensionCandidate, standardsAuthority,
+      semanticEvidenceStatus: semanticEvidence ? 'available' : 'unavailable',
       measurementServiceError, measurementReasonCodes: measurement?.reason_codes ?? [],
     })
     await logResult(provider, config.model, identificationRaw.category, identificationRaw, measurement)
