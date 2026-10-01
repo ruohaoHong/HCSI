@@ -232,7 +232,7 @@ jobs:
           assert m14['length_comparison']['product_standard_length_validation'] == 'not_implemented_phase1'
           assert any(abs(h['nominal_mm'] - 45.0) < 1e-9 and abs(h['residual_mm'] - 2.540) < 0.001
                      for h in m14['length_comparison']['hypotheses'])
-          assert shadow['scoring_state']['covariance_available'] is False
+          assert shadow['scoring_state']['covariance_available'] == (uncertainty['covariance']['status'] != 'not_estimated')
           assert shadow['scoring_state']['calibrated_probability_available'] is False
 
 
