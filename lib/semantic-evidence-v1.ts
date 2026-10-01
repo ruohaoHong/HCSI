@@ -9,6 +9,13 @@ import {
   type SemanticObservationState,
   type SemanticVisibility,
 } from './semantic-taxonomy-v1'
+import {
+  SEMANTIC_OBSERVATION_REASON_CODES,
+  SEMANTIC_QUALITY_REASON_CODES,
+  SEMANTIC_REASON_CODE_TAXONOMY_VERSION,
+  type SemanticObservationReasonCode,
+  type SemanticQualityReasonCode,
+} from './semantic-reason-codes-v1'
 
 export const SEMANTIC_EVIDENCE_SCHEMA = 'hcsi.semantic-evidence.v1' as const
 export const SEMANTIC_EXTRACTOR_VERSION = 'hcsi.candidate-blind-vlm.v1' as const
@@ -46,7 +53,7 @@ export interface SemanticObservation {
   source: string
   evidence_refs: string[]
   independence_group: string
-  reason_codes: string[]
+  reason_codes: SemanticObservationReasonCode[]
   freeform_description: string | null
   raw_text: string | null
   normalized_text: string | null
@@ -56,6 +63,7 @@ export interface SemanticObservation {
 export interface SemanticEvidenceV1 {
   schema_version: typeof SEMANTIC_EVIDENCE_SCHEMA
   taxonomy_version: typeof SEMANTIC_TAXONOMY_VERSION
+  reason_code_taxonomy_version: typeof SEMANTIC_REASON_CODE_TAXONOMY_VERSION
   extractor_version: typeof SEMANTIC_EXTRACTOR_VERSION
   observation_scope: {
     mode: 'candidate_blind_first_pass'
@@ -72,7 +80,7 @@ export interface SemanticEvidenceV1 {
   independence_groups: SemanticIndependenceGroup[]
   quality: {
     status: 'usable' | 'limited' | 'insufficient'
-    reason_codes: string[]
+    reason_codes: SemanticQualityReasonCode[]
   }
 }
 
@@ -91,7 +99,7 @@ const SENSOR_OBSERVATION_SCHEMA = {
     raw_score:{type:['number','null'],minimum:0,maximum:1},
     calibrated_probability:{type:['number','null'],minimum:0,maximum:1},
     calibration_status:{type:'string',enum:['uncalibrated']},
-    reason_codes:{type:'array',items:{type:'string'}},
+    reason_codes:{type:'array',items:{type:'string',enum:SEMANTIC_OBSERVATION_REASON_CODES}},
     freeform_description:{type:['string','null']},
     raw_text:{type:['string','null']},
     normalized_text:{type:['string','null']},
@@ -119,7 +127,7 @@ export const SEMANTIC_SENSOR_OUTPUT_JSON_SCHEMA = {
       additionalProperties:false,
       properties:{
         status:{type:'string',enum:['usable','limited','insufficient']},
-        reason_codes:{type:'array',items:{type:'string'}},
+        reason_codes:{type:'array',items:{type:'string',enum:SEMANTIC_QUALITY_REASON_CODES}},
       },
       required:['status','reason_codes'],
     },
@@ -135,7 +143,7 @@ export interface RawSemanticSensorObservation {
   raw_score: number | null
   calibrated_probability: number | null
   calibration_status: 'uncalibrated'
-  reason_codes: string[]
+  reason_codes: SemanticObservationReasonCode[]
   freeform_description: string | null
   raw_text: string | null
   normalized_text: string | null
