@@ -36,7 +36,7 @@ export function buildTargetedSemanticRequest(
     visibility_context:{
       allow_not_visible:true,allow_ambiguous:true,allow_unknown:true,allow_open_set:true,
     },
-    question:`Inspect only the observable feature "${featureId}". Report exactly one allowed taxonomy value from the supplied allowlist. Use not_visible, ambiguous, unknown, or open_set when appropriate. Do not identify a fastener standard, infer metric versus inch, infer nominal diameter, pitch, TPI or length, or choose/rank any candidate.`,
+    question:`Inspect only the observable feature "${featureId}". Report exactly one allowed taxonomy value from the supplied allowlist. Use not_visible, ambiguous, unknown, or open_set when appropriate.`,
     request_provenance:{
       planner_version:'hcsi.semantic-discrimination-plan.v1',
       source_semantic_taxonomy:'hcsi.semantic-taxonomy.v1',
