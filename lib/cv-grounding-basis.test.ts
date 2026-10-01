@@ -68,7 +68,9 @@ assert.equal(dimensionCandidate.specification, '#8-32 × 13/32 in')
 assert.equal(dimensionCandidate.source, 'imperial_numbered_arithmetic')
 assert.deepEqual(dimensionCandidate.excludes,
   ['head_style', 'drive_form', 'drive_size', 'thread_series'])
-assert.match(dimensionCandidate.note, /not a complete purchase specification/)
+assert.equal(dimensionCandidate.authority, 'non_authoritative')
+assert.equal(dimensionCandidate.use, 'diagnostic_only')
+assert.match(dimensionCandidate.note, /never a formal nominal candidate/)
 
 measurement.head_geometry!.length_convention_evidence = 'countersunk'
 measurement.head_geometry!.boundary_source = 'coarse_transition'
