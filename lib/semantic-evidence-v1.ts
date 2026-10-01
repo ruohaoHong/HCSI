@@ -10,10 +10,11 @@ import {
   type SemanticVisibility,
 } from './semantic-taxonomy-v1'
 import {
-  SEMANTIC_OBSERVATION_REASON_CODES,
+  SENSOR_EMITTABLE_SEMANTIC_OBSERVATION_REASON_CODES,
   SEMANTIC_QUALITY_REASON_CODES,
   SEMANTIC_REASON_CODE_TAXONOMY_VERSION,
   type SemanticObservationReasonCode,
+  type SensorEmittableSemanticObservationReasonCode,
   type SemanticQualityReasonCode,
 } from './semantic-reason-codes-v1'
 
@@ -53,7 +54,7 @@ export interface SemanticObservation {
   source: string
   evidence_refs: string[]
   independence_group: string
-  reason_codes: SemanticObservationReasonCode[]
+  reason_codes: SensorEmittableSemanticObservationReasonCode[]
   freeform_description: string | null
   raw_text: string | null
   normalized_text: string | null
@@ -99,7 +100,7 @@ const SENSOR_OBSERVATION_SCHEMA = {
     raw_score:{type:['number','null'],minimum:0,maximum:1},
     calibrated_probability:{type:['number','null'],minimum:0,maximum:1},
     calibration_status:{type:'string',enum:['uncalibrated']},
-    reason_codes:{type:'array',items:{type:'string',enum:SEMANTIC_OBSERVATION_REASON_CODES}},
+    reason_codes:{type:'array',items:{type:'string',enum:SENSOR_EMITTABLE_SEMANTIC_OBSERVATION_REASON_CODES}},
     freeform_description:{type:['string','null']},
     raw_text:{type:['string','null']},
     normalized_text:{type:['string','null']},
