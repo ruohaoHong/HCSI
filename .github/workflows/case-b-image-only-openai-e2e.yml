@@ -6,11 +6,15 @@ name: Case B image-only OpenAI E2E
 # Ground truth is introduced only after the final API response has been frozen.
 on:
   push:
-    branches: [feature/measurement-confidence-gate]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1]
     paths:
       - '.github/workflows/case-b-image-only-openai-e2e.yml'
       - 'app/api/measure/route.ts'
       - 'lib/provider-runner.ts'
+      - 'lib/measurement-v2.ts'
+      - 'lib/standards-catalogue.ts'
+      - 'lib/standards-database-v1.ts'
+      - 'lib/standards-shadow-solver.ts'
       - 'lib/cv-grounding-basis.ts'
       - 'lib/cv-first-identification.ts'
       - 'lib/semantic-localizer.ts'
@@ -146,6 +150,20 @@ jobs:
               'Expected signed semantic-ROI CV preflight to be reused'
           assert output.get('semantic_roi_source') == 'signed_preflight'
           assert output['measurement'] == cv
+          # Phase 1 standards shadow regression: raw CV parity + valid candidate universe.
+          shadow = output['standards_solver_shadow']
+          assert shadow['mode'] == 'shadow'
+          assert shadow['purchase_ready'] is False
+          assert shadow['candidate_summary']['iso_metric'] > 0
+          assert shadow['candidate_summary']['unified_inch'] > 0
+          obs = {item['quantity']: item['value_mm'] for item in shadow['measurement_v2']['observations']}
+          for key in ('D','P','L_overall'):
+              if cv['dimensions'][key]['status'] == 'measured':
+                  assert abs(obs[key] - cv['dimensions'][key]['value_mm']) < 1e-9
+          designations = [item['designation'] for item in shadow['new_candidates']]
+          assert 'M6 × 1.0' in designations
+          assert shadow['scoring_state']['covariance_available'] is False
+
           (root / 'cv.json').write_text(json.dumps(cv, ensure_ascii=False, indent=2))
 
           print('CASE B FULL E2E COMPLETED')
