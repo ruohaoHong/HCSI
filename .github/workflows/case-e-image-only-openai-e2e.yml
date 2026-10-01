@@ -7,7 +7,7 @@
 # expected semantics enter either inference stage; GT loads only afterwards.
 on:
   push:
-    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1]
     paths:
       - '.github/workflows/case-e-image-only-openai-e2e.yml'
       - 'lib/provider-runner.ts'
@@ -23,6 +23,11 @@ on:
       - 'lib/standards-catalogue.ts'
       - 'lib/standards-database-v1.ts'
       - 'lib/standards-shadow-solver.ts'
+      - 'lib/semantic-taxonomy-v1.ts'
+      - 'lib/semantic-evidence-v1.ts'
+      - 'lib/candidate-blind-semantic-request.ts'
+      - 'lib/semantic-evidence-validator.ts'
+      - 'lib/semantic-extractor.ts'
   workflow_dispatch:
 
 permissions:
@@ -172,6 +177,21 @@ jobs:
           assert authority['decision']['selected_candidate_id'] is None
           assert authority['decision']['purchase_ready'] is False
           assert output['formal_nominal_projection'] is None
+          semantic = output['semantic_evidence']
+          assert output['semantic_evidence_error'] is None
+          assert semantic['schema_version'] == 'hcsi.semantic-evidence.v1'
+          assert semantic['taxonomy_version'] == 'hcsi.semantic-taxonomy.v1'
+          assert semantic['extractor_version'] == 'hcsi.candidate-blind-vlm.v1'
+          scope = semantic['observation_scope']
+          assert scope['physical_measurements_included'] is False
+          assert scope['standards_candidates_included'] is False
+          assert scope['legacy_nominal_included'] is False
+          assert scope['ground_truth_included'] is False
+          assert len(semantic['observations']) >= 9
+          assert semantic['evidence_sources'] and semantic['independence_groups']
+          assert all(item['calibrated_probability'] is None
+                     for item in semantic['observations']
+                     if item['calibration_status'] == 'uncalibrated')
           uncertainty = authority['measurement_v2']['uncertainty']
           assert uncertainty['schema_version'] == 'hcsi.measurement-uncertainty.v1'
           assert uncertainty['covariance']['null_semantics'] == 'not_estimated'
@@ -221,6 +241,7 @@ jobs:
                     'mm=', dimension['value_mm'], 'reasons=', dimension['reason_codes'],
                     'risks=', dimension['risk_signals'])
           print('CV grounding basis:', json.dumps(evidence['cv_grounding_basis'], ensure_ascii=False))
+          print('PHASE2B_SEMANTIC_EVIDENCE:', json.dumps(semantic, ensure_ascii=False, sort_keys=True))
           print('Raw LLM semantic candidate:', json.dumps(
               evidence['llm_semantic_candidate_before_gates'], ensure_ascii=False))
           print('Final head style:', interp['head_style'])
