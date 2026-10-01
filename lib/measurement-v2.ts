@@ -1,5 +1,6 @@
 import type { FixedDimension, MeasurementResult } from './measurement'
 import { buildMeasurementUncertainty, type MeasurementUncertaintyV1 } from './measurement-uncertainty'
+import type { CandidatePhysicalEvidence } from './physical-evidence-likelihood'
 
 export const MEASUREMENT_V2_SCHEMA = 'hcsi.measurement.v2' as const
 export const NOMINAL_CANDIDATE_SCHEMA = 'hcsi.nominal-candidates.v1' as const
@@ -90,6 +91,7 @@ export interface NominalCandidate {
     product_standard_length_validation: 'not_implemented_phase1'
     hypotheses: LengthComparisonHypothesis[]
   }
+  physical_evidence?: CandidatePhysicalEvidence
   score: {
     model_id?: 'phase1-euclidean-dp-residual-v1'
     measurement_log_likelihood: number | null
