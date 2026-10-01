@@ -247,6 +247,10 @@ jobs:
           response_path.chmod(0o444)
 
           print('CASE C BLIND E2E INFERENCE COMPLETED')
+          print('PHASE2A_UNCERTAINTY:', json.dumps(uncertainty, ensure_ascii=False, sort_keys=True))
+          au = next(item for item in authority['formal_candidates'] if item['designation'] == '9/16-12 UNC')
+          print('PHASE2A_M14_PHYSICAL:', json.dumps(am14['physical_evidence'], ensure_ascii=False, sort_keys=True))
+          print('PHASE2A_UNIFIED_PHYSICAL:', json.dumps(au['physical_evidence'], ensure_ascii=False, sort_keys=True))
           print('Stage 1 localization:', json.dumps(localization, ensure_ascii=False))
           print('CV status:', cv['measurement_status'])
           print('CV confidence:', cv['measurement_confidence'])
