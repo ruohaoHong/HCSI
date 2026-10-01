@@ -6,7 +6,7 @@
 # GT is introduced only in the final scoring step after response.json is frozen and hashed.
 on:
   push:
-    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening]
     paths:
       - '.github/workflows/case-c-image-only-openai-e2e.yml'
       - 'lib/provider-runner.ts'
@@ -196,7 +196,7 @@ jobs:
           assert uncertainty['covariance']['null_semantics'] == 'not_estimated'
           assert isinstance(uncertainty['systematic_bias_ledger'], list)
           assert any(item['type'] == 'depth_parallax' for item in uncertainty['systematic_bias_ledger'])
-          assert all(item.get('physical_evidence',{}).get('semantics') == 'measurement_compatibility_not_posterior_probability' for item in authority['formal_candidates'])
+          assert all(item.get('physical_evidence',{}).get('semantics') == 'random_measurement_nominal_proximity_not_standards_likelihood_or_posterior' for item in authority['formal_candidates'])
           assert all(item.get('physical_evidence',{}).get('tolerance',{}).get('status') in ['available','unavailable'] for item in authority['formal_candidates'])
           assert output['user_guidance']['purchase_ready'] is False
           assert output['user_guidance']['formal_nominal_source'] == 'versioned_standards_solver'
@@ -210,6 +210,18 @@ jobs:
           assert abs(aobs['P'] - 2.051) < 1e-9
           assert abs(aobs['L_underhead'] - 47.540) < 1e-9
           am14 = next(item for item in authority['formal_candidates'] if item['designation'] == 'M14 × 2.0')
+          pe = am14['physical_evidence']
+          assert pe['D']['status'] == 'available_local_random_component'
+          assert isinstance(pe['D']['random_measurement_log_density'], (int,float))
+          assert pe['P']['status'] == 'uncertainty_unavailable'
+          assert pe['P']['random_measurement_log_density'] is None
+          assert pe['tolerance']['status'] == 'unavailable'
+          assert pe['standards_likelihood']['available'] is False
+          assert pe['bias_readiness']['status'] == 'blocked_unresolved_bias'
+          assert pe['covariance_readiness']['status'] == 'partial'
+          assert pe['joint']['status'] == 'blocked_by_unresolved_systematic_bias'
+          assert pe['joint']['log_density'] is None
+          assert 'standards_tolerance_unavailable_full_standards_likelihood_not_computed' in pe['joint']['reason_codes']
           al45 = next(item for item in am14['length_comparison']['hypotheses'] if abs(item['nominal_mm'] - 45.0) < 1e-9)
           assert abs(al45['residual_mm'] - 2.540) < 1e-9
           assert any(item['standard_system'] == 'iso_metric' for item in authority['formal_candidates'])
