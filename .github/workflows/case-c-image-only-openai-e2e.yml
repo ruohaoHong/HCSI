@@ -1,3 +1,4 @@
+# Standards source-of-truth final validation: formal candidates are catalogue-backed; legacy nominal is diagnostic only.
 # Phase 1 shadow-mode branch regression enabled.\nname: Case C locked-fixture blind OpenAI E2E
 
 # Harness only. No CV, prompt, Head Evidence, arithmetic grounding, or provider logic is modified.
@@ -9,6 +10,10 @@ on:
     paths:
       - '.github/workflows/case-c-image-only-openai-e2e.yml'
       - 'lib/provider-runner.ts'
+      - 'lib/purchase-spec-completeness.ts'
+      - 'lib/cv-grounding-basis.ts'
+      - 'lib/cv-first-identification.ts'
+      - 'lib/identification.ts'
       - 'lib/measurement-v2.ts'
       - 'lib/standards-catalogue.ts'
       - 'lib/standards-database-v1.ts'
