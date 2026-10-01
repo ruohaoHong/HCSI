@@ -36,7 +36,7 @@ function observation(measurement: MeasurementV2, q: MeasurementQuantity) {
 
 function sigma(measurement: MeasurementV2, q: MeasurementQuantity): number | null {
   const item = measurement.uncertainty.quantities.find(x => x.quantity === q)
-  return item?.status === 'estimated' && item.standard_uncertainty_mm !== null
+  return item && ['estimated','assumption_limited'].includes(item.status) && item.standard_uncertainty_mm !== null
     ? item.standard_uncertainty_mm
     : null
 }
@@ -74,7 +74,7 @@ function component(
     status:'available_random_only',
     interpretation:tolerance.status === 'available'
       ? 'Random measurement likelihood component; standards tolerance is separately represented.'
-      : 'Random measurement likelihood only; standards tolerance is unavailable and is not silently approximated.',
+      : 'Local random measurement-component likelihood only; total propagated uncertainty and standards tolerance are not silently approximated.',
   }
 }
 
