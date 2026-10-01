@@ -94,6 +94,17 @@ function intersects<T>(a: T[], b: T[]): boolean {
   return a.some(value => b.includes(value))
 }
 
+const DP_REQUIRED_SYSTEMATIC_BIAS_TYPES: SystematicBiasComponent['type'][] = [
+  'scale_plane_mismatch',
+  'depth_parallax',
+  'perspective_transfer',
+  'axis_projection_bias',
+  'lens_distortion_residual',
+  'ruler_grammar_ambiguity',
+  'occlusion',
+  'glare',
+]
+
 /**
  * Positive authorization gate for decision-relevant systematic bias.
  * Only resolved/not_applicable components are safe. Missing knowledge is never safe.
@@ -105,21 +116,33 @@ export function assessJointBiasReadiness(
   const relevant = uncertainty.systematic_bias_ledger.filter(component =>
     intersects(component.affected_quantities, quantities)
   )
+  const requiredTypes = quantities.some(quantity => quantity === 'D' || quantity === 'P')
+    ? DP_REQUIRED_SYSTEMATIC_BIAS_TYPES
+    : []
+  const missingRequired = requiredTypes.filter(type =>
+    !uncertainty.systematic_bias_ledger.some(component => component.type === type)
+  )
   const unresolved = relevant.filter(component => component.status === 'unresolved')
   const unestimated = relevant.filter(component => component.status === 'not_estimated')
   const status: BiasReadinessStatus = unresolved.length > 0
     ? 'blocked_unresolved_bias'
-    : unestimated.length > 0
+    : unestimated.length > 0 || missingRequired.length > 0
       ? 'blocked_unestimated_bias'
       : 'ready'
   return {
     status,
     quantities:[...quantities],
     relevant_component_ids:relevant.map(component => component.bias_component_id),
-    blocking_component_ids:(unresolved.length > 0 ? unresolved : unestimated).map(component => component.bias_component_id),
+    blocking_component_ids:unresolved.length > 0
+      ? unresolved.map(component => component.bias_component_id)
+      : [
+          ...unestimated.map(component => component.bias_component_id),
+          ...missingRequired.map(type => `missing:${type}`),
+        ],
     reason_codes:[
       ...(unresolved.length > 0 ? ['relevant_systematic_bias_unresolved'] : []),
       ...(unestimated.length > 0 ? ['relevant_systematic_bias_not_estimated'] : []),
+      ...(missingRequired.length > 0 ? ['required_systematic_bias_component_missing'] : []),
     ],
   }
 }
