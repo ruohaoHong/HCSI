@@ -132,7 +132,7 @@ jobs:
           output = post('/api/analyze-openai',
                         {'image':encoded,'measurement':cv,'measurement_proof':proof})
           assert output['measurement_source'] == 'signed_preflight_reused'
-          assert output['measurement'] == cv
+          assert output['measurement'] == cv, 'Provider modified signed raw CV evidence'
           # Phase 1 standards shadow regression: raw CV parity + valid candidate universe.
           shadow = output['standards_solver_shadow']
           assert shadow['mode'] == 'shadow'
@@ -146,7 +146,6 @@ jobs:
           designations = [item['designation'] for item in shadow['new_candidates']]
           assert '#8-32 UNC' in designations
           assert shadow['scoring_state']['covariance_available'] is False
-, 'Provider modified signed raw CV evidence'
           (root/'response.json').write_text(json.dumps(output,ensure_ascii=False,indent=2))
           result = output['result']
           assert 'internal_nominal_mapping' not in result, 'Internal verification payload leaked into user-facing result'
