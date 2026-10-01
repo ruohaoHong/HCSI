@@ -6,7 +6,6 @@ export type PurchaseCompletenessReason =
   | 'cv_purchase_gate_blocked'
   | 'head_style_unresolved'
   | 'thread_system_unresolved'
-  | 'nominal_specification_missing'
   | 'standards_candidate_not_selected'
 
 export interface PurchaseSpecificationCompleteness {
@@ -29,9 +28,6 @@ export function assessPurchaseSpecificationCompleteness(
   }
   if (!fastener || fastener.thread_system === 'unknown') {
     reasons.push('thread_system_unresolved')
-  }
-  if (!(fastener?.nominal_specification.trim())) {
-    reasons.push('nominal_specification_missing')
   }
   if (!standardsDecision?.selected_candidate_id || standardsDecision.purchase_ready !== true) {
     reasons.push('standards_candidate_not_selected')
