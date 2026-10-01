@@ -107,7 +107,7 @@ const injected=validRaw()
 injected.observations[0].freeform_description='probably 9/16-12 UNC'
 const sanitized=sanitizeRawSemanticSensorOutput(injected)
 assert.equal(sanitized.observations[0].freeform_description,null)
-assert.ok(sanitized.observations[0].reason_codes.includes('forbidden_nominal_or_dimension_claim_removed'))
+assert.ok(sanitized.observations[0].reason_codes.includes('FORBIDDEN_CLAIM_REMOVED'))
 assert.equal(JSON.stringify(buildSemanticEvidenceV1(sanitized,request,{
   model:'mock-vlm',model_version:'mock-v1',
 })).includes('9/16-12 UNC'),false)
@@ -122,7 +122,150 @@ const dimensionLeak=validRaw()
 dimensionLeak.observations[4].freeform_description='tip is about 2.0 mm'
 const dimensionSanitized=sanitizeRawSemanticSensorOutput(dimensionLeak)
 assert.equal(dimensionSanitized.observations[4].freeform_description,null)
-assert.ok(dimensionSanitized.observations[4].reason_codes.includes('forbidden_nominal_or_dimension_claim_removed'))
+assert.ok(dimensionSanitized.observations[4].reason_codes.includes('FORBIDDEN_CLAIM_REMOVED'))
+
+// Phase 2B.1 anti-leak hardening regressions.
+
+// 1 — observation reason-code nominal leak must fail closed.
+{
+  const raw=validRaw() as any
+  raw.observations[0].reason_codes=['LIKELY_M14']
+  assert.equal(validateRawSemanticSensorOutput(raw).valid,false)
+  assert.throws(()=>buildSemanticEvidenceV1(raw,request,{model:'mock-vlm',model_version:'mock-v1'}),/invalid_semantic_sensor_output/)
+}
+
+// 2 — standards-system inference in observation reason code must fail closed.
+{
+  const raw=validRaw() as any
+  raw.observations[0].reason_codes=['PROBABLY_METRIC']
+  assert.equal(validateRawSemanticSensorOutput(raw).valid,false)
+}
+
+// 3 — quality reason-code leak must fail closed.
+{
+  const raw=validRaw() as any
+  raw.quality.reason_codes=['LIKELY_UNIFIED']
+  assert.equal(validateRawSemanticSensorOutput(raw).valid,false)
+}
+
+// 4 — open-set freeform standards-system inference is removed and cannot become valid evidence.
+{
+  const raw=validRaw()
+  const tip=raw.observations.find(x=>x.feature_id==='tip.morphology')!
+  tip.state='open_set'; tip.value='open_set'; tip.visibility='visible'
+  tip.freeform_description='looks like a Unified thread'
+  const sanitized=sanitizeRawSemanticSensorOutput(raw)
+  assert.equal(sanitized.observations.find(x=>x.feature_id==='tip.morphology')!.freeform_description,null)
+  assert.ok(sanitized.observations.find(x=>x.feature_id==='tip.morphology')!.reason_codes.includes('FORBIDDEN_CLAIM_REMOVED'))
+  assert.equal(validateRawSemanticSensorOutput(sanitized).valid,false,
+    'open_set without safe freeform description must fail closed after sanitization')
+}
+
+// 5 — candidate/winner language is removed generically, without seeing candidate list.
+{
+  const raw=validRaw()
+  const tip=raw.observations.find(x=>x.feature_id==='tip.morphology')!
+  tip.state='open_set'; tip.value='open_set'; tip.visibility='visible'
+  tip.freeform_description='best candidate is M14'
+  const sanitized=sanitizeRawSemanticSensorOutput(raw)
+  assert.equal(tip.freeform_description,'best candidate is M14')
+  assert.equal(sanitized.observations.find(x=>x.feature_id==='tip.morphology')!.freeform_description,null)
+}
+
+// 6 — valid morphology-only open-set language must survive.
+{
+  const raw=validRaw()
+  const head=raw.observations.find(x=>x.feature_id==='head.morphology')!
+  head.state='open_set'; head.value='open_set'; head.visibility='visible'
+  head.freeform_description='wide low-profile head with shallow dome'
+  const sanitized=sanitizeRawSemanticSensorOutput(raw)
+  assert.equal(sanitized.observations.find(x=>x.feature_id==='head.morphology')!.freeform_description,
+    'wide low-profile head with shallow dome')
+  assert.equal(validateRawSemanticSensorOutput(sanitized).valid,true)
+}
+
+// 7 — OCR literal numeric marking remains observable transcription.
+{
+  const raw=validRaw()
+  const ocr=raw.observations.find(x=>x.feature_id==='markings.ocr')!
+  ocr.value='text_detected'; ocr.state='observed'; ocr.visibility='visible'
+  ocr.raw_text='10.9'; ocr.normalized_text='MODEL SHOULD NOT CONTROL THIS'; ocr.character_confidence=0.9
+  const sanitized=sanitizeRawSemanticSensorOutput(raw)
+  const out=sanitized.observations.find(x=>x.feature_id==='markings.ocr')!
+  assert.equal(out.raw_text,'10.9')
+  assert.equal(out.normalized_text,'10.9')
+  assert.equal(validateRawSemanticSensorOutput(sanitized).valid,true)
+}
+
+// 8 — OCR material-like literal marking remains literal; no domain interpretation is added.
+{
+  const raw=validRaw()
+  const ocr=raw.observations.find(x=>x.feature_id==='markings.ocr')!
+  ocr.value='text_detected'; ocr.state='observed'; ocr.visibility='partially_visible'
+  ocr.raw_text='A2'; ocr.normalized_text='stainless steel'; ocr.character_confidence=0.8
+  const sanitized=sanitizeRawSemanticSensorOutput(raw)
+  const out=sanitized.observations.find(x=>x.feature_id==='markings.ocr')!
+  assert.equal(out.raw_text,'A2')
+  assert.equal(out.normalized_text,'A2')
+  assert.equal(JSON.stringify(out).includes('stainless steel'),false)
+  assert.equal(validateRawSemanticSensorOutput(sanitized).valid,true)
+}
+
+// Also preserve another ordinary literal marking.
+{
+  const raw=validRaw()
+  const ocr=raw.observations.find(x=>x.feature_id==='markings.ocr')!
+  ocr.value='text_detected'; ocr.state='observed'; ocr.visibility='visible'
+  ocr.raw_text='304'; ocr.normalized_text='304'; ocr.character_confidence=0.7
+  const sanitized=sanitizeRawSemanticSensorOutput(raw)
+  assert.equal(sanitized.observations.find(x=>x.feature_id==='markings.ocr')!.raw_text,'304')
+  assert.equal(validateRawSemanticSensorOutput(sanitized).valid,true)
+}
+
+// 9 — OCR engineering interpretation injection is not accepted as literal evidence.
+{
+  for (const injectedText of ['probably ISO metric','looks like ISO fastener','likely UNC']) {
+    const raw=validRaw()
+    const ocr=raw.observations.find(x=>x.feature_id==='markings.ocr')!
+    ocr.value='text_detected'; ocr.state='observed'; ocr.visibility='visible'
+    ocr.raw_text=injectedText; ocr.normalized_text=injectedText; ocr.character_confidence=0.9
+    const sanitized=sanitizeRawSemanticSensorOutput(raw)
+    const out=sanitized.observations.find(x=>x.feature_id==='markings.ocr')!
+    assert.equal(out.raw_text,null)
+    assert.equal(out.normalized_text,null)
+    assert.equal(out.value,'unknown')
+    assert.equal(out.state,'unknown')
+    assert.ok(out.reason_codes.includes('FORBIDDEN_CLAIM_REMOVED'))
+    assert.equal(JSON.stringify(out).includes(injectedText),false)
+    assert.equal(validateRawSemanticSensorOutput(sanitized).valid,true)
+  }
+}
+
+// OCR exception is literal-transcription specific: a compact printed engineering token is not
+// globally blacklisted merely because a later layer may assign standards meaning to it.
+{
+  const raw=validRaw()
+  const ocr=raw.observations.find(x=>x.feature_id==='markings.ocr')!
+  ocr.value='text_detected'; ocr.state='observed'; ocr.visibility='visible'
+  ocr.raw_text='UNC'; ocr.normalized_text='UNC'; ocr.character_confidence=0.9
+  const sanitized=sanitizeRawSemanticSensorOutput(raw)
+  assert.equal(sanitized.observations.find(x=>x.feature_id==='markings.ocr')!.raw_text,'UNC')
+  assert.equal(validateRawSemanticSensorOutput(sanitized).valid,true)
+}
+
+// 10 — arbitrary unknown reason code proves the channel is finite, not keyword-blacklisted.
+{
+  const raw=validRaw() as any
+  raw.observations[0].reason_codes=['MY_MODEL_PRIVATE_THOUGHT']
+  assert.equal(validateRawSemanticSensorOutput(raw).valid,false)
+}
+
+// Quality reason code vocabulary is independently finite.
+{
+  const raw=validRaw() as any
+  raw.quality.reason_codes=['MY_PRIVATE_QUALITY_NOTE']
+  assert.equal(validateRawSemanticSensorOutput(raw).valid,false)
+}
 
 // 4. not_visible is not absence.
 const driveNotVisible=evidence.observations.find(x=>x.feature_id==='drive.form')!
@@ -155,7 +298,7 @@ fakeCalibration.observations[0].calibrated_probability=0.74
 assert.equal(validateRawSemanticSensorOutput(fakeCalibration).valid,false)
 const calibrationSanitized=sanitizeRawSemanticSensorOutput(fakeCalibration)
 assert.equal(calibrationSanitized.observations[0].calibrated_probability,null)
-assert.ok(calibrationSanitized.observations[0].reason_codes.includes('uncalibrated_probability_removed'))
+assert.ok(calibrationSanitized.observations[0].reason_codes.includes('UNCALIBRATED_PROBABILITY_REMOVED'))
 
 // 7. Same crop, multiple sensors => same independence group, not independent evidence.
 const multiSensor:SemanticEvidenceV1=JSON.parse(JSON.stringify(evidence))
