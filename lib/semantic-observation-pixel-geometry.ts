@@ -42,27 +42,66 @@ function positive(value:unknown):value is number{
   return typeof value==='number'&&Number.isFinite(value)&&value>0
 }
 
+function assertMatchesActualDimension(
+  explicit:number|null,
+  actual:number,
+  axis:'width'|'height',
+){
+  if(explicit!==null&&explicit!==actual){
+    throw new Error(`semantic_observation_geometry_conflict:effective_${axis}_mismatch`)
+  }
+}
+
 export function buildSemanticObservationPixelGeometry(
   input:BuildSemanticObservationPixelGeometryInput,
 ):SemanticObservationPixelGeometry{
   const source=input.source_image_base64?readImageDimensionsFromBase64(input.source_image_base64):null
   const observed=input.observation_image_base64?readImageDimensionsFromBase64(input.observation_image_base64):null
   const region=input.observation_region_type??'unknown'
-  let effectiveWidth=positive(input.effective_input_width_px)?input.effective_input_width_px:null
-  let effectiveHeight=positive(input.effective_input_height_px)?input.effective_input_height_px:null
+  const explicitWidth=positive(input.effective_input_width_px)?input.effective_input_width_px:null
+  const explicitHeight=positive(input.effective_input_height_px)?input.effective_input_height_px:null
+  const resizeTarget=input.resize_target??null
 
-  if(effectiveWidth===null||effectiveHeight===null){
-    if(region==='physical_crop_input'){
-      effectiveWidth=observed?.width_px??null
-      effectiveHeight=observed?.height_px??null
-    }else if(region==='full_image'||region==='full_image_with_roi_reference'){
-      const full=observed??source
-      effectiveWidth=full?.width_px??null
-      effectiveHeight=full?.height_px??null
+  let effectiveWidth:number|null=null
+  let effectiveHeight:number|null=null
+
+  if(observed){
+    // Actual bytes received by the semantic sensor are authoritative whenever
+    // dimensions can be decoded. Metadata may confirm them but never override.
+    assertMatchesActualDimension(explicitWidth,observed.width_px,'width')
+    assertMatchesActualDimension(explicitHeight,observed.height_px,'height')
+    if(resizeTarget&&(
+      resizeTarget.width_px!==observed.width_px||
+      resizeTarget.height_px!==observed.height_px
+    )){
+      throw new Error('semantic_observation_geometry_conflict:resize_target_mismatch')
     }
+    effectiveWidth=observed.width_px
+    effectiveHeight=observed.height_px
+  }else if(region==='full_image'||region==='full_image_with_roi_reference'){
+    const full=source
+    if(full){
+      assertMatchesActualDimension(explicitWidth,full.width_px,'width')
+      assertMatchesActualDimension(explicitHeight,full.height_px,'height')
+      if(resizeTarget&&(
+        resizeTarget.width_px!==full.width_px||
+        resizeTarget.height_px!==full.height_px
+      )){
+        throw new Error('semantic_observation_geometry_conflict:resize_target_mismatch')
+      }
+      effectiveWidth=full.width_px
+      effectiveHeight=full.height_px
+    }else{
+      effectiveWidth=explicitWidth
+      effectiveHeight=explicitHeight
+    }
+  }else{
+    // Without decodable observation bytes, metadata remains only a fallback.
+    // physical_crop_input must never inherit source-image dimensions.
+    effectiveWidth=explicitWidth
+    effectiveHeight=explicitHeight
   }
 
-  const resizeTarget=input.resize_target??null
   const resizeApplied=resizeTarget
     ? effectiveWidth!==null&&effectiveHeight!==null
       ? effectiveWidth===resizeTarget.width_px&&effectiveHeight===resizeTarget.height_px
