@@ -1,5 +1,13 @@
-import { validateSemanticCalibrationDataset, type SemanticCalibrationDatasetV1 } from './semantic-calibration-dataset-v1'
-import { assertObservationCandidateBlind, type SemanticSensorObservationRecordV1 } from './semantic-sensor-observation-record-v1'
+import {
+  semanticCalibrationImageIdentityMatches,
+  validateSemanticCalibrationDataset,
+  type CalibrationSplit,
+  type SemanticCalibrationDatasetV1,
+} from './semantic-calibration-dataset-v1'
+import {
+  validateSemanticSensorObservationRecordV1,
+  type SemanticSensorObservationRecordV1,
+} from './semantic-sensor-observation-record-v1'
 import { fitCategoricalConfusionModel,type SemanticConfusionModelV1 } from './semantic-confusion-model-v1'
 import type { SemanticFeatureId } from './semantic-taxonomy-v1'
 import type { SemanticSensorType } from './semantic-evidence-v1'
@@ -35,6 +43,7 @@ export interface CandidateCalibrationFit {
   dataset_id:string
   dataset_version:string
   dataset_manifest_digest_sha256:string
+  dataset_content_digest_sha256:string
   split:'calibration'
   estimator_config:CalibrationEstimatorConfigV1
   estimator_config_digest_sha256:string
@@ -69,6 +78,7 @@ function finalizeFit(
     dataset_id:draft.dataset_id,
     dataset_version:draft.dataset_version,
     dataset_manifest_digest_sha256:draft.dataset_manifest_digest_sha256,
+    dataset_content_digest_sha256:draft.dataset_content_digest_sha256,
     split:draft.split,
     estimator_config_digest_sha256:draft.estimator_config_digest_sha256,
     estimator_locked:draft.estimator_locked,
@@ -94,6 +104,29 @@ function recordIdentityMatches(record:SemanticSensorObservationRecordV1,config:C
     record.extractor_version===i.extractor_version&&record.taxonomy_version===i.taxonomy_version
 }
 
+function duplicateRunId(records:readonly SemanticSensorObservationRecordV1[]):boolean{
+  const ids=new Set<string>()
+  for(const record of records){
+    if(ids.has(record.run_id)) return true
+    ids.add(record.run_id)
+  }
+  return false
+}
+
+function recordMatchesAnyDatasetSplit(
+  dataset:SemanticCalibrationDatasetV1,
+  record:SemanticSensorObservationRecordV1,
+):boolean{
+  return (['fit','calibration','validation'] as CalibrationSplit[]).some(split=>
+    semanticCalibrationImageIdentityMatches(dataset,{
+      specimen_id:record.specimen_id,
+      image_id:record.image_id,
+      image_sha256:record.image_sha256,
+      split,
+    })
+  )
+}
+
 export function fitSemanticCalibrationArtifact(
   dataset:SemanticCalibrationDatasetV1,
   records:readonly SemanticSensorObservationRecordV1[],
@@ -107,11 +140,12 @@ export function fitSemanticCalibrationArtifact(
     feature_id:config.feature_id,
     dataset_id:dataset.dataset_id,dataset_version:dataset.dataset_version,
     dataset_manifest_digest_sha256:dataset.manifest_digest_sha256,
+    dataset_content_digest_sha256:dataset.dataset_content_digest_sha256,
     split:'calibration' as const,
     estimator_config:config,estimator_config_digest_sha256:estimatorDigest,estimator_locked:true as const,
   }
   if(!validation.valid){
-    return finalizeFit({...base,status:'dataset_invalid',model:null,calibration_specimen_ids:[],calibration_record_ids:[],reason_codes:['calibration_dataset_invalid']})
+    return finalizeFit({...base,status:'dataset_invalid',model:null,calibration_specimen_ids:[],calibration_record_ids:[],reason_codes:['calibration_dataset_invalid',...validation.reason_codes]})
   }
   if(!config.locked||config.estimator.method!=='categorical_confusion_counts'||config.estimator.smoothing!=='none'){
     throw new Error('calibration_estimator_configuration_not_locked')
@@ -123,30 +157,61 @@ export function fitSemanticCalibrationArtifact(
     return finalizeFit({...base,status:'insufficient_data',model:null,calibration_specimen_ids:[],calibration_record_ids:[],reason_codes:['estimator_sensor_outside_dataset_scope']})
   }
 
-  const calibrationSpecimens=new Map(dataset.specimens
-    .filter(s=>s.images.some(i=>i.split==='calibration'))
-    .map(s=>[s.specimen_id,s]))
-  const calibrationImageHashes=new Set([...calibrationSpecimens.values()]
-    .flatMap(s=>s.images.filter(i=>i.split==='calibration').map(i=>i.sha256)))
-  const datasetSpecimenIds=new Set(dataset.specimens.map(s=>s.specimen_id))
-  const datasetImageHashes=new Set(dataset.specimens.flatMap(s=>s.images.map(i=>i.sha256)))
-  const inDataset=records.filter(r=>datasetSpecimenIds.has(r.specimen_id)&&datasetImageHashes.has(r.image_sha256))
-  if(inDataset.some(r=>!dataset.sensor_scope.includes(r.sensor_type))){
-    return finalizeFit({...base,status:'insufficient_data',model:null,calibration_specimen_ids:[],calibration_record_ids:[],reason_codes:['sensor_outside_dataset_scope']})
+  const observationReasons=records.flatMap(record=>validateSemanticSensorObservationRecordV1(record).reason_codes)
+  if(observationReasons.length){
+    return finalizeFit({
+      ...base,status:'insufficient_data',model:null,calibration_specimen_ids:[],calibration_record_ids:[],
+      reason_codes:['invalid_observation_record',...observationReasons],
+    })
+  }
+  if(duplicateRunId(records)){
+    return finalizeFit({
+      ...base,status:'insufficient_data',model:null,calibration_specimen_ids:[],calibration_record_ids:[],
+      reason_codes:['duplicate_observation_run_id'],
+    })
+  }
+  if(records.some(record=>recordMatchesAnyDatasetSplit(dataset,record)&&!dataset.sensor_scope.includes(record.sensor_type))){
+    return finalizeFit({
+      ...base,status:'insufficient_data',model:null,calibration_specimen_ids:[],calibration_record_ids:[],
+      reason_codes:['sensor_outside_dataset_scope'],
+    })
   }
 
-  const usable=records.filter(record=>{
-    assertObservationCandidateBlind(record)
-    return calibrationSpecimens.has(record.specimen_id)&&
-      calibrationImageHashes.has(record.image_sha256)&&recordIdentityMatches(record,config)
-  }).sort((a,b)=>a.run_id.localeCompare(b.run_id))
-  const truth=Object.fromEntries([...calibrationSpecimens.values()].flatMap(specimen=>
-    specimen.ground_truth.filter(gt=>gt.feature_id===config.feature_id).map(gt=>[specimen.specimen_id,gt.value])
-  ))
+  const relevant=records.filter(record=>recordIdentityMatches(record,config))
+  const bindingReasons:string[]=[]
+  for(const record of relevant){
+    const exactCalibration=semanticCalibrationImageIdentityMatches(dataset,{
+      specimen_id:record.specimen_id,
+      image_id:record.image_id,
+      image_sha256:record.image_sha256,
+      split:'calibration',
+    })
+    if(exactCalibration) continue
+    bindingReasons.push(
+      recordMatchesAnyDatasetSplit(dataset,record)
+        ?'calibration_record_split_mismatch'
+        :'observation_dataset_image_binding_mismatch'
+    )
+  }
+  if(bindingReasons.length){
+    return finalizeFit({
+      ...base,status:'insufficient_data',model:null,calibration_specimen_ids:[],calibration_record_ids:[],
+      reason_codes:bindingReasons,
+    })
+  }
+
+  const usable=[...relevant].sort((a,b)=>a.run_id.localeCompare(b.run_id))
+  const calibrationSpecimenIds=[...new Set(usable.map(record=>record.specimen_id))]
+  const truth=Object.fromEntries(calibrationSpecimenIds.flatMap(specimenId=>{
+    const specimen=dataset.specimens.find(item=>item.specimen_id===specimenId)
+    return specimen
+      ? specimen.ground_truth.filter(gt=>gt.feature_id===config.feature_id).map(gt=>[specimenId,gt.value])
+      : []
+  }))
   if(!usable.length||!Object.keys(truth).length){
     return finalizeFit({
       ...base,status:'insufficient_data',model:null,
-      calibration_specimen_ids:[...calibrationSpecimens.keys()],
+      calibration_specimen_ids:calibrationSpecimenIds,
       calibration_record_ids:[],reason_codes:['calibration_split_support_missing'],
     })
   }
@@ -154,7 +219,7 @@ export function fitSemanticCalibrationArtifact(
   return finalizeFit({
     ...base,status:'candidate_artifact',
     model:fitCategoricalConfusionModel(config.feature_id,usable,truth),
-    calibration_specimen_ids:[...new Set(usable.map(r=>r.specimen_id))],
+    calibration_specimen_ids:calibrationSpecimenIds,
     calibration_record_ids:usable.map(r=>r.run_id),
     reason_codes:[],
   })
