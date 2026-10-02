@@ -436,7 +436,7 @@ assert.notEqual(roiQuality.pixel_geometry!.observation_region_type,'physical_cro
     reason_codes:[],freeform_description:null,raw_text:null,normalized_text:null,character_confidence:null,
   }
   const evidence=buildTargetedSemanticEvidence(
-    request,raw,null,{model:'mock-vlm',model_version:'v1'},
+    raw,request,null,{model:'mock-vlm',model_version:'v1'},
   )
   assert.equal(evidence.provenance.sensor_input_mode,'full_image')
   assert.equal(evidence.provenance.roi_instruction_sent,false)
