@@ -376,7 +376,7 @@ const fullQuality=buildSemanticRuntimeQuality('visible',{
 })
 assert.equal(fullQuality.width_px,4000)
 assert.equal(fullQuality.height_px,3000)
-assert.equal(fullQuality.pixel_geometry.observation_region_type,'full_image')
+assert.equal(fullQuality.pixel_geometry!.observation_region_type,'full_image')
 
 // L — Physical crop uses crop bytes, never source dimensions.
 const cropQuality=buildSemanticRuntimeQuality('visible',{
@@ -386,8 +386,8 @@ const cropQuality=buildSemanticRuntimeQuality('visible',{
   capture_type:'single_image',viewpoint:'unknown',crop_type:'physical_crop_input',
   occlusion_condition:'unknown',glare_condition:'unknown',
 })
-assert.equal(cropQuality.pixel_geometry.source_image_width_px,4000)
-assert.equal(cropQuality.pixel_geometry.source_image_height_px,3000)
+assert.equal(cropQuality.pixel_geometry!.source_image_width_px,4000)
+assert.equal(cropQuality.pixel_geometry!.source_image_height_px,3000)
 assert.equal(cropQuality.width_px,100)
 assert.equal(cropQuality.height_px,80)
 
@@ -416,7 +416,7 @@ const roiQuality=buildSemanticRuntimeQuality('visible',{
 assert.equal(roiQuality.width_px,4000)
 assert.equal(roiQuality.height_px,3000)
 assert.equal(roiQuality.crop_type,'full_image_with_roi_reference')
-assert.notEqual(roiQuality.pixel_geometry.observation_region_type,'physical_crop_input')
+assert.notEqual(roiQuality.pixel_geometry!.observation_region_type,'physical_crop_input')
 
 // O — Unknown effective geometry stays unknown and fails closed.
 {
