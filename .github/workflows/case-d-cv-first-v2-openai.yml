@@ -1,3 +1,4 @@
+# Phase 2D acceptance: empty production calibration registry must fail closed; no fusion/decision side effects.
 # Phase 2C final validation: Case D
 # Standards source-of-truth final validation: formal candidates are catalogue-backed; legacy nominal is diagnostic only.
 name: Frozen Case D CV-first v2 OpenAI blind E2E
@@ -7,7 +8,7 @@ name: Frozen Case D CV-first v2 OpenAI blind E2E
 # Exact frozen image is SHA-checked; GT enters only after inference.
 on:
   push:
-    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak, feature/candidate-semantic-discrimination]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak, feature/candidate-semantic-discrimination, feature/semantic-calibration-foundation]
     paths:
       - '.github/workflows/case-d-cv-first-v2-openai.yml'
       - 'lib/cv-first-identification.ts'
@@ -165,6 +166,22 @@ jobs:
           plan = output['semantic_discrimination_plan']
           targeted = output['targeted_semantic_evidence']
           discrimination = output['candidate_semantic_discrimination']
+          calibration = output['semantic_calibration_assessment']
+          semantic_likelihood = output['semantic_likelihood_evidence']
+          assert calibration['schema_version'] == 'hcsi.semantic-calibration-assessment.v1'
+          assert calibration['available'] is False
+          assert calibration['items']
+          assert all(item['calibration_artifact_id'] is None for item in calibration['items'])
+          assert all(item['calibration_status'] == 'unavailable' for item in calibration['items'])
+          assert all(item['likelihood_eligible'] is False for item in calibration['items'])
+          assert all(item['calibrated_probability'] is None for item in calibration['items'])
+          assert all('no_applicable_validated_calibration_artifact' in item['reason_codes'] for item in calibration['items'])
+          assert semantic_likelihood['schema_version'] == 'hcsi.semantic-likelihood-evidence.v1'
+          assert semantic_likelihood['available'] is False
+          assert semantic_likelihood['candidate_likelihood_not_implemented'] is True
+          assert all(item['log_likelihood'] is None for item in semantic_likelihood['items'])
+          assert all(item['calibrated_log_likelihood_ratio'] is None for item in semantic_likelihood['items'])
+          assert all(item['status'] == 'calibration_unavailable' for item in semantic_likelihood['items'])
           authority = output['standards_authority']
           assert matrix['schema_version'] == 'hcsi.candidate-feature-compiler.v1'
           assert matrix['candidate_ids'] == [c['candidate_id'] for c in authority['formal_candidates']]
