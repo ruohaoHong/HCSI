@@ -1,3 +1,4 @@
+# Phase 2D semantic calibration foundation: contracts, metrics, fail-closed eligibility; no fusion.
 # Phase 2C final validation: same-HEAD acceptance trigger; no production logic change.
 # Phase 2C candidate feature compiler + candidate-blind targeted semantic discrimination.
 # Phase 2B.1 semantic anti-leak hardening: finite reason codes + OCR literal policy.
@@ -10,7 +11,7 @@ name: Standards Solver v1 Phase 1
 
 on:
   push:
-    branches: [feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak, feature/candidate-semantic-discrimination]
+    branches: [feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak, feature/candidate-semantic-discrimination, feature/semantic-calibration-foundation]
     paths:
       - 'lib/measurement-v2.ts'
       - 'lib/measurement-v2.test.ts'
@@ -37,6 +38,13 @@ on:
       - 'lib/targeted-semantic-extractor.ts'
       - 'lib/candidate-semantic-discrimination.ts'
       - 'lib/candidate-semantic-discrimination.test.ts'
+      - 'lib/semantic-calibration-dataset-v1.ts'
+      - 'lib/semantic-calibration-v1.ts'
+      - 'lib/semantic-calibration-metrics.ts'
+      - 'lib/semantic-likelihood-eligibility.ts'
+      - 'lib/semantic-calibration-assessment.ts'
+      - 'lib/semantic-likelihood-evidence-v1.ts'
+      - 'lib/semantic-calibration.test.ts'
       - 'lib/semantic-evidence-v1.ts'
       - 'lib/candidate-blind-semantic-request.ts'
       - 'lib/semantic-evidence-validator.ts'
@@ -69,7 +77,7 @@ jobs:
       - name: Compile Phase 1 contracts, DB, solver and tests
         run: |
           rm -rf /tmp/hcsi-standards-v1
-          pnpm exec tsc             lib/measurement.ts             lib/measurement-v2.ts             lib/measurement-v2.test.ts             lib/standards-catalogue.ts             lib/standards-database-v1.ts             lib/standards-catalogue.test.ts             lib/standards-shadow-solver.ts             lib/standards-shadow-solver.test.ts             lib/standards-authority.test.ts             lib/formal-nominal-projection.ts             lib/formal-nominal-projection.test.ts             lib/measurement-uncertainty.ts             lib/measurement-uncertainty.test.ts             lib/standards-tolerance-model-v1.ts             lib/physical-evidence-likelihood.ts             lib/physical-evidence-likelihood.test.ts             lib/physical-evidence-hardening.test.ts             lib/semantic-taxonomy-v1.ts             lib/semantic-reason-codes-v1.ts             lib/semantic-evidence-v1.ts             lib/candidate-feature-metadata-v1.ts             lib/candidate-feature-compiler.ts             lib/semantic-discrimination-plan-v1.ts             lib/targeted-semantic-request.ts             lib/targeted-semantic-extractor.ts             lib/candidate-semantic-discrimination.ts             lib/candidate-semantic-discrimination.test.ts             lib/candidate-blind-semantic-request.ts             lib/semantic-evidence-validator.ts             lib/semantic-extractor.ts             lib/semantic-evidence.test.ts             lib/phase1-regression.test.ts             --target ES2022 --module commonjs --moduleResolution node             --esModuleInterop --skipLibCheck --strict             --outDir /tmp/hcsi-standards-v1
+          pnpm exec tsc             lib/measurement.ts             lib/measurement-v2.ts             lib/measurement-v2.test.ts             lib/standards-catalogue.ts             lib/standards-database-v1.ts             lib/standards-catalogue.test.ts             lib/standards-shadow-solver.ts             lib/standards-shadow-solver.test.ts             lib/standards-authority.test.ts             lib/formal-nominal-projection.ts             lib/formal-nominal-projection.test.ts             lib/measurement-uncertainty.ts             lib/measurement-uncertainty.test.ts             lib/standards-tolerance-model-v1.ts             lib/physical-evidence-likelihood.ts             lib/physical-evidence-likelihood.test.ts             lib/physical-evidence-hardening.test.ts             lib/semantic-taxonomy-v1.ts             lib/semantic-reason-codes-v1.ts             lib/semantic-evidence-v1.ts             lib/candidate-feature-metadata-v1.ts             lib/candidate-feature-compiler.ts             lib/semantic-discrimination-plan-v1.ts             lib/targeted-semantic-request.ts             lib/targeted-semantic-extractor.ts             lib/candidate-semantic-discrimination.ts             lib/candidate-semantic-discrimination.test.ts             lib/semantic-calibration-dataset-v1.ts             lib/semantic-calibration-v1.ts             lib/semantic-calibration-metrics.ts             lib/semantic-likelihood-eligibility.ts             lib/semantic-calibration-assessment.ts             lib/semantic-likelihood-evidence-v1.ts             lib/semantic-calibration.test.ts             lib/candidate-blind-semantic-request.ts             lib/semantic-evidence-validator.ts             lib/semantic-extractor.ts             lib/semantic-evidence.test.ts             lib/phase1-regression.test.ts             --target ES2022 --module commonjs --moduleResolution node             --esModuleInterop --skipLibCheck --strict             --outDir /tmp/hcsi-standards-v1
       - name: Run Phase 1 deterministic tests
         run: |
           node "$(find /tmp/hcsi-standards-v1 -name measurement-v2.test.js -print -quit)"
@@ -81,4 +89,6 @@ jobs:
           node "$(find /tmp/hcsi-standards-v1 -name physical-evidence-likelihood.test.js -print -quit)"
           node "$(find /tmp/hcsi-standards-v1 -name physical-evidence-hardening.test.js -print -quit)"
           node "$(find /tmp/hcsi-standards-v1 -name semantic-evidence.test.js -print -quit)"
+          node "$(find /tmp/hcsi-standards-v1 -name candidate-semantic-discrimination.test.js -print -quit)"
+          node "$(find /tmp/hcsi-standards-v1 -name semantic-calibration.test.js -print -quit)"
           node "$(find /tmp/hcsi-standards-v1 -name phase1-regression.test.js -print -quit)"
