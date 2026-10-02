@@ -28,7 +28,7 @@ const forbiddenFixture=/^(?:case[-_ ]?)?[BCDEFG]$/i
 export function validateSemanticCalibrationDataset(dataset:SemanticCalibrationDatasetV1):CalibrationDatasetValidation{
  const reasons:string[]=[]
  if(dataset.schema_version!==SEMANTIC_CALIBRATION_DATASET_SCHEMA) reasons.push('dataset_schema_mismatch')
- if(dataset.split_policy.unit!=='physical_specimen'||dataset.split_policy.specimen_may_cross_splits!==false) reasons.push('specimen_level_split_not_enforced')
+ if(dataset.split_policy.unit!=='physical_specimen'||dataset.split_policy.specimen_may_cross_splits!==false) reasons.push('specimen_level_split_not_enforced')\n if(dataset.ground_truth_policy.independently_verified!==true||dataset.ground_truth_policy.same_sensor_self_label_forbidden!==true||dataset.ground_truth_policy.provenance_required!==true) reasons.push('ground_truth_policy_not_independent')
  const seen=new Set<string>()
  for(const specimen of dataset.specimens){
   if(seen.has(specimen.specimen_id)) reasons.push('duplicate_specimen_id')
@@ -42,6 +42,6 @@ export function validateSemanticCalibrationDataset(dataset:SemanticCalibrationDa
  if(dataset.source_scope==='regression_fixture') reasons.push('regression_fixture_dataset_forbidden')
  if(dataset.source_scope==='sealed_blind_fixture') reasons.push('sealed_blind_fixture_dataset_forbidden')
  if(dataset.source_scope==='synthetic_test') reasons.push('synthetic_dataset_not_production_eligible')
- return {valid:!reasons.some(r=>['dataset_schema_mismatch','specimen_level_split_not_enforced','specimen_split_leakage','duplicate_specimen_id','ground_truth_missing','ground_truth_provenance_missing'].includes(r)),
+ return {valid:!reasons.some(r=>['dataset_schema_mismatch','specimen_level_split_not_enforced','specimen_split_leakage','duplicate_specimen_id','ground_truth_missing','ground_truth_provenance_missing','ground_truth_policy_not_independent'].includes(r)),
   production_eligible_source:dataset.source_scope==='independent_real_image'&&!reasons.some(r=>r.includes('fixture')||r.includes('synthetic')),reason_codes:[...new Set(reasons)]}
 }
