@@ -21,7 +21,7 @@ export interface SemanticRuntimeQualityContext {
   height_px:number|null
   occlusion_condition:string
   glare_condition:string
-  pixel_geometry:SemanticObservationPixelGeometry
+  pixel_geometry?:SemanticObservationPixelGeometry
 }
 
 export interface RuntimeImageMetadata {
