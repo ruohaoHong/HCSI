@@ -282,3 +282,4 @@ assert.equal(SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY.length,0)
 assert.equal(ACTIVE_SEMANTIC_CALIBRATION_POLICY,null)
 
 console.log('Phase 2E.1.2 admission self-verification & complete observation binding regressions passed')
+// CI trigger: Build + Cases B-E validate this exact Phase 2E.1.2 final SHA.
