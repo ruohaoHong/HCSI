@@ -1,6 +1,13 @@
-import type { SemanticCalibrationDatasetV1 } from './semantic-calibration-dataset-v1'
-import { validateSemanticCalibrationDataset } from './semantic-calibration-dataset-v1'
-import { assertObservationCandidateBlind, type SemanticSensorObservationRecordV1 } from './semantic-sensor-observation-record-v1'
+import {
+  semanticCalibrationImageIdentityMatches,
+  validateSemanticCalibrationDataset,
+  type CalibrationSplit,
+  type SemanticCalibrationDatasetV1,
+} from './semantic-calibration-dataset-v1'
+import {
+  validateSemanticSensorObservationRecordV1,
+  type SemanticSensorObservationRecordV1,
+} from './semantic-sensor-observation-record-v1'
 import type { CandidateCalibrationFit } from './semantic-calibration-fit'
 import {
   semanticCalibrationArtifactDigestValid,
@@ -33,6 +40,7 @@ export interface CalibrationHeldOutValidation {
   dataset_id:string
   dataset_version:string
   dataset_manifest_digest_sha256:string
+  dataset_content_digest_sha256:string
   feature_id:string
   sensor_identity:CalibrationSensorIdentityV1
   taxonomy_version:string
@@ -115,6 +123,29 @@ function sensorOutcome(record:SemanticSensorObservationRecordV1):string{
     : record.value
 }
 
+function duplicateRunId(records:readonly SemanticSensorObservationRecordV1[]):boolean{
+  const ids=new Set<string>()
+  for(const record of records){
+    if(ids.has(record.run_id)) return true
+    ids.add(record.run_id)
+  }
+  return false
+}
+
+function recordMatchesAnyDatasetSplit(
+  dataset:SemanticCalibrationDatasetV1,
+  record:SemanticSensorObservationRecordV1,
+):boolean{
+  return (['fit','calibration','validation'] as CalibrationSplit[]).some(split=>
+    semanticCalibrationImageIdentityMatches(dataset,{
+      specimen_id:record.specimen_id,
+      image_id:record.image_id,
+      image_sha256:record.image_sha256,
+      split,
+    })
+  )
+}
+
 export function validateCalibrationArtifact(
   artifact:SemanticCalibrationArtifactV1,
   fit:CandidateCalibrationFit,
@@ -136,6 +167,7 @@ export function validateCalibrationArtifact(
     dataset_id:dataset.dataset_id,
     dataset_version:dataset.dataset_version,
     dataset_manifest_digest_sha256:dataset.manifest_digest_sha256,
+    dataset_content_digest_sha256:dataset.dataset_content_digest_sha256,
     feature_id:fit.feature_id,
     sensor_identity:sensorIdentity,
     taxonomy_version:sensorIdentity.taxonomy_version,
@@ -151,7 +183,10 @@ export function validateCalibrationArtifact(
   }
   const datasetValidation=validateSemanticCalibrationDataset(dataset)
   if(!datasetValidation.valid){
-    return finalizeCalibrationHeldOutValidation({...base,...emptyMetrics,status:'dataset_invalid',reason_codes:['calibration_dataset_invalid']})
+    return finalizeCalibrationHeldOutValidation({
+      ...base,...emptyMetrics,status:'dataset_invalid',
+      reason_codes:['calibration_dataset_invalid',...datasetValidation.reason_codes],
+    })
   }
 
   const lineageReasons:string[]=[]
@@ -160,33 +195,61 @@ export function validateCalibrationArtifact(
   if(artifact.source_fit_id!==fit.fit_id||artifact.source_fit_digest_sha256!==fit.fit_digest_sha256) lineageReasons.push('artifact_fit_lineage_mismatch')
   if(artifact.dataset_id!==dataset.dataset_id||artifact.dataset_version!==dataset.dataset_version) lineageReasons.push('artifact_dataset_identity_mismatch')
   if(artifact.dataset_manifest_digest_sha256!==dataset.manifest_digest_sha256) lineageReasons.push('dataset_manifest_digest_mismatch')
+  if(artifact.dataset_content_digest_sha256!==dataset.dataset_content_digest_sha256) lineageReasons.push('dataset_content_digest_mismatch')
   if(artifact.estimator_config_digest_sha256!==fit.estimator_config_digest_sha256) lineageReasons.push('artifact_estimator_lineage_mismatch')
   if(artifact.feature_id!==fit.feature_id) lineageReasons.push('artifact_feature_lineage_mismatch')
   if(!sensorIdentityEquals(artifactSensorIdentity(artifact),sensorIdentity)) lineageReasons.push('artifact_sensor_identity_lineage_mismatch')
   if(fit.dataset_id!==dataset.dataset_id||fit.dataset_version!==dataset.dataset_version||
-     fit.dataset_manifest_digest_sha256!==dataset.manifest_digest_sha256) lineageReasons.push('fit_dataset_lineage_mismatch')
+     fit.dataset_manifest_digest_sha256!==dataset.manifest_digest_sha256||
+     fit.dataset_content_digest_sha256!==dataset.dataset_content_digest_sha256) lineageReasons.push('fit_dataset_lineage_mismatch')
   if(fit.status!=='candidate_artifact'||!fit.estimator_locked||!fit.model) lineageReasons.push('candidate_artifact_not_locked')
   if(lineageReasons.length){
     return finalizeCalibrationHeldOutValidation({...base,...emptyMetrics,status:'insufficient_validation',reason_codes:lineageReasons})
   }
 
-  const validationSpecimens=new Map(dataset.specimens
-    .filter(s=>s.images.some(i=>i.split==='validation'))
-    .map(s=>[s.specimen_id,s]))
-  const validationHashes=new Set([...validationSpecimens.values()]
-    .flatMap(s=>s.images.filter(i=>i.split==='validation').map(i=>i.sha256)))
-  const datasetSpecimenIds=new Set(dataset.specimens.map(s=>s.specimen_id))
-  const datasetHashes=new Set(dataset.specimens.flatMap(s=>s.images.map(i=>i.sha256)))
-  const recordsInDataset=records.filter(r=>datasetSpecimenIds.has(r.specimen_id)&&datasetHashes.has(r.image_sha256))
-  if(recordsInDataset.some(r=>!dataset.sensor_scope.includes(r.sensor_type))){
-    return finalizeCalibrationHeldOutValidation({...base,...emptyMetrics,status:'insufficient_validation',reason_codes:['sensor_outside_dataset_scope']})
+  const observationReasons=records.flatMap(record=>validateSemanticSensorObservationRecordV1(record).reason_codes)
+  if(observationReasons.length){
+    return finalizeCalibrationHeldOutValidation({
+      ...base,...emptyMetrics,status:'insufficient_validation',
+      reason_codes:['invalid_observation_record',...observationReasons],
+    })
+  }
+  if(duplicateRunId(records)){
+    return finalizeCalibrationHeldOutValidation({
+      ...base,...emptyMetrics,status:'insufficient_validation',
+      reason_codes:['duplicate_observation_run_id'],
+    })
+  }
+  if(records.some(record=>recordMatchesAnyDatasetSplit(dataset,record)&&!dataset.sensor_scope.includes(record.sensor_type))){
+    return finalizeCalibrationHeldOutValidation({
+      ...base,...emptyMetrics,status:'insufficient_validation',
+      reason_codes:['sensor_outside_dataset_scope'],
+    })
   }
 
-  const usable=records.filter(record=>{
-    assertObservationCandidateBlind(record)
-    return validationSpecimens.has(record.specimen_id)&&validationHashes.has(record.image_sha256)&&recordIdentityMatchesFit(record,fit)
-  }).sort((a,b)=>a.run_id.localeCompare(b.run_id))
+  const relevant=records.filter(record=>recordIdentityMatchesFit(record,fit))
+  const bindingReasons:string[]=[]
+  for(const record of relevant){
+    const exactValidation=semanticCalibrationImageIdentityMatches(dataset,{
+      specimen_id:record.specimen_id,
+      image_id:record.image_id,
+      image_sha256:record.image_sha256,
+      split:'validation',
+    })
+    if(exactValidation) continue
+    bindingReasons.push(
+      recordMatchesAnyDatasetSplit(dataset,record)
+        ?'validation_record_split_mismatch'
+        :'observation_dataset_image_binding_mismatch'
+    )
+  }
+  if(bindingReasons.length){
+    return finalizeCalibrationHeldOutValidation({
+      ...base,...emptyMetrics,status:'insufficient_validation',reason_codes:bindingReasons,
+    })
+  }
 
+  const usable=[...relevant].sort((a,b)=>a.run_id.localeCompare(b.run_id))
   if(usable.some(r=>fit.calibration_record_ids.includes(r.run_id))){
     return finalizeCalibrationHeldOutValidation({
       ...base,...emptyMetrics,status:'insufficient_validation',
@@ -204,15 +267,13 @@ export function validateCalibrationArtifact(
   const metricReasons:string[]=[]
 
   for(const record of usable){
-    const specimen=validationSpecimens.get(record.specimen_id)!
+    const specimen=dataset.specimens.find(item=>item.specimen_id===record.specimen_id)!
     const gt=specimen.ground_truth.find(g=>g.feature_id===fit.feature_id)?.value
     if(!gt) continue
     scored++
     perClassSupport[gt]=(perClassSupport[gt]??0)+1
-    const image=specimen.images.find(i=>i.image_id===record.image_id)
-    const stratum=image
-      ? `${image.capture_type}|${image.viewpoint}|${image.crop_type}|${image.visibility}|${image.occlusion_condition}|${image.glare_condition}`
-      : 'unknown'
+    const image=specimen.images.find(i=>i.image_id===record.image_id)!
+    const stratum=`${image.capture_type}|${image.viewpoint}|${image.crop_type}|${image.visibility}|${image.occlusion_condition}|${image.glare_condition}`
     qualityStrataSupport[stratum]=(qualityStrataSupport[stratum]??0)+1
     if(record.state==='observed'&&record.value===gt) correct++
 
