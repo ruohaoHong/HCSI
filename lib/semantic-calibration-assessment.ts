@@ -2,27 +2,136 @@ import type { SemanticEvidenceV1, SemanticObservation, SemanticSensorType } from
 import type { TargetedSemanticEvidence } from './targeted-semantic-extractor'
 import type { SemanticCalibrationArtifactV1 } from './semantic-calibration-v1'
 import type { SemanticCalibrationDatasetV1 } from './semantic-calibration-dataset-v1'
-import { validateSemanticCalibrationDataset } from './semantic-calibration-dataset-v1'
-import { assessSemanticLikelihoodEligibility, type SemanticRuntimeCalibrationContext } from './semantic-likelihood-eligibility'
+import type { SemanticCalibrationEligibilityPolicyV1 } from './semantic-calibration-policy-v1'
+import type { SemanticCalibrationRegistryEntry } from './semantic-calibration-registry'
+import {
+  resolveSemanticCalibrationArtifact,
+  type CalibrationResolutionStatus,
+} from './semantic-calibration-resolver'
+import {
+  buildSemanticRuntimeQuality,
+  semanticObservationQualityMetadata,
+  type SemanticRuntimeQualityContext,
+} from './semantic-runtime-quality'
+import type { SemanticRuntimeCalibrationContext } from './semantic-likelihood-eligibility'
 
 export const SEMANTIC_CALIBRATION_ASSESSMENT_SCHEMA='hcsi.semantic-calibration-assessment.v1' as const
+
 export interface SemanticCalibrationAssessmentItem {
- observation_ref:string;feature_id:string;source:string;independence_group:string;calibration_status:'validated'|'unavailable'|'mismatch'|'out_of_scope';
- calibration_artifact_id:string|null;raw_score:number|null;calibrated_distribution:Record<string,number>|null;calibrated_probability:number|null;likelihood_eligible:boolean;reason_codes:string[]
+  observation_ref:string
+  feature_id:string
+  source:string
+  independence_group:string
+  calibration_status:'validated'|'unavailable'|'mismatch'|'out_of_scope'
+  calibration_resolution_status:CalibrationResolutionStatus
+  calibration_artifact_id:string|null
+  raw_score:number|null
+  calibrated_distribution:Record<string,number>|null
+  calibrated_probability:number|null
+  likelihood_eligible:boolean
+  runtime_quality:SemanticRuntimeQualityContext
+  reason_codes:string[]
 }
-export interface SemanticCalibrationAssessment {schema_version:typeof SEMANTIC_CALIBRATION_ASSESSMENT_SCHEMA;available:boolean;items:SemanticCalibrationAssessmentItem[]}
-function assessOne(observation:SemanticObservation,ref:string,runtime:SemanticRuntimeCalibrationContext,artifacts:readonly SemanticCalibrationArtifactV1[],datasets:readonly SemanticCalibrationDatasetV1[]):SemanticCalibrationAssessmentItem{
- const artifact=artifacts.find(a=>a.feature_id===runtime.feature_id&&a.sensor_identity.sensor_type===runtime.sensor_type)??null
- const dataset=artifact?datasets.find(d=>d.dataset_id===artifact.dataset_id&&d.dataset_version===artifact.dataset_version)??null:null
- const dv=dataset?validateSemanticCalibrationDataset(dataset):null
- const e=assessSemanticLikelihoodEligibility(runtime,artifact,dataset,dv)
- return {observation_ref:ref,feature_id:observation.feature_id,source:observation.source,independence_group:observation.independence_group,
-  calibration_status:e.calibration_applicability==='applicable'?'validated':e.calibration_applicability==='mismatch'?'mismatch':e.calibration_applicability==='out_of_scope'?'out_of_scope':'unavailable',
-  calibration_artifact_id:artifact?.calibration_id??null,raw_score:observation.raw_score,calibrated_distribution:null,calibrated_probability:null,likelihood_eligible:e.likelihood_eligible,reason_codes:e.reason_codes}
+
+export interface SemanticCalibrationAssessment {
+  schema_version:typeof SEMANTIC_CALIBRATION_ASSESSMENT_SCHEMA
+  available:boolean
+  items:SemanticCalibrationAssessmentItem[]
 }
-export function buildSemanticCalibrationAssessment(first:SemanticEvidenceV1|null,targeted:readonly TargetedSemanticEvidence[],artifacts:readonly SemanticCalibrationArtifactV1[],datasets:readonly SemanticCalibrationDatasetV1[]):SemanticCalibrationAssessment{
- const items:SemanticCalibrationAssessmentItem[]=[]
- if(first){for(const o of first.observations){const src=first.evidence_sources.find(s=>s.evidence_ref===o.source);const runtime:SemanticRuntimeCalibrationContext={feature_id:o.feature_id,sensor_type:(src?.sensor_type??'vlm') as SemanticSensorType,model:src?.model??'unknown',model_version:src?.model_version??'unknown',prompt_version:src?.prompt_version??'unknown',extractor_version:first.extractor_version,taxonomy_version:first.taxonomy_version,quality:{visibility:o.visibility,capture_type:'full_image',viewpoint:'unknown',crop_type:'full_image',width_px:0,height_px:0,occlusion_condition:'unknown',glare_condition:'unknown'}};items.push(assessOne(o,`first-pass:${o.source}:${o.feature_id}`,runtime,artifacts,datasets))}}
- for(const t of targeted){const o=t.observation;const runtime:SemanticRuntimeCalibrationContext={feature_id:o.feature_id,sensor_type:t.provenance.sensor_type,model:t.provenance.model,model_version:t.provenance.model_version,prompt_version:t.provenance.prompt_version,extractor_version:'hcsi.targeted-semantic-extractor.v1',taxonomy_version:first?.taxonomy_version??'unknown',quality:{visibility:o.visibility,capture_type:'targeted_crop',viewpoint:'unknown',crop_type:t.provenance.crop_ref,width_px:0,height_px:0,occlusion_condition:'unknown',glare_condition:'unknown'}};items.push(assessOne(o,t.observation_id,runtime,artifacts,datasets))}
- return {schema_version:SEMANTIC_CALIBRATION_ASSESSMENT_SCHEMA,available:items.some(i=>i.likelihood_eligible),items}
+
+export interface SemanticCalibrationAssessmentEnvironment {
+  artifacts:readonly SemanticCalibrationArtifactV1[]
+  datasets:readonly SemanticCalibrationDatasetV1[]
+  active_policy:SemanticCalibrationEligibilityPolicyV1|null
+  registry:readonly SemanticCalibrationRegistryEntry[]
+  image_base64:string|null
+}
+
+function assessOne(
+  observation:SemanticObservation,
+  observationRef:string,
+  runtime:SemanticRuntimeCalibrationContext,
+  environment:SemanticCalibrationAssessmentEnvironment,
+):SemanticCalibrationAssessmentItem{
+  const resolution=resolveSemanticCalibrationArtifact(
+    runtime,environment.artifacts,environment.datasets,environment.active_policy,environment.registry,
+  )
+  const artifact=resolution.artifact
+  const calibrationStatus=
+    resolution.status==='resolved'?'validated':
+    resolution.status==='identity_mismatch'?'mismatch':
+    resolution.status==='out_of_scope'?'out_of_scope':'unavailable'
+  return {
+    observation_ref:observationRef,feature_id:observation.feature_id,source:observation.source,
+    independence_group:observation.independence_group,
+    calibration_status:calibrationStatus,
+    calibration_resolution_status:resolution.status,
+    calibration_artifact_id:artifact?.calibration_id??null,
+    raw_score:observation.raw_score,
+    // Phase 2E confusion calibration models sensor behavior P(observation | semantic GT).
+    // It does not invert this into P(GT | image), candidate probability, or candidate likelihood.
+    calibrated_distribution:null,
+    calibrated_probability:null,
+    likelihood_eligible:resolution.status==='resolved',
+    runtime_quality:runtime.quality,
+    reason_codes:resolution.reason_codes,
+  }
+}
+
+export function buildSemanticCalibrationAssessment(
+  first:SemanticEvidenceV1|null,
+  targeted:readonly TargetedSemanticEvidence[],
+  environment:SemanticCalibrationAssessmentEnvironment,
+):SemanticCalibrationAssessment{
+  const items:SemanticCalibrationAssessmentItem[]=[]
+
+  if(first){
+    for(const observation of first.observations){
+      const source=first.evidence_sources.find(s=>s.evidence_ref===observation.source)
+      const cropRef=observation.evidence_refs[0]??first.observation_scope.target_region_ref
+      const quality=buildSemanticRuntimeQuality(
+        observation.visibility,
+        semanticObservationQualityMetadata(observation.reason_codes,environment.image_base64,cropRef),
+      )
+      const runtime:SemanticRuntimeCalibrationContext={
+        feature_id:observation.feature_id,
+        sensor_type:(source?.sensor_type??'vlm') as SemanticSensorType,
+        model:source?.model??'unknown',
+        model_version:source?.model_version??'unknown',
+        prompt_version:source?.prompt_version??'unknown',
+        extractor_version:first.extractor_version,
+        taxonomy_version:first.taxonomy_version,
+        quality,
+      }
+      items.push(assessOne(
+        observation,`first-pass:${observation.source}:${observation.feature_id}`,runtime,environment,
+      ))
+    }
+  }
+
+  for(const targetedEvidence of targeted){
+    const observation=targetedEvidence.observation
+    const cropRef=targetedEvidence.provenance.crop_ref
+    const quality=buildSemanticRuntimeQuality(
+      observation.visibility,
+      semanticObservationQualityMetadata(observation.reason_codes,environment.image_base64,cropRef),
+    )
+    const runtime:SemanticRuntimeCalibrationContext={
+      feature_id:observation.feature_id,
+      sensor_type:targetedEvidence.provenance.sensor_type,
+      model:targetedEvidence.provenance.model,
+      model_version:targetedEvidence.provenance.model_version,
+      prompt_version:targetedEvidence.provenance.prompt_version,
+      extractor_version:'hcsi.targeted-semantic-extractor.v1',
+      taxonomy_version:first?.taxonomy_version??'unknown',
+      quality,
+    }
+    items.push(assessOne(observation,targetedEvidence.observation_id,runtime,environment))
+  }
+
+  return {
+    schema_version:SEMANTIC_CALIBRATION_ASSESSMENT_SCHEMA,
+    available:items.some(item=>item.likelihood_eligible),
+    items,
+  }
 }
