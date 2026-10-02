@@ -25,6 +25,8 @@ export interface TargetedSemanticEvidence {
     prompt_version: typeof TARGETED_SEMANTIC_PROMPT_VERSION
     crop_ref: string
     image_sha256: string
+    sensor_input_mode: 'full_image'
+    roi_instruction_sent: false
   }
 }
 
@@ -77,7 +79,10 @@ export function buildTargetedSemanticEvidence(
   const processedValidation=validateSemanticObservationV1(sanitized,false)
   if (!processedValidation.valid) throw new Error(`invalid_targeted_semantic_observation:${processedValidation.errors.join('|')}`)
 
-  const cropRef=request.semantic_roi.crop_ref
+  // provider-runner sends the original full image bytes for this pass and
+  // buildTargetedSemanticPrompt does not serialize the ROI. Provenance must
+  // describe that actual sensor condition rather than the desired attention area.
+  const cropRef='full_image_1'
   const first=firstPass?.observations.find(o=>o.feature_id===request.feature_id) ?? null
   const firstObservationId=first ? `first-pass:${first.source}:${first.feature_id}` : null
   const observation:SemanticObservation={
