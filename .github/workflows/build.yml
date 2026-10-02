@@ -68,4 +68,11 @@ jobs:
           node "$(find /tmp/hcsi-cv-first-v2-test -name purchase-spec-completeness.test.js -print -quit)"
           node "$(find /tmp/hcsi-cv-first-v2-test -name cv-grounding-basis.test.js -print -quit)"
           node "$(find /tmp/hcsi-cv-first-v2-test -name cv-first-v2-integration.test.js -print -quit)"
+      - name: Semantic calibration deterministic suites
+        run: |
+          rm -rf /tmp/hcsi-semantic-calibration-tests
+          pnpm exec tsc             lib/semantic-calibration.test.ts             lib/semantic-calibration-phase2e.test.ts             lib/semantic-calibration-phase2e1.test.ts             --target ES2022             --module commonjs             --moduleResolution node             --esModuleInterop             --skipLibCheck             --outDir /tmp/hcsi-semantic-calibration-tests
+          node "$(find /tmp/hcsi-semantic-calibration-tests -name semantic-calibration.test.js -print -quit)"
+          node "$(find /tmp/hcsi-semantic-calibration-tests -name semantic-calibration-phase2e.test.js -print -quit)"
+          node "$(find /tmp/hcsi-semantic-calibration-tests -name semantic-calibration-phase2e1.test.js -print -quit)"
       - run: pnpm build
