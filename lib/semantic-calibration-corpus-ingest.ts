@@ -4,6 +4,7 @@ import { sha256Canonical,isSha256 } from './semantic-calibration-digest'
 import { SEMANTIC_CALIBRATION_LINEAGE_SCHEMA } from './semantic-calibration-lineage-v1'
 import {
   SEMANTIC_CALIBRATION_DATASET_SCHEMA,
+  finalizeSemanticCalibrationDataset,
   validateSemanticCalibrationDataset,
   type CalibrationDatasetSourceScope,
   type CalibrationSplit,
@@ -99,7 +100,7 @@ export function ingestSemanticCalibrationCorpus(m:SemanticCalibrationCorpusManif
     }
   }
 
-  const dataset:SemanticCalibrationDatasetV1={
+  const dataset=finalizeSemanticCalibrationDataset({
     schema_version:SEMANTIC_CALIBRATION_DATASET_SCHEMA,
     lineage_schema_version:SEMANTIC_CALIBRATION_LINEAGE_SCHEMA,
     dataset_id:m.dataset_id,dataset_version:m.dataset_version,manifest_digest_sha256:digest,created_at:m.created_at,
@@ -132,7 +133,7 @@ export function ingestSemanticCalibrationCorpus(m:SemanticCalibrationCorpusManif
       glare_conditions:[...new Set(m.specimens.flatMap(s=>s.images.map(i=>i.glare_condition)))],
     },
     ground_truth_policy:{independently_verified:true,same_sensor_self_label_forbidden:true,provenance_required:true},
-  }
+  })
 
   const datasetValidation=validateSemanticCalibrationDataset(dataset)
   reasons.push(...datasetValidation.reason_codes)
