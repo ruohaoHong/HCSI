@@ -2,7 +2,7 @@ import {
   semanticCalibrationArtifactDigestValid,
   type SemanticCalibrationArtifactV1,
 } from './semantic-calibration-v1'
-import type { CalibrationDatasetValidation, SemanticCalibrationDatasetV1 } from './semantic-calibration-dataset-v1'
+import { validateSemanticCalibrationDataset,type CalibrationDatasetValidation,type SemanticCalibrationDatasetV1 } from './semantic-calibration-dataset-v1'
 import {
   calibrationHeldOutValidationDigestValid,
   type CalibrationHeldOutValidation,
@@ -45,15 +45,22 @@ function overlaps(a:readonly string[],b:readonly string[]):boolean{
 export function assessCalibrationArtifactAdmission(
   artifact:SemanticCalibrationArtifactV1,
   dataset:SemanticCalibrationDatasetV1,
-  datasetValidation:CalibrationDatasetValidation,
+  _datasetValidation:CalibrationDatasetValidation,
   validation:CalibrationHeldOutValidation,
   activePolicy:SemanticCalibrationEligibilityPolicyV1|null,
 ):CalibrationAdmissionAssessment{
   const reasons:string[]=[]
   const lineageReasons:string[]=[]
+  // Admission is the production trust boundary: validate the exact dataset
+  // supplied now instead of trusting a caller-provided validation snapshot.
+  const currentDatasetValidation=validateSemanticCalibrationDataset(dataset)
 
   if(!activePolicy||activePolicy.status!=='preregistered') reasons.push('active_preregistered_policy_missing')
-  if(!datasetValidation.valid||!datasetValidation.production_eligible_source) reasons.push('dataset_not_production_eligible')
+  if(!currentDatasetValidation.valid){
+    reasons.push('dataset_not_production_eligible',...currentDatasetValidation.reason_codes)
+  }else if(!currentDatasetValidation.production_eligible_source){
+    reasons.push('dataset_not_production_eligible')
+  }
   if(dataset.source_scope!=='independent_real_image') reasons.push('dataset_not_independent_real_image')
   if(validation.status!=='validated'||validation.validation_used_for_tuning!==false) reasons.push('held_out_validation_missing')
   if(artifact.status!=='validated') reasons.push('artifact_not_validated')
