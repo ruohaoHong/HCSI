@@ -1,3 +1,4 @@
+# Phase 2E acceptance: no real corpus/artifact/policy means exact resolver stays fail-closed; no fusion/decision side effects.
 # Phase 2D final validation after contract hardening; production logic unchanged.
 # Phase 2D acceptance: empty production calibration registry must fail closed; no fusion/decision side effects.
 # Phase 2C final validation: Case C
@@ -9,7 +10,7 @@
 # GT is introduced only in the final scoring step after response.json is frozen and hashed.
 on:
   push:
-    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak, feature/candidate-semantic-discrimination, feature/semantic-calibration-foundation]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak, feature/candidate-semantic-discrimination, feature/semantic-calibration-foundation, feature/semantic-calibration-corpus-admission]
     paths:
       - '.github/workflows/case-c-image-only-openai-e2e.yml'
       - 'lib/provider-runner.ts'
@@ -34,6 +35,17 @@ on:
       - 'lib/targeted-semantic-request.ts'
       - 'lib/targeted-semantic-extractor.ts'
       - 'lib/candidate-semantic-discrimination.ts'
+      - 'lib/semantic-calibration-policy-v1.ts'
+      - 'lib/semantic-calibration-registry.ts'
+      - 'lib/semantic-calibration-resolver.ts'
+      - 'lib/semantic-calibration-corpus-ingest.ts'
+      - 'lib/semantic-sensor-observation-record-v1.ts'
+      - 'lib/semantic-confusion-model-v1.ts'
+      - 'lib/semantic-calibration-fit.ts'
+      - 'lib/semantic-calibration-validation.ts'
+      - 'lib/semantic-calibration-admission.ts'
+      - 'lib/semantic-runtime-quality.ts'
+      - 'lib/semantic-calibration-assessment.ts'
       - 'lib/candidate-blind-semantic-request.ts'
       - 'lib/semantic-evidence-validator.ts'
       - 'lib/semantic-extractor.ts'
@@ -213,6 +225,26 @@ jobs:
           discrimination = output['candidate_semantic_discrimination']
           calibration = output['semantic_calibration_assessment']
           semantic_likelihood = output['semantic_likelihood_evidence']
+          resolution = output['semantic_calibration_resolution']
+          registry_status = output['semantic_calibration_registry_status']
+          runtime_quality = output['semantic_runtime_quality']
+          admission_status = output['semantic_calibration_admission_status']
+          assert registry_status['admitted_dataset_count'] == 0
+          assert registry_status['admitted_artifact_count'] == 0
+          assert registry_status['active_registry_entries'] == 0
+          assert registry_status['active_policy_id'] is None
+          assert registry_status['active_policy_version'] is None
+          assert resolution
+          assert all(item['calibration_artifact_id'] is None for item in resolution)
+          assert all(item['status'] != 'resolved' for item in resolution)
+          assert all('no_applicable_validated_calibration_artifact' in item['reason_codes'] for item in resolution)
+          assert runtime_quality
+          assert all(item['quality']['width_px'] is not None and item['quality']['width_px'] > 0 for item in runtime_quality)
+          assert all(item['quality']['height_px'] is not None and item['quality']['height_px'] > 0 for item in runtime_quality)
+          assert all(item['quality']['viewpoint'] == 'unknown' for item in runtime_quality)
+          assert all(item['quality']['capture_type'] == 'single_image' for item in runtime_quality)
+          assert admission_status['automatic_runtime_admission'] is False
+          assert admission_status['eligible_for_runtime_admission'] is False
           assert calibration['schema_version'] == 'hcsi.semantic-calibration-assessment.v1'
           assert calibration['available'] is False
           assert calibration['items']
