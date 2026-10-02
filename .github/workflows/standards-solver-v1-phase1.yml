@@ -1,3 +1,4 @@
+# Phase 2C final validation: same-HEAD acceptance trigger; no production logic change.
 # Phase 2C candidate feature compiler + candidate-blind targeted semantic discrimination.
 # Phase 2B.1 semantic anti-leak hardening: finite reason codes + OCR literal policy.
 # Phase 2B final validation: candidate-blind semantic evidence v1 shadow architecture.
