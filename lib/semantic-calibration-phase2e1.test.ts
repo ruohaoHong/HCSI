@@ -5,6 +5,7 @@ import {
   type SemanticCalibrationCorpusManifest,
 } from './semantic-calibration-corpus-ingest'
 import {
+  finalizeSemanticCalibrationDataset,
   validateSemanticCalibrationDataset,
   type SemanticCalibrationDatasetV1,
 } from './semantic-calibration-dataset-v1'
@@ -206,9 +207,10 @@ assert.equal(dataset.manifest_digest_sha256,ingest.immutable_manifest_digest_sha
 
 const calRecord=record('cal-specimen','cal-image',hash(1),'cal-run')
 const valRecord=record('val-specimen','val-image',hash(2),'val-run')
-const fit=fitSemanticCalibrationArtifact(dataset,[calRecord,valRecord],estimator)
+const fit=fitSemanticCalibrationArtifact(dataset,[calRecord],estimator)
 assert.equal(fit.status,'candidate_artifact')
 assert.equal(fit.dataset_manifest_digest_sha256,dataset.manifest_digest_sha256)
+assert.equal(fit.dataset_content_digest_sha256,dataset.dataset_content_digest_sha256)
 assert.equal(fit.estimator_config_digest_sha256,calibrationEstimatorConfigDigest(estimator))
 assert.match(fit.fit_digest_sha256,/^[a-f0-9]{64}$/)
 
@@ -232,13 +234,14 @@ const artifact=buildSemanticCalibrationArtifactFromFit(fit,{
   },
   eligibility_policy_version:'phase2e1-test-policy-v1',
 })
-const validation=validateCalibrationArtifact(artifact,fit,dataset,[calRecord,valRecord])
+const validation=validateCalibrationArtifact(artifact,fit,dataset,[valRecord])
 assert.equal(validation.status,'validated')
 assert.equal(validation.validation_record_ids.length,1)
 assert.equal(validation.validation_record_ids[0],'val-run')
 assert.equal(validation.source_fit_digest_sha256,fit.fit_digest_sha256)
 assert.equal(validation.artifact_digest_sha256,artifact.artifact_digest_sha256)
 assert.equal(validation.dataset_manifest_digest_sha256,dataset.manifest_digest_sha256)
+assert.equal(validation.dataset_content_digest_sha256,dataset.dataset_content_digest_sha256)
 assert.equal(validation.brier_score,0)
 assert.equal(validation.log_loss,0)
 assert.equal(validation.ece,null)
@@ -248,6 +251,7 @@ assert.ok(validation.metric_reason_codes.includes('ece_metric_not_defined_for_cu
 assert.equal(artifact.source_fit_id,fit.fit_id)
 assert.equal(artifact.source_fit_digest_sha256,fit.fit_digest_sha256)
 assert.equal(artifact.dataset_manifest_digest_sha256,fit.dataset_manifest_digest_sha256)
+assert.equal(artifact.dataset_content_digest_sha256,fit.dataset_content_digest_sha256)
 assert.equal(artifact.estimator_config_digest_sha256,fit.estimator_config_digest_sha256)
 
 // B — Artifact A + Validation B cannot pass lineage admission.
@@ -267,7 +271,8 @@ assert.equal(artifact.estimator_config_digest_sha256,fit.estimator_config_digest
 
 // C — Same human-readable dataset id/version with different immutable content digest is rejected.
 {
-  const otherDataset={...dataset,manifest_digest_sha256:hash(101)}
+  const {dataset_content_digest_sha256:_oldDigest,...otherDraft}=dataset
+  const otherDataset=finalizeSemanticCalibrationDataset({...otherDraft,manifest_digest_sha256:hash(101)})
   const otherValidation=validateSemanticCalibrationDataset(otherDataset)
   assert.equal(otherValidation.valid,true)
   const result=assessCalibrationArtifactAdmission(artifact,otherDataset,otherValidation,validation,policy())
