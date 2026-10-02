@@ -166,6 +166,7 @@ export function intakeRealSemanticCalibrationCorpus(
 
   for(const specimen of manifest.specimens){
     if(manifestSpecimenIds.has(specimen.specimen_id)) reasons.push('duplicate_specimen_id')
+    if(new Set(specimen.images.map(image=>image.split)).size>1) reasons.push('specimen_split_leakage')
     manifestSpecimenIds.add(specimen.specimen_id)
     const acquisition=ledgerBySpecimen.get(specimen.specimen_id)
     if(!acquisition){
