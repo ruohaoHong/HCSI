@@ -1,8 +1,10 @@
-import { createHash } from 'node:crypto'
 import type { SemanticFeatureId } from './semantic-taxonomy-v1'
 import type { SemanticSensorType } from './semantic-evidence-v1'
+import { sha256Canonical,isSha256 } from './semantic-calibration-digest'
+import { SEMANTIC_CALIBRATION_LINEAGE_SCHEMA } from './semantic-calibration-lineage-v1'
 import {
   SEMANTIC_CALIBRATION_DATASET_SCHEMA,
+  validateSemanticCalibrationDataset,
   type CalibrationDatasetSourceScope,
   type CalibrationSplit,
   type SemanticCalibrationDatasetV1,
@@ -56,20 +58,10 @@ export interface CorpusIngestionResult {
   immutable_manifest_digest_sha256:string
 }
 
-function canonical(value:unknown):string{
-  if(Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
-  if(value&&typeof value==='object'){
-    return `{${Object.entries(value as Record<string,unknown>)
-      .sort(([a],[b])=>a.localeCompare(b))
-      .map(([k,v])=>`${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`
-  }
-  return JSON.stringify(value)
-}
-
 export function ingestSemanticCalibrationCorpus(m:SemanticCalibrationCorpusManifest):CorpusIngestionResult{
   const reasons:string[]=[]
   const hashes=new Map<string,Array<{specimen:string;split:CalibrationSplit;image:string}>>()
-  const digest=createHash('sha256').update(canonical(m)).digest('hex')
+  const digest=sha256Canonical(m)
 
   if(m.schema_version!==SEMANTIC_CALIBRATION_CORPUS_MANIFEST_SCHEMA) reasons.push('manifest_schema_mismatch')
   if(m.source_provenance.source_class!==m.source_scope) reasons.push('manifest_source_provenance_mismatch')
@@ -86,7 +78,7 @@ export function ingestSemanticCalibrationCorpus(m:SemanticCalibrationCorpusManif
     const splits=new Set(specimen.images.map(i=>i.split))
     if(splits.size>1) reasons.push('specimen_split_leakage')
     for(const image of specimen.images){
-      if(!/^[a-f0-9]{64}$/i.test(image.sha256)) reasons.push('image_sha256_invalid')
+      if(!isSha256(image.sha256)) reasons.push('image_sha256_invalid')
       if(!image.source_ref) reasons.push('image_source_ref_missing')
       const occurrences=hashes.get(image.sha256)??[]
       occurrences.push({specimen:specimen.specimen_id,split:image.split,image:image.image_id})
@@ -107,16 +99,10 @@ export function ingestSemanticCalibrationCorpus(m:SemanticCalibrationCorpusManif
     }
   }
 
-  const nonProductionOnly=new Set(['synthetic_dataset_not_production_eligible'])
-  const fatal=reasons.some(r=>!nonProductionOnly.has(r))
-  const manifest_sha_index=Object.fromEntries([...hashes].map(([h,a])=>[h,a.map(x=>x.image)]))
-  if(fatal){
-    return {accepted:false,dataset:null,reason_codes:[...new Set(reasons)],manifest_sha_index,immutable_manifest_digest_sha256:digest}
-  }
-
   const dataset:SemanticCalibrationDatasetV1={
     schema_version:SEMANTIC_CALIBRATION_DATASET_SCHEMA,
-    dataset_id:m.dataset_id,dataset_version:m.dataset_version,created_at:m.created_at,
+    lineage_schema_version:SEMANTIC_CALIBRATION_LINEAGE_SCHEMA,
+    dataset_id:m.dataset_id,dataset_version:m.dataset_version,manifest_digest_sha256:digest,created_at:m.created_at,
     source_scope:m.source_scope,
     source_provenance:{...m.source_provenance},
     specimens:m.specimens.map(specimen=>({
@@ -147,6 +133,19 @@ export function ingestSemanticCalibrationCorpus(m:SemanticCalibrationCorpusManif
     },
     ground_truth_policy:{independently_verified:true,same_sensor_self_label_forbidden:true,provenance_required:true},
   }
+
+  const datasetValidation=validateSemanticCalibrationDataset(dataset)
+  reasons.push(...datasetValidation.reason_codes)
+  const nonProductionOnly=new Set([
+    'synthetic_dataset_not_production_eligible',
+    'synthetic_specimen_not_production_eligible',
+  ])
+  const fatal=reasons.some(r=>!nonProductionOnly.has(r))
+  const manifest_sha_index=Object.fromEntries([...hashes].map(([h,a])=>[h,a.map(x=>x.image)]))
+  if(fatal){
+    return {accepted:false,dataset:null,reason_codes:[...new Set(reasons)],manifest_sha_index,immutable_manifest_digest_sha256:digest}
+  }
+
   return {
     accepted:true,dataset,reason_codes:[...new Set(reasons)],
     manifest_sha_index,immutable_manifest_digest_sha256:digest,
