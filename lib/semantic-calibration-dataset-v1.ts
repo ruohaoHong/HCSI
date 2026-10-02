@@ -1,5 +1,12 @@
-import type { SemanticFeatureId } from './semantic-taxonomy-v1'
+import {
+  isNotVisibleTaxonomyValue,
+  isSemanticFeatureId,
+  isSemanticTaxonomyValue,
+  type SemanticFeatureId,
+} from './semantic-taxonomy-v1'
 import type { SemanticSensorType } from './semantic-evidence-v1'
+import { isSha256 } from './semantic-calibration-digest'
+import { SEMANTIC_CALIBRATION_LINEAGE_SCHEMA } from './semantic-calibration-lineage-v1'
 
 export const SEMANTIC_CALIBRATION_DATASET_SCHEMA='hcsi.semantic-calibration-dataset.v1' as const
 export type CalibrationSplit='fit'|'calibration'|'validation'
@@ -47,8 +54,10 @@ export interface SemanticCalibrationSpecimen {
 
 export interface SemanticCalibrationDatasetV1 {
   schema_version:typeof SEMANTIC_CALIBRATION_DATASET_SCHEMA
+  lineage_schema_version:typeof SEMANTIC_CALIBRATION_LINEAGE_SCHEMA
   dataset_id:string
   dataset_version:string
+  manifest_digest_sha256:string
   created_at:string
   source_scope:CalibrationDatasetSourceScope
   source_provenance:{
@@ -83,14 +92,30 @@ export interface CalibrationDatasetValidation {
 const productionForbiddenSourceClasses=new Set<CalibrationDatasetSourceScope>([
   'regression_fixture','development_fixture','sealed_blind_fixture','synthetic_test',
 ])
+const sensorTypes=new Set<SemanticSensorType>(['vlm','deterministic_classifier','ocr','geometry_semantic_bridge'])
+const sensorOnlyGroundTruthValues=new Set(['unknown','open_set','ambiguous'])
 
 export function validateSemanticCalibrationDataset(dataset:SemanticCalibrationDatasetV1):CalibrationDatasetValidation{
   const reasons:string[]=[]
   if(dataset.schema_version!==SEMANTIC_CALIBRATION_DATASET_SCHEMA) reasons.push('dataset_schema_mismatch')
+  if(dataset.lineage_schema_version!==SEMANTIC_CALIBRATION_LINEAGE_SCHEMA) reasons.push('lineage_schema_mismatch')
+  if(!isSha256(dataset.manifest_digest_sha256)) reasons.push('dataset_manifest_digest_invalid')
   if(dataset.split_policy.unit!=='physical_specimen'||dataset.split_policy.specimen_may_cross_splits!==false) reasons.push('specimen_level_split_not_enforced')
   if(dataset.ground_truth_policy.independently_verified!==true||
      dataset.ground_truth_policy.same_sensor_self_label_forbidden!==true||
      dataset.ground_truth_policy.provenance_required!==true) reasons.push('ground_truth_policy_not_independent')
+
+  const featureScopeRaw=dataset.feature_scope as unknown[]
+  if(!featureScopeRaw.length) reasons.push('feature_scope_empty')
+  if(featureScopeRaw.some(feature=>!isSemanticFeatureId(feature))) reasons.push('invalid_feature_id')
+  if(new Set(featureScopeRaw.map(String)).size!==featureScopeRaw.length) reasons.push('duplicate_feature_scope')
+  const validFeatureScope=featureScopeRaw.filter(isSemanticFeatureId)
+  const featureScope=new Set<SemanticFeatureId>(validFeatureScope)
+
+  const sensorScopeRaw=dataset.sensor_scope as unknown[]
+  if(!sensorScopeRaw.length||sensorScopeRaw.some(sensor=>typeof sensor!=='string'||!sensorTypes.has(sensor as SemanticSensorType))){
+    reasons.push('invalid_sensor_scope')
+  }
 
   if(dataset.source_provenance.source_class!==dataset.source_scope) reasons.push('dataset_source_provenance_mismatch')
   if(dataset.source_scope==='independent_real_image'&&!dataset.source_provenance.independent_acquisition) reasons.push('independent_acquisition_not_verified')
@@ -123,18 +148,40 @@ export function validateSemanticCalibrationDataset(dataset:SemanticCalibrationDa
 
     for(const image of specimen.images){
       imageCount++
-      if(!/^[a-f0-9]{64}$/i.test(image.sha256)) reasons.push('image_sha256_invalid')
+      if(!isSha256(image.sha256)) reasons.push('image_sha256_invalid')
       if(!image.source_ref) reasons.push('image_source_ref_missing')
       const occurrences=imageHashes.get(image.sha256)??[]
       occurrences.push({specimen_id:specimen.specimen_id,split:image.split,image_id:image.image_id})
       imageHashes.set(image.sha256,occurrences)
     }
 
-    for(const gt of specimen.ground_truth){
+    const seenGt=new Map<SemanticFeatureId,string>()
+    for(const gt of specimen.ground_truth as Array<SemanticCalibrationGroundTruth & {feature_id:unknown;value:unknown}>){
       gtCount++
       if(!gt.gt_source||!gt.verification_method||!gt.annotator_or_fixture_provenance||!gt.schema_version){
         reasons.push('ground_truth_provenance_missing')
       }
+      if(!isSemanticFeatureId(gt.feature_id)){
+        reasons.push('invalid_feature_id')
+        continue
+      }
+      if(!featureScope.has(gt.feature_id)) reasons.push('ground_truth_feature_outside_feature_scope')
+      if(!isSemanticTaxonomyValue(gt.feature_id,gt.value)){
+        reasons.push('invalid_ground_truth_value')
+        continue
+      }
+      if(sensorOnlyGroundTruthValues.has(gt.value)||isNotVisibleTaxonomyValue(gt.feature_id,gt.value)){
+        reasons.push('ground_truth_sensor_state_forbidden')
+      }
+      const prior=seenGt.get(gt.feature_id)
+      if(prior!==undefined){
+        reasons.push(prior===gt.value?'duplicate_ground_truth_feature':'conflicting_duplicate_ground_truth')
+      }else{
+        seenGt.set(gt.feature_id,gt.value)
+      }
+    }
+    for(const feature of validFeatureScope){
+      if(!seenGt.has(feature)) reasons.push('missing_scoped_ground_truth')
     }
   }
 
@@ -146,11 +193,15 @@ export function validateSemanticCalibrationDataset(dataset:SemanticCalibrationDa
   }
 
   const structuralFatal=new Set([
-    'dataset_schema_mismatch','specimen_level_split_not_enforced','specimen_split_leakage',
-    'duplicate_specimen_id','ground_truth_missing','ground_truth_provenance_missing',
-    'ground_truth_policy_not_independent','dataset_source_provenance_mismatch',
-    'physical_specimen_identity_unverified','image_sha256_invalid','image_source_ref_missing',
-    'duplicate_image_sha256','cross_split_image_sha256',
+    'dataset_schema_mismatch','lineage_schema_mismatch','dataset_manifest_digest_invalid',
+    'specimen_level_split_not_enforced','specimen_split_leakage','duplicate_specimen_id',
+    'ground_truth_missing','ground_truth_provenance_missing','ground_truth_policy_not_independent',
+    'dataset_source_provenance_mismatch','physical_specimen_identity_unverified',
+    'image_sha256_invalid','image_source_ref_missing','duplicate_image_sha256','cross_split_image_sha256',
+    'feature_scope_empty','invalid_feature_id','duplicate_feature_scope','invalid_sensor_scope',
+    'invalid_ground_truth_value','ground_truth_sensor_state_forbidden',
+    'ground_truth_feature_outside_feature_scope','duplicate_ground_truth_feature',
+    'conflicting_duplicate_ground_truth','missing_scoped_ground_truth',
   ])
   const valid=!reasons.some(r=>structuralFatal.has(r))
   const production_eligible_source=
