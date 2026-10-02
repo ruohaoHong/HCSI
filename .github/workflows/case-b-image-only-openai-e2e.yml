@@ -11,7 +11,7 @@
 # Ground truth is introduced only after the final API response has been frozen.
 on:
   push:
-    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak, feature/candidate-semantic-discrimination, feature/semantic-calibration-foundation, feature/semantic-calibration-corpus-admission]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak, feature/candidate-semantic-discrimination, feature/semantic-calibration-foundation, feature/semantic-calibration-corpus-admission, feature/semantic-calibration-lineage-hardening]
     paths:
       - '.github/workflows/case-b-image-only-openai-e2e.yml'
       - 'app/api/measure/route.ts'
@@ -49,6 +49,11 @@ on:
       - 'lib/semantic-calibration-fit.ts'
       - 'lib/semantic-calibration-validation.ts'
       - 'lib/semantic-calibration-admission.ts'
+      - 'lib/semantic-calibration-lineage-v1.ts'
+      - 'lib/semantic-calibration-digest.ts'
+      - 'lib/semantic-observation-pixel-geometry.ts'
+      - 'lib/semantic-image-dimensions.ts'
+      - 'lib/semantic-calibration-phase2e1.test.ts'
       - 'lib/semantic-runtime-quality.ts'
       - 'lib/semantic-calibration-assessment.ts'
       - 'lib/candidate-blind-semantic-request.ts'
