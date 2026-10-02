@@ -105,6 +105,7 @@ export function buildTargetedSemanticEvidence(
     provenance:{
       sensor_type:'vlm',model:provenance.model,model_version:provenance.model_version,
       prompt_version:TARGETED_SEMANTIC_PROMPT_VERSION,crop_ref:cropRef,image_sha256:request.image.image_sha256,
+      sensor_input_mode:'full_image',roi_instruction_sent:false,
     },
   }
 }
