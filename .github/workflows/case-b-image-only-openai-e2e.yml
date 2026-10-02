@@ -1,3 +1,4 @@
+# Phase 2D final validation after contract hardening; production logic unchanged.
 # Phase 2D acceptance: empty production calibration registry must fail closed; no fusion/decision side effects.
 # Phase 2C final validation: Case B
 # Standards source-of-truth final validation: formal candidates are catalogue-backed; legacy nominal is diagnostic only.
