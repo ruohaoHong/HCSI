@@ -348,3 +348,4 @@ expectGeometryConflict(()=>buildSemanticRuntimeQuality('visible',{
 }),/semantic_observation_geometry_conflict:resize_target_mismatch/)
 
 console.log('Phase 2E.1.1 calibration data binding & effective geometry closure regressions passed')
+// CI trigger: Build + Cases B-E must validate this exact final SHA.
