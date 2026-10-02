@@ -1,5 +1,6 @@
 import type { SemanticFeatureId } from './semantic-taxonomy-v1'
 import type { SemanticSensorType } from './semantic-evidence-v1'
+import type { SemanticConfusionModelV1 } from './semantic-confusion-model-v1'
 
 export const SEMANTIC_CALIBRATION_SCHEMA='hcsi.semantic-calibration.v1' as const
 export type SemanticCalibrationArtifactStatus='validated'|'insufficient_data'|'out_of_scope'|'version_mismatch'|'synthetic_test_only'|'unavailable'
@@ -21,6 +22,10 @@ export interface SemanticCalibrationArtifactV1 {
   dataset_id:string
   dataset_version:string
   calibration_method:{method_id:string;method_version:string}
+  calibration_payload:
+    | {type:'categorical_confusion_model';model:SemanticConfusionModelV1}
+    | {type:'score_calibrator';method:string;parameters:Record<string,number>}
+    | null
   applicability_scope:{
     visibility:string[]
     capture_types:string[]
