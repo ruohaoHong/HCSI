@@ -1,23 +1,154 @@
+import { createHash } from 'node:crypto'
 import type { SemanticFeatureId } from './semantic-taxonomy-v1'
 import type { SemanticSensorType } from './semantic-evidence-v1'
-import { SEMANTIC_CALIBRATION_DATASET_SCHEMA,type CalibrationSplit,type SemanticCalibrationDatasetV1 } from './semantic-calibration-dataset-v1'
+import {
+  SEMANTIC_CALIBRATION_DATASET_SCHEMA,
+  type CalibrationDatasetSourceScope,
+  type CalibrationSplit,
+  type SemanticCalibrationDatasetV1,
+} from './semantic-calibration-dataset-v1'
+
 export const SEMANTIC_CALIBRATION_CORPUS_MANIFEST_SCHEMA='hcsi.semantic-calibration-corpus-manifest.v1' as const
+
 export interface SemanticCalibrationCorpusManifest {
- schema_version:typeof SEMANTIC_CALIBRATION_CORPUS_MANIFEST_SCHEMA;dataset_id:string;dataset_version:string;created_at:string
- source_scope:'independent_real_image'|'synthetic_test'|'regression_fixture'|'development_fixture'|'sealed_blind_fixture'
- specimens:{specimen_id:string;provenance:{source_class:string;source_ref:string;physical_identity_verified:boolean};images:{image_id:string;sha256:string;source_ref:string;capture_type:string;viewpoint:string;crop_type:string;width_px:number;height_px:number;visibility:string;occlusion_condition:string;glare_condition:string;split:CalibrationSplit}[];ground_truth:{feature_id:SemanticFeatureId;value:string;verification_method:string;gt_source:string;annotator_or_fixture_provenance:string;schema_version:string;self_labeled_by_sensor:boolean}[]}[]
- feature_scope:SemanticFeatureId[];sensor_scope:SemanticSensorType[]
+  schema_version:typeof SEMANTIC_CALIBRATION_CORPUS_MANIFEST_SCHEMA
+  dataset_id:string
+  dataset_version:string
+  created_at:string
+  source_scope:CalibrationDatasetSourceScope
+  source_provenance:{source_class:CalibrationDatasetSourceScope;source_ref:string;independent_acquisition:boolean}
+  specimens:Array<{
+    specimen_id:string
+    provenance:{source_class:CalibrationDatasetSourceScope;source_ref:string;physical_identity_verified:boolean}
+    images:Array<{
+      image_id:string
+      sha256:string
+      source_ref:string
+      capture_type:string
+      viewpoint:string
+      crop_type:string
+      width_px:number
+      height_px:number
+      visibility:string
+      occlusion_condition:string
+      glare_condition:string
+      split:CalibrationSplit
+    }>
+    ground_truth:Array<{
+      feature_id:SemanticFeatureId
+      value:string
+      verification_method:string
+      gt_source:string
+      annotator_or_fixture_provenance:string
+      schema_version:string
+      self_labeled_by_sensor:boolean
+    }>
+  }>
+  feature_scope:SemanticFeatureId[]
+  sensor_scope:SemanticSensorType[]
 }
-export interface CorpusIngestionResult {accepted:boolean;dataset:SemanticCalibrationDatasetV1|null;reason_codes:string[];manifest_sha_index:Record<string,string[]>}
+
+export interface CorpusIngestionResult {
+  accepted:boolean
+  dataset:SemanticCalibrationDatasetV1|null
+  reason_codes:string[]
+  manifest_sha_index:Record<string,string[]>
+  immutable_manifest_digest_sha256:string
+}
+
+function canonical(value:unknown):string{
+  if(Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+  if(value&&typeof value==='object'){
+    return `{${Object.entries(value as Record<string,unknown>)
+      .sort(([a],[b])=>a.localeCompare(b))
+      .map(([k,v])=>`${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
 export function ingestSemanticCalibrationCorpus(m:SemanticCalibrationCorpusManifest):CorpusIngestionResult{
- const r:string[]=[],hashes=new Map<string,{specimen:string;split:CalibrationSplit;image:string}[]>()
- if(m.schema_version!==SEMANTIC_CALIBRATION_CORPUS_MANIFEST_SCHEMA)r.push('manifest_schema_mismatch')
- if(m.source_scope==='regression_fixture'||m.source_scope==='development_fixture')r.push('fixture_provenance_forbidden')
- if(m.source_scope==='sealed_blind_fixture')r.push('sealed_fixture_forbidden')
- if(m.source_scope==='synthetic_test')r.push('synthetic_dataset_not_production_eligible')
- for(const s of m.specimens){if(!s.provenance.physical_identity_verified)r.push('physical_specimen_identity_unverified');const splits=new Set(s.images.map(i=>i.split));if(splits.size>1)r.push('specimen_split_leakage');for(const i of s.images){if(!/^[a-f0-9]{64}$/i.test(i.sha256))r.push('image_sha256_invalid');const a=hashes.get(i.sha256)??[];a.push({specimen:s.specimen_id,split:i.split,image:i.image_id});hashes.set(i.sha256,a)}for(const g of s.ground_truth){if(g.self_labeled_by_sensor)r.push('ground_truth_self_label_forbidden');if(!g.verification_method||!g.gt_source||!g.annotator_or_fixture_provenance||!g.schema_version)r.push('ground_truth_provenance_missing')}}
- for(const a of hashes.values())if(a.length>1){r.push('duplicate_image_sha256');if(new Set(a.map(x=>x.split)).size>1)r.push('cross_split_image_sha256')}
- const fatal=r.some(x=>!['synthetic_dataset_not_production_eligible'].includes(x));if(fatal)return {accepted:false,dataset:null,reason_codes:[...new Set(r)],manifest_sha_index:Object.fromEntries([...hashes].map(([h,a])=>[h,a.map(x=>x.image])) )}
- const dataset:SemanticCalibrationDatasetV1={schema_version:SEMANTIC_CALIBRATION_DATASET_SCHEMA,dataset_id:m.dataset_id,dataset_version:m.dataset_version,created_at:m.created_at,source_scope:m.source_scope==='independent_real_image'?'independent_real_image':'synthetic_test',specimens:m.specimens.map(s=>({specimen_id:s.specimen_id,images:s.images.map(i=>({image_id:i.image_id,split:i.split,capture_type:i.capture_type,viewpoint:i.viewpoint,crop_type:i.crop_type,width_px:i.width_px,height_px:i.height_px,visibility:i.visibility,occlusion_condition:i.occlusion_condition,glare_condition:i.glare_condition})),ground_truth:s.ground_truth.map(g=>({feature_id:g.feature_id,value:g.value,gt_source:g.gt_source,verification_method:g.verification_method,annotator_or_fixture_provenance:g.annotator_or_fixture_provenance,schema_version:g.schema_version}))})),split_policy:{unit:'physical_specimen',allowed_splits:['fit','calibration','validation'],specimen_may_cross_splits:false},feature_scope:m.feature_scope,sensor_scope:m.sensor_scope,capture_conditions:{capture_types:[...new Set(m.specimens.flatMap(s=>s.images.map(i=>i.capture_type)))],viewpoints:[...new Set(m.specimens.flatMap(s=>s.images.map(i=>i.viewpoint)))],crop_types:[...new Set(m.specimens.flatMap(s=>s.images.map(i=>i.crop_type)))],visibility:[...new Set(m.specimens.flatMap(s=>s.images.map(i=>i.visibility)))],occlusion_conditions:[...new Set(m.specimens.flatMap(s=>s.images.map(i=>i.occlusion_condition)))],glare_conditions:[...new Set(m.specimens.flatMap(s=>s.images.map(i=>i.glare_condition)))]},ground_truth_policy:{independently_verified:true,same_sensor_self_label_forbidden:true,provenance_required:true}}
- return {accepted:true,dataset,reason_codes:[...new Set(r)],manifest_sha_index:Object.fromEntries([...hashes].map(([h,a])=>[h,a.map(x=>x.image])))}
+  const reasons:string[]=[]
+  const hashes=new Map<string,Array<{specimen:string;split:CalibrationSplit;image:string}>>()
+  const digest=createHash('sha256').update(canonical(m)).digest('hex')
+
+  if(m.schema_version!==SEMANTIC_CALIBRATION_CORPUS_MANIFEST_SCHEMA) reasons.push('manifest_schema_mismatch')
+  if(m.source_provenance.source_class!==m.source_scope) reasons.push('manifest_source_provenance_mismatch')
+  if(m.source_scope==='independent_real_image'&&!m.source_provenance.independent_acquisition) reasons.push('independent_acquisition_not_verified')
+  if(m.source_scope==='regression_fixture'||m.source_scope==='development_fixture') reasons.push('fixture_provenance_forbidden')
+  if(m.source_scope==='sealed_blind_fixture') reasons.push('sealed_fixture_forbidden')
+  if(m.source_scope==='synthetic_test') reasons.push('synthetic_dataset_not_production_eligible')
+
+  for(const specimen of m.specimens){
+    if(!specimen.provenance.physical_identity_verified) reasons.push('physical_specimen_identity_unverified')
+    if(specimen.provenance.source_class!==m.source_scope) reasons.push('specimen_source_provenance_mismatch')
+    if(specimen.provenance.source_class==='regression_fixture'||specimen.provenance.source_class==='development_fixture') reasons.push('fixture_provenance_forbidden')
+    if(specimen.provenance.source_class==='sealed_blind_fixture') reasons.push('sealed_fixture_forbidden')
+    const splits=new Set(specimen.images.map(i=>i.split))
+    if(splits.size>1) reasons.push('specimen_split_leakage')
+    for(const image of specimen.images){
+      if(!/^[a-f0-9]{64}$/i.test(image.sha256)) reasons.push('image_sha256_invalid')
+      if(!image.source_ref) reasons.push('image_source_ref_missing')
+      const occurrences=hashes.get(image.sha256)??[]
+      occurrences.push({specimen:specimen.specimen_id,split:image.split,image:image.image_id})
+      hashes.set(image.sha256,occurrences)
+    }
+    for(const gt of specimen.ground_truth){
+      if(gt.self_labeled_by_sensor) reasons.push('ground_truth_self_label_forbidden')
+      if(!gt.verification_method||!gt.gt_source||!gt.annotator_or_fixture_provenance||!gt.schema_version){
+        reasons.push('ground_truth_provenance_missing')
+      }
+    }
+  }
+
+  for(const occurrences of hashes.values()){
+    if(occurrences.length>1){
+      reasons.push('duplicate_image_sha256')
+      if(new Set(occurrences.map(x=>x.split)).size>1) reasons.push('cross_split_image_sha256')
+    }
+  }
+
+  const nonProductionOnly=new Set(['synthetic_dataset_not_production_eligible'])
+  const fatal=reasons.some(r=>!nonProductionOnly.has(r))
+  const manifest_sha_index=Object.fromEntries([...hashes].map(([h,a])=>[h,a.map(x=>x.image)]))
+  if(fatal){
+    return {accepted:false,dataset:null,reason_codes:[...new Set(reasons)],manifest_sha_index,immutable_manifest_digest_sha256:digest}
+  }
+
+  const dataset:SemanticCalibrationDatasetV1={
+    schema_version:SEMANTIC_CALIBRATION_DATASET_SCHEMA,
+    dataset_id:m.dataset_id,dataset_version:m.dataset_version,created_at:m.created_at,
+    source_scope:m.source_scope,
+    source_provenance:{...m.source_provenance},
+    specimens:m.specimens.map(specimen=>({
+      specimen_id:specimen.specimen_id,
+      provenance:{...specimen.provenance},
+      images:specimen.images.map(image=>({
+        image_id:image.image_id,sha256:image.sha256,source_ref:image.source_ref,split:image.split,
+        capture_type:image.capture_type,viewpoint:image.viewpoint,crop_type:image.crop_type,
+        width_px:image.width_px,height_px:image.height_px,visibility:image.visibility,
+        occlusion_condition:image.occlusion_condition,glare_condition:image.glare_condition,
+      })),
+      ground_truth:specimen.ground_truth.map(gt=>({
+        feature_id:gt.feature_id,value:gt.value,gt_source:gt.gt_source,
+        verification_method:gt.verification_method,
+        annotator_or_fixture_provenance:gt.annotator_or_fixture_provenance,
+        schema_version:gt.schema_version,
+      })),
+    })),
+    split_policy:{unit:'physical_specimen',allowed_splits:['fit','calibration','validation'],specimen_may_cross_splits:false},
+    feature_scope:[...m.feature_scope],sensor_scope:[...m.sensor_scope],
+    capture_conditions:{
+      capture_types:[...new Set(m.specimens.flatMap(s=>s.images.map(i=>i.capture_type)))],
+      viewpoints:[...new Set(m.specimens.flatMap(s=>s.images.map(i=>i.viewpoint)))],
+      crop_types:[...new Set(m.specimens.flatMap(s=>s.images.map(i=>i.crop_type)))],
+      visibility:[...new Set(m.specimens.flatMap(s=>s.images.map(i=>i.visibility)))],
+      occlusion_conditions:[...new Set(m.specimens.flatMap(s=>s.images.map(i=>i.occlusion_condition)))],
+      glare_conditions:[...new Set(m.specimens.flatMap(s=>s.images.map(i=>i.glare_condition)))],
+    },
+    ground_truth_policy:{independently_verified:true,same_sensor_self_label_forbidden:true,provenance_required:true},
+  }
+  return {
+    accepted:true,dataset,reason_codes:[...new Set(reasons)],
+    manifest_sha_index,immutable_manifest_digest_sha256:digest,
+  }
 }
