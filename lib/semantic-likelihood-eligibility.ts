@@ -94,15 +94,9 @@ export function assessSemanticLikelihoodEligibility(
   }
   if(!qualityInScope(runtime,artifact)) reasons.push('runtime_quality_out_of_scope')
 
-  if(policy){
-    const support=policy.minimum_support
-    if(support.sample_count!==null&&artifact.metrics.sample_count<support.sample_count) reasons.push('minimum_sample_support_not_met')
-    if(support.per_class!==null&&Object.values(artifact.metrics.per_class_support).some(n=>n<support.per_class!)) reasons.push('minimum_per_class_support_not_met')
-    const metrics=policy.metric_requirements
-    if(metrics.max_brier_score!==null&&(artifact.metrics.brier_score===null||artifact.metrics.brier_score>metrics.max_brier_score)) reasons.push('brier_requirement_not_met')
-    if(metrics.max_log_loss!==null&&(artifact.metrics.log_loss===null||artifact.metrics.log_loss>metrics.max_log_loss)) reasons.push('log_loss_requirement_not_met')
-    if(metrics.max_ece!==null&&(artifact.metrics.ece===null||artifact.metrics.ece>metrics.max_ece)) reasons.push('ece_requirement_not_met')
-  }
+  // Support/quality thresholds are production-admission concerns. An artifact
+  // reaching the active registry has already been admitted against its exact
+  // held-out validation. Runtime applicability must not re-trust artifact.metrics.
 
   const mismatch=reasons.some(x=>x.includes('identity_mismatch')||x.endsWith('_mismatch'))
   const outOfScope=reasons.includes('runtime_quality_unknown')||reasons.includes('runtime_quality_out_of_scope')
