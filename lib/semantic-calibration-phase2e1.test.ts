@@ -40,6 +40,10 @@ import {
   type SemanticSensorObservationRecordV1,
 } from './semantic-sensor-observation-record-v1'
 import { SEMANTIC_TAXONOMY_VERSION } from './semantic-taxonomy-v1'
+import { buildCandidateBlindSemanticRequest } from './candidate-blind-semantic-request'
+import { buildTargetedSemanticRequest } from './targeted-semantic-request'
+import { buildTargetedSemanticEvidence } from './targeted-semantic-extractor'
+import type { RawSemanticSensorObservation } from './semantic-evidence-v1'
 import { SEMANTIC_CALIBRATION_LINEAGE_SCHEMA } from './semantic-calibration-lineage-v1'
 import { buildSemanticRuntimeQuality } from './semantic-runtime-quality'
 import { assessSemanticLikelihoodEligibility, type SemanticRuntimeCalibrationContext } from './semantic-likelihood-eligibility'
@@ -418,6 +422,28 @@ assert.equal(roiQuality.height_px,3000)
 assert.equal(roiQuality.crop_type,'full_image_with_roi_reference')
 assert.notEqual(roiQuality.pixel_geometry!.observation_region_type,'physical_crop_input')
 
+// Targeted pass reality regression: current provider path receives the full
+// original image and the targeted prompt does not serialize the ROI.
+{
+  const base=buildCandidateBlindSemanticRequest({
+    image:Buffer.from('phase2e1-targeted-full-image').toString('base64'),
+    target_region:{present:true,x_min:100,y_min:100,x_max:300,y_max:300},
+  })
+  const request=buildTargetedSemanticRequest(base,'drive.form')
+  const raw:RawSemanticSensorObservation={
+    feature_id:'drive.form',value:'external_hex',state:'observed',visibility:'visible',
+    raw_score:null,calibrated_probability:null,calibration_status:'uncalibrated',
+    reason_codes:[],freeform_description:null,raw_text:null,normalized_text:null,character_confidence:null,
+  }
+  const evidence=buildTargetedSemanticEvidence(
+    request,raw,null,{model:'mock-vlm',model_version:'v1'},
+  )
+  assert.equal(evidence.provenance.sensor_input_mode,'full_image')
+  assert.equal(evidence.provenance.roi_instruction_sent,false)
+  assert.equal(evidence.provenance.crop_ref,'full_image_1')
+  assert.deepEqual(evidence.observation.evidence_refs,['full_image_1'])
+}
+
 // O — Unknown effective geometry stays unknown and fails closed.
 {
   const unknown=buildSemanticRuntimeQuality('visible',{
@@ -439,8 +465,8 @@ assert.notEqual(roiQuality.pixel_geometry!.observation_region_type,'physical_cro
 
 // P — Invalid runtime feature id is rejected at ingest.
 {
-  const bad=clone(manifest()) as unknown as Record<string,unknown>
-  bad.feature_scope=['random.feature']
+  const bad=clone(manifest()) as any
+  bad.specimens[0].ground_truth[0].feature_id='random.feature'
   const result=ingestSemanticCalibrationCorpus(bad as unknown as SemanticCalibrationCorpusManifest)
   assert.equal(result.accepted,false)
   assert.ok(result.reason_codes.includes('invalid_feature_id'))
@@ -482,6 +508,15 @@ assert.notEqual(roiQuality.pixel_geometry!.observation_region_type,'physical_cro
   const result=ingestSemanticCalibrationCorpus(bad)
   assert.equal(result.accepted,false)
   assert.ok(result.reason_codes.includes('conflicting_duplicate_ground_truth'))
+}
+
+// Identical duplicate GT is also deterministic and rejected rather than last-write-wins.
+{
+  const bad=clone(manifest()) as any
+  bad.specimens[0].ground_truth.push({...bad.specimens[0].ground_truth[0]})
+  const result=ingestSemanticCalibrationCorpus(bad)
+  assert.equal(result.accepted,false)
+  assert.ok(result.reason_codes.includes('duplicate_ground_truth_feature'))
 }
 
 // U — Missing any declared scoped GT fails closed.
