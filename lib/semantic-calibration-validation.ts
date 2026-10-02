@@ -1,0 +1,10 @@
+import type { SemanticCalibrationDatasetV1 } from './semantic-calibration-dataset-v1'
+import type { SemanticSensorObservationRecordV1 } from './semantic-sensor-observation-record-v1'
+import type { CandidateCalibrationFit } from './semantic-calibration-fit'
+export interface CalibrationHeldOutValidation {status:'validated'|'insufficient_validation';split:'validation';estimator_locked_before_validation:true;sample_count:number;per_class_support:Record<string,number>;quality_strata_support:Record<string,number>;accuracy:number|null;reason_codes:string[]}
+export function validateCalibrationArtifact(fit:CandidateCalibrationFit,dataset:SemanticCalibrationDatasetV1,records:readonly SemanticSensorObservationRecordV1[]):CalibrationHeldOutValidation{
+ if(fit.status!=='candidate_artifact'||!fit.estimator_locked)return {status:'insufficient_validation',split:'validation',estimator_locked_before_validation:true,sample_count:0,per_class_support:{},quality_strata_support:{},accuracy:null,reason_codes:['candidate_artifact_not_locked']}
+ const specimens=new Map(dataset.specimens.filter(s=>s.images.some(i=>i.split==='validation')).map(s=>[s.specimen_id,s]));const rs=records.filter(r=>specimens.has(r.specimen_id)&&r.feature_id===fit.feature_id);let correct=0;const pcs:Record<string,number>={},qs:Record<string,number>={}
+ for(const r of rs){const s=specimens.get(r.specimen_id)!;const gt=s.ground_truth.find(g=>g.feature_id===fit.feature_id)?.value;if(!gt)continue;pcs[gt]=(pcs[gt]??0)+1;const im=s.images.find(i=>i.image_id===r.image_id);const q=im?`${im.capture_type}|${im.viewpoint}|${im.visibility}|${im.occlusion_condition}|${im.glare_condition}`:'unknown';qs[q]=(qs[q]??0)+1;if(r.state==='observed'&&r.value===gt)correct++}
+ return {status:rs.length?'validated':'insufficient_validation',split:'validation',estimator_locked_before_validation:true,sample_count:rs.length,per_class_support:pcs,quality_strata_support:qs,accuracy:rs.length?correct/rs.length:null,reason_codes:rs.length?[]:['validation_split_support_missing']}
+}
