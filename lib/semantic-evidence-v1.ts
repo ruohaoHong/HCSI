@@ -23,7 +23,8 @@ export const SEMANTIC_EXTRACTOR_VERSION = 'hcsi.candidate-blind-vlm.v1' as const
 export const SEMANTIC_PROMPT_VERSION = 'hcsi.semantic-first-pass.prompt.v1' as const
 
 export type CalibrationStatus = 'uncalibrated' | 'calibrated'
-export type SemanticSensorType = 'vlm' | 'deterministic_classifier' | 'ocr' | 'geometry_semantic_bridge'
+export const SEMANTIC_SENSOR_TYPES = ['vlm','deterministic_classifier','ocr','geometry_semantic_bridge'] as const
+export type SemanticSensorType = (typeof SEMANTIC_SENSOR_TYPES)[number]
 
 export interface SemanticEvidenceSource {
   evidence_ref: string
