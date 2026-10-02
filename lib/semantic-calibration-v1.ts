@@ -29,6 +29,7 @@ export interface SemanticCalibrationArtifactV1 {
   dataset_id:string
   dataset_version:string
   dataset_manifest_digest_sha256:string
+  dataset_content_digest_sha256:string
   estimator_config_digest_sha256:string
   calibration_method:{method_id:string;method_version:string}
   calibration_payload:
@@ -118,6 +119,7 @@ export function buildSemanticCalibrationArtifactFromFit(
     dataset_id:fit.dataset_id,
     dataset_version:fit.dataset_version,
     dataset_manifest_digest_sha256:fit.dataset_manifest_digest_sha256,
+    dataset_content_digest_sha256:fit.dataset_content_digest_sha256,
     estimator_config_digest_sha256:fit.estimator_config_digest_sha256,
     calibration_method:input.calibration_method,
     calibration_payload:{type:'categorical_confusion_model',model:fit.model},
