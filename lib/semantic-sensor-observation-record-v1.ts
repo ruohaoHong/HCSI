@@ -1,0 +1,5 @@
+import type { SemanticFeatureId,SemanticObservationState,SemanticVisibility } from './semantic-taxonomy-v1'
+import type { SemanticSensorType } from './semantic-evidence-v1'
+export const SEMANTIC_SENSOR_OBSERVATION_RECORD_SCHEMA='hcsi.semantic-sensor-observation-record.v1' as const
+export interface SemanticSensorObservationRecordV1 {schema_version:typeof SEMANTIC_SENSOR_OBSERVATION_RECORD_SCHEMA;specimen_id:string;image_id:string;feature_id:SemanticFeatureId;sensor_type:SemanticSensorType;model:string;model_version:string;prompt_version:string;extractor_version:string;taxonomy_version:string;value:string;state:SemanticObservationState;visibility:SemanticVisibility;raw_score:number|null;observed_at:string;run_id:string;image_sha256:string;crop_ref:string;independence_group:string;ground_truth_in_prompt:false}
+export function assertObservationCandidateBlind(r:SemanticSensorObservationRecordV1){if(r.ground_truth_in_prompt!==false)throw new Error('ground_truth_in_prompt_forbidden');if(!/^[a-f0-9]{64}$/i.test(r.image_sha256))throw new Error('image_sha256_invalid');return r}
