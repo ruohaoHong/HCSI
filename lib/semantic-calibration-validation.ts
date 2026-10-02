@@ -263,6 +263,8 @@ export function validateCalibrationArtifact(
     ece_policy_version:null,
     reliability_bins:null,
     metric_reason_codes:metricReasons,
+    source_fit_calibration_specimen_ids:[...fit.calibration_specimen_ids],
+    source_fit_calibration_record_ids:[...fit.calibration_record_ids],
     validation_specimen_ids:[...new Set(usable.map(r=>r.specimen_id))],
     validation_record_ids:usable.map(r=>r.run_id),
     reason_codes:scored?[]:['validation_split_support_missing'],
