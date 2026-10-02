@@ -35,6 +35,9 @@ import {
   type TargetedSemanticEvidence,
 } from '@/lib/targeted-semantic-extractor'
 import { buildCandidateSemanticDiscrimination } from '@/lib/candidate-semantic-discrimination'
+import { PRODUCTION_SEMANTIC_CALIBRATION_REGISTRY } from '@/lib/semantic-calibration-v1'
+import { buildSemanticCalibrationAssessment } from '@/lib/semantic-calibration-assessment'
+import { buildSemanticLikelihoodEvidence } from '@/lib/semantic-likelihood-evidence-v1'
 
 const MAX_IMAGE_LENGTH = 7_000_000
 const PROVIDER_CONFIG = {
@@ -210,6 +213,13 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const candidateSemanticDiscrimination = candidateFeatureMatrix
       ? buildCandidateSemanticDiscrimination(candidateFeatureMatrix,semanticEvidence,targetedSemanticEvidence)
       : null
+    // Phase 2D shadow-only calibration foundation. Production registry is intentionally
+    // empty until an independent real-image, specimen-split calibration corpus exists.
+    // Raw semantic evidence remains immutable; no VLM score/confidence is promoted.
+    const semanticCalibrationAssessment = buildSemanticCalibrationAssessment(
+      semanticEvidence,targetedSemanticEvidence,PRODUCTION_SEMANTIC_CALIBRATION_REGISTRY,[],
+    )
+    const semanticLikelihoodEvidence = buildSemanticLikelihoodEvidence(semanticCalibrationAssessment)
     // This is the only standards-decision -> public formal specification seam.
     // A non-null invalid selected ID throws; there is deliberately no legacy fallback.
     const formalNominalProjection = standardsAuthority
@@ -344,6 +354,8 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       semantic_discrimination_plan: semanticDiscriminationPlan,
       targeted_semantic_evidence: targetedSemanticEvidence,
       candidate_semantic_discrimination: candidateSemanticDiscrimination,
+      semantic_calibration_assessment: semanticCalibrationAssessment,
+      semantic_likelihood_evidence: semanticLikelihoodEvidence,
       standards_authority: standardsAuthority,
       formal_nominal_projection: formalNominalProjection,
       standards_solver_shadow: standardsSolverShadow, // deprecated diagnostic compatibility only
