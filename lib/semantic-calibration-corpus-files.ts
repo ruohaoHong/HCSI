@@ -150,6 +150,7 @@ export function intakeRealSemanticCalibrationCorpus(
   if(!nonEmpty(manifest.source_provenance.source_ref)){
     reasons.push('dataset_source_provenance_missing')
   }
+  if(manifest.specimens.length===0) reasons.push('real_corpus_specimens_empty')
 
   const ledgerValidation=validateSemanticCalibrationAcquisitionLedger(ledger)
   reasons.push(...ledgerValidation.reason_codes)
@@ -174,8 +175,10 @@ export function intakeRealSemanticCalibrationCorpus(
     height_px:number
   }>()
 
+  let totalManifestImageCount=0
   for(const specimen of manifest.specimens){
     if(manifestSpecimenIds.has(specimen.specimen_id)) reasons.push('duplicate_specimen_id')
+    if(specimen.images.length===0) reasons.push('specimen_images_empty')
     if(new Set(specimen.images.map(image=>image.split)).size>1) reasons.push('specimen_split_leakage')
     manifestSpecimenIds.add(specimen.specimen_id)
     const acquisition=ledgerBySpecimen.get(specimen.specimen_id)
@@ -200,6 +203,8 @@ export function intakeRealSemanticCalibrationCorpus(
     }
 
     for(const image of specimen.images){
+      totalManifestImageCount++
+      if(!nonEmpty(image.image_id)) reasons.push('image_id_missing')
       if(manifestImages.has(image.image_id)) reasons.push('duplicate_image_id')
       manifestImages.set(image.image_id,{
         image_id:image.image_id,
@@ -215,6 +220,7 @@ export function intakeRealSemanticCalibrationCorpus(
       }
     }
   }
+  if(totalManifestImageCount===0) reasons.push('real_corpus_images_empty')
 
   for(const entry of ledger.entries){
     if(!manifestSpecimenIds.has(entry.specimen_id)){
@@ -227,6 +233,7 @@ export function intakeRealSemanticCalibrationCorpus(
 
   const bindingsByImage=new Map<string,SemanticCalibrationCorpusFileBindingV1>()
   for(const binding of bundle.image_files){
+    if(!nonEmpty(binding.image_id)) reasons.push('image_file_binding_id_missing')
     if(bindingsByImage.has(binding.image_id)) reasons.push('duplicate_image_file_binding')
     bindingsByImage.set(binding.image_id,binding)
     if(!manifestImages.has(binding.image_id)) reasons.push('unreferenced_image_file_binding')
