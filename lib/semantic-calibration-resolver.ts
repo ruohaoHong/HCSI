@@ -1,0 +1,23 @@
+import type { SemanticCalibrationArtifactV1 } from './semantic-calibration-v1'
+import type { SemanticCalibrationDatasetV1 } from './semantic-calibration-dataset-v1'
+import { validateSemanticCalibrationDataset } from './semantic-calibration-dataset-v1'
+import type { SemanticRuntimeCalibrationContext } from './semantic-likelihood-eligibility'
+import type { SemanticCalibrationEligibilityPolicyV1 } from './semantic-calibration-policy-v1'
+import type { SemanticCalibrationRegistryEntry } from './semantic-calibration-registry'
+
+export const SEMANTIC_CALIBRATION_RESOLVER_SCHEMA='hcsi.semantic-calibration-resolver.v1' as const
+export type CalibrationResolutionStatus='resolved'|'no_matching_artifact'|'identity_mismatch'|'out_of_scope'|'policy_ineligible'|'ambiguous_multiple_artifacts'|'dataset_invalid'
+export interface CalibrationResolution {schema_version:typeof SEMANTIC_CALIBRATION_RESOLVER_SCHEMA;status:CalibrationResolutionStatus;artifact:SemanticCalibrationArtifactV1|null;dataset:SemanticCalibrationDatasetV1|null;reason_codes:string[]}
+function identityMatch(r:SemanticRuntimeCalibrationContext,a:SemanticCalibrationArtifactV1){const i=a.sensor_identity;return a.feature_id===r.feature_id&&i.sensor_type===r.sensor_type&&i.model===r.model&&i.model_version===r.model_version&&i.prompt_version===r.prompt_version&&i.extractor_version===r.extractor_version&&a.taxonomy_version===r.taxonomy_version}
+function scopeMatch(r:SemanticRuntimeCalibrationContext,a:SemanticCalibrationArtifactV1){const q=r.quality,s=a.applicability_scope;return s.visibility.includes(q.visibility)&&s.capture_types.includes(q.capture_type)&&s.viewpoints.includes(q.viewpoint)&&s.crop_types.includes(q.crop_type)&&s.occlusion_conditions.includes(q.occlusion_condition)&&s.glare_conditions.includes(q.glare_condition)&&q.width_px!==null&&q.height_px!==null&&q.width_px>=s.resolution.min_width_px&&q.height_px>=s.resolution.min_height_px&&(s.resolution.max_width_px===null||q.width_px<=s.resolution.max_width_px)&&(s.resolution.max_height_px===null||q.height_px<=s.resolution.max_height_px)}
+export function resolveSemanticCalibrationArtifact(r:SemanticRuntimeCalibrationContext,artifacts:readonly SemanticCalibrationArtifactV1[],datasets:readonly SemanticCalibrationDatasetV1[],policy:SemanticCalibrationEligibilityPolicyV1|null,registry:readonly SemanticCalibrationRegistryEntry[]):CalibrationResolution{
+ const identity=artifacts.filter(a=>identityMatch(r,a));if(!identity.length)return {schema_version:SEMANTIC_CALIBRATION_RESOLVER_SCHEMA,status:artifacts.some(a=>a.feature_id===r.feature_id&&a.sensor_identity.sensor_type===r.sensor_type)?'identity_mismatch':'no_matching_artifact',artifact:null,dataset:null,reason_codes:['no_exact_identity_match']}
+ const scoped=identity.filter(a=>scopeMatch(r,a));if(!scoped.length)return {schema_version:SEMANTIC_CALIBRATION_RESOLVER_SCHEMA,status:'out_of_scope',artifact:null,dataset:null,reason_codes:[r.quality.width_px===null||r.quality.height_px===null?'runtime_quality_unknown':'runtime_quality_out_of_scope']}
+ if(!policy||policy.status!=='preregistered')return {schema_version:SEMANTIC_CALIBRATION_RESOLVER_SCHEMA,status:'policy_ineligible',artifact:null,dataset:null,reason_codes:['active_preregistered_policy_missing']}
+ const admitted=scoped.filter(a=>registry.some(e=>e.feature_id===r.feature_id&&e.sensor_type===r.sensor_type&&e.model===r.model&&e.model_version===r.model_version&&e.prompt_version===r.prompt_version&&e.extractor_version===r.extractor_version&&e.taxonomy_version===r.taxonomy_version&&e.active_calibration_id===a.calibration_id&&e.active_version===a.version&&e.policy_version===policy.policy_version))
+ if(!admitted.length)return {schema_version:SEMANTIC_CALIBRATION_RESOLVER_SCHEMA,status:scoped.length>1?'ambiguous_multiple_artifacts':'policy_ineligible',artifact:null,dataset:null,reason_codes:[scoped.length>1?'ambiguous_multiple_artifacts':'artifact_not_active_in_registry']}
+ if(admitted.length!==1)return {schema_version:SEMANTIC_CALIBRATION_RESOLVER_SCHEMA,status:'ambiguous_multiple_artifacts',artifact:null,dataset:null,reason_codes:['multiple_active_artifacts']}
+ const a=admitted[0],d=datasets.find(x=>x.dataset_id===a.dataset_id&&x.dataset_version===a.dataset_version)??null,v=d?validateSemanticCalibrationDataset(d):null
+ if(!d||!v?.valid||!v.production_eligible_source)return {schema_version:SEMANTIC_CALIBRATION_RESOLVER_SCHEMA,status:'dataset_invalid',artifact:null,dataset:d,reason_codes:['active_artifact_dataset_invalid_or_ineligible']}
+ return {schema_version:SEMANTIC_CALIBRATION_RESOLVER_SCHEMA,status:'resolved',artifact:a,dataset:d,reason_codes:[]}
+}
