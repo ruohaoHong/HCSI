@@ -12,8 +12,11 @@ import {
 } from './semantic-calibration-dataset-v1'
 import {
   SEMANTIC_CALIBRATION_SCHEMA,
+  buildSemanticCalibrationArtifactFromFit,
+  finalizeSemanticCalibrationArtifact,
   type SemanticCalibrationArtifactV1,
 } from './semantic-calibration-v1'
+import { SEMANTIC_CALIBRATION_LINEAGE_SCHEMA } from './semantic-calibration-lineage-v1'
 import {
   ACTIVE_SEMANTIC_CALIBRATION_POLICY,
   SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY,
@@ -48,6 +51,7 @@ import {
 } from './semantic-calibration-fit'
 import {
   SEMANTIC_CALIBRATION_VALIDATION_SCHEMA,
+  finalizeCalibrationHeldOutValidation,
   validateCalibrationArtifact,
   type CalibrationHeldOutValidation,
 } from './semantic-calibration-validation'
@@ -157,11 +161,14 @@ function emptyConfusionModel(){
 }
 
 function artifact(id:string,modelVersion:string='v2',overrides:Partial<SemanticCalibrationArtifactV1>={}):SemanticCalibrationArtifactV1{
-  return {
-    schema_version:SEMANTIC_CALIBRATION_SCHEMA,calibration_id:id,version:'1.0.0',status:'validated',
+  const {artifact_digest_sha256:_ignored,...overrideDraft}=overrides
+  return finalizeSemanticCalibrationArtifact({
+    schema_version:SEMANTIC_CALIBRATION_SCHEMA,lineage_schema_version:SEMANTIC_CALIBRATION_LINEAGE_SCHEMA,
+    calibration_id:id,version:'1.0.0',source_fit_id:'fit-placeholder',source_fit_digest_sha256:hash(90),status:'validated',
     sensor_identity:{...sensorIdentity,model_version:modelVersion},
     feature_id:'drive.form',taxonomy_version:SEMANTIC_TAXONOMY_VERSION,
     dataset_id:'phase2e-unit-corpus',dataset_version:'1.0.0',
+    dataset_manifest_digest_sha256:hash(91),estimator_config_digest_sha256:hash(92),
     calibration_method:{method_id:'categorical_confusion_counts',method_version:'v1'},
     calibration_payload:{type:'categorical_confusion_model',model:emptyConfusionModel()},
     applicability_scope:{
@@ -171,8 +178,8 @@ function artifact(id:string,modelVersion:string='v2',overrides:Partial<SemanticC
     },
     metrics:{brier_score:null,log_loss:null,ece:null,ece_policy_version:null,sample_count:8,per_class_support:{external_hex:4,hex_socket:4}},
     eligibility_policy_version:'test-policy-v1',
-    ...overrides,
-  }
+    ...overrideDraft,
+  })
 }
 
 const runtime:SemanticRuntimeCalibrationContext={
@@ -229,12 +236,20 @@ ok(resolution.reason_codes.includes('active_preregistered_policy_missing'))
 const syntheticIngest=ingestSemanticCalibrationCorpus(manifest('synthetic_test'))
 ok(syntheticIngest.dataset)
 const syntheticValidation=validateSemanticCalibrationDataset(syntheticIngest.dataset)
-const heldOut:CalibrationHeldOutValidation={
-  schema_version:SEMANTIC_CALIBRATION_VALIDATION_SCHEMA,status:'validated',split:'validation',
-  estimator_locked_before_validation:true,validation_used_for_tuning:false,
+const heldOut:CalibrationHeldOutValidation=finalizeCalibrationHeldOutValidation({
+  schema_version:SEMANTIC_CALIBRATION_VALIDATION_SCHEMA,lineage_schema_version:SEMANTIC_CALIBRATION_LINEAGE_SCHEMA,
+  status:'validated',split:'validation',estimator_locked_before_validation:true,validation_used_for_tuning:false,
+  artifact_id:v2.calibration_id,artifact_version:v2.version,artifact_digest_sha256:v2.artifact_digest_sha256,
+  source_fit_id:v2.source_fit_id,source_fit_digest_sha256:v2.source_fit_digest_sha256,
+  dataset_id:syntheticIngest.dataset.dataset_id,dataset_version:syntheticIngest.dataset.dataset_version,
+  dataset_manifest_digest_sha256:syntheticIngest.dataset.manifest_digest_sha256,
+  feature_id:'drive.form',sensor_identity:{...sensorIdentity,taxonomy_version:SEMANTIC_TAXONOMY_VERSION},
+  taxonomy_version:SEMANTIC_TAXONOMY_VERSION,estimator_config_digest_sha256:v2.estimator_config_digest_sha256,
   sample_count:8,per_class_support:{external_hex:4,hex_socket:4},quality_strata_support:{axial:8},
-  accuracy:.5,validation_record_ids:['validation-run'],reason_codes:[],
-}
+  accuracy:.5,brier_score:null,log_loss:null,ece:null,ece_policy_version:null,reliability_bins:null,metric_reason_codes:[],
+  source_fit_calibration_specimen_ids:[],source_fit_calibration_record_ids:[],
+  validation_specimen_ids:['validation-specimen'],validation_record_ids:['validation-run'],reason_codes:[],
+})
 let admission=assessCalibrationArtifactAdmission(v2,syntheticIngest.dataset,syntheticValidation,heldOut,null)
 eq(admission.schema_version,SEMANTIC_CALIBRATION_ADMISSION_SCHEMA)
 eq(admission.eligible_for_admission,false)
@@ -389,7 +404,14 @@ const valRecord=record('val-spec','val-img',hash(51),'external_hex','observed','
 const fit=fitSemanticCalibrationArtifact(fitIngest.dataset,[calRecord,valRecord],estimator)
 eq(fit.schema_version,SEMANTIC_CALIBRATION_FIT_SCHEMA);eq(fit.status,'candidate_artifact')
 eq(fit.calibration_record_ids.length,1);eq(fit.calibration_record_ids[0],'cal-run')
-const validation=validateCalibrationArtifact(fit,fitIngest.dataset,[calRecord,valRecord])
+const fitArtifact=buildSemanticCalibrationArtifactFromFit(fit,{
+  calibration_id:'split-isolation-artifact',version:'1.0.0',status:'synthetic_test_only',
+  calibration_method:{method_id:'categorical_confusion_counts',method_version:'v1'},
+  applicability_scope:{visibility:['visible'],capture_types:['axial_head'],viewpoints:['axial'],crop_types:['head_crop'],resolution:{min_width_px:256,min_height_px:256,max_width_px:1024,max_height_px:1024},occlusion_conditions:['none'],glare_conditions:['none']},
+  metrics:{brier_score:null,log_loss:null,ece:null,ece_policy_version:null,sample_count:1,per_class_support:{external_hex:1}},
+  eligibility_policy_version:null,
+})
+const validation=validateCalibrationArtifact(fitArtifact,fit,fitIngest.dataset,[calRecord,valRecord])
 eq(validation.status,'validated');eq(validation.validation_record_ids.length,1);eq(validation.validation_record_ids[0],'val-run')
 eq(validation.validation_used_for_tuning,false)
 
