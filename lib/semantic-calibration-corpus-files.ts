@@ -3,6 +3,7 @@ import { readFileSync,existsSync } from 'node:fs'
 import { resolve,relative,isAbsolute } from 'node:path'
 import {
   ingestSemanticCalibrationCorpus,
+  SEMANTIC_CALIBRATION_CORPUS_MANIFEST_SCHEMA,
   type SemanticCalibrationCorpusManifest,
 } from './semantic-calibration-corpus-ingest'
 import {
@@ -139,6 +140,15 @@ export function intakeRealSemanticCalibrationCorpus(
 
   if(bundle.schema_version!==SEMANTIC_CALIBRATION_REAL_CORPUS_INTAKE_SCHEMA){
     reasons.push('real_corpus_intake_schema_mismatch')
+  }
+  if(manifest.schema_version!==SEMANTIC_CALIBRATION_CORPUS_MANIFEST_SCHEMA){
+    reasons.push('manifest_schema_mismatch')
+  }
+  if(!nonEmpty(manifest.dataset_id)||!nonEmpty(manifest.dataset_version)){
+    reasons.push('dataset_identity_missing')
+  }
+  if(!nonEmpty(manifest.source_provenance.source_ref)){
+    reasons.push('dataset_source_provenance_missing')
   }
 
   const ledgerValidation=validateSemanticCalibrationAcquisitionLedger(ledger)
