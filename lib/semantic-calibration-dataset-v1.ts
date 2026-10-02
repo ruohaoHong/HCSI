@@ -5,7 +5,7 @@ import {
   type SemanticFeatureId,
 } from './semantic-taxonomy-v1'
 import type { SemanticSensorType } from './semantic-evidence-v1'
-import { isSha256 } from './semantic-calibration-digest'
+import { isSha256, sha256Canonical } from './semantic-calibration-digest'
 import { SEMANTIC_CALIBRATION_LINEAGE_SCHEMA } from './semantic-calibration-lineage-v1'
 
 export const SEMANTIC_CALIBRATION_DATASET_SCHEMA='hcsi.semantic-calibration-dataset.v1' as const
@@ -58,6 +58,7 @@ export interface SemanticCalibrationDatasetV1 {
   dataset_id:string
   dataset_version:string
   manifest_digest_sha256:string
+  dataset_content_digest_sha256:string
   created_at:string
   source_scope:CalibrationDatasetSourceScope
   source_provenance:{
@@ -80,6 +81,43 @@ export interface SemanticCalibrationDatasetV1 {
   ground_truth_policy:{independently_verified:true;same_sensor_self_label_forbidden:true;provenance_required:true}
 }
 
+export type SemanticCalibrationDatasetContentDraft=Omit<SemanticCalibrationDatasetV1,'dataset_content_digest_sha256'>
+
+export function semanticCalibrationDatasetContentDigest(
+  dataset:SemanticCalibrationDatasetContentDraft|SemanticCalibrationDatasetV1,
+):string{
+  const {dataset_content_digest_sha256:_digest,...content}=dataset as SemanticCalibrationDatasetV1
+  return sha256Canonical(content)
+}
+
+export function finalizeSemanticCalibrationDataset(
+  draft:SemanticCalibrationDatasetContentDraft,
+):SemanticCalibrationDatasetV1{
+  return {...draft,dataset_content_digest_sha256:semanticCalibrationDatasetContentDigest(draft)}
+}
+
+export function semanticCalibrationDatasetContentDigestValid(dataset:SemanticCalibrationDatasetV1):boolean{
+  return isSha256(dataset.dataset_content_digest_sha256)&&
+    dataset.dataset_content_digest_sha256===semanticCalibrationDatasetContentDigest(dataset)
+}
+
+export interface SemanticCalibrationImageIdentity {
+  specimen_id:string
+  image_id:string
+  image_sha256:string
+  split:CalibrationSplit
+}
+
+export function semanticCalibrationImageIdentityMatches(
+  dataset:SemanticCalibrationDatasetV1,
+  identity:SemanticCalibrationImageIdentity,
+):boolean{
+  const specimen=dataset.specimens.find(item=>item.specimen_id===identity.specimen_id)
+  if(!specimen) return false
+  const image=specimen.images.find(item=>item.image_id===identity.image_id)
+  return Boolean(image&&image.sha256===identity.image_sha256&&image.split===identity.split)
+}
+
 export interface CalibrationDatasetValidation {
   valid:boolean
   production_eligible_source:boolean
@@ -100,6 +138,8 @@ export function validateSemanticCalibrationDataset(dataset:SemanticCalibrationDa
   if(dataset.schema_version!==SEMANTIC_CALIBRATION_DATASET_SCHEMA) reasons.push('dataset_schema_mismatch')
   if(dataset.lineage_schema_version!==SEMANTIC_CALIBRATION_LINEAGE_SCHEMA) reasons.push('lineage_schema_mismatch')
   if(!isSha256(dataset.manifest_digest_sha256)) reasons.push('dataset_manifest_digest_invalid')
+  if(!isSha256(dataset.dataset_content_digest_sha256)) reasons.push('dataset_content_digest_invalid')
+  else if(!semanticCalibrationDatasetContentDigestValid(dataset)) reasons.push('dataset_content_digest_mismatch')
   if(dataset.split_policy.unit!=='physical_specimen'||dataset.split_policy.specimen_may_cross_splits!==false) reasons.push('specimen_level_split_not_enforced')
   if(dataset.ground_truth_policy.independently_verified!==true||
      dataset.ground_truth_policy.same_sensor_self_label_forbidden!==true||
@@ -194,6 +234,7 @@ export function validateSemanticCalibrationDataset(dataset:SemanticCalibrationDa
 
   const structuralFatal=new Set([
     'dataset_schema_mismatch','lineage_schema_mismatch','dataset_manifest_digest_invalid',
+    'dataset_content_digest_invalid','dataset_content_digest_mismatch',
     'specimen_level_split_not_enforced','specimen_split_leakage','duplicate_specimen_id',
     'ground_truth_missing','ground_truth_provenance_missing','ground_truth_policy_not_independent',
     'dataset_source_provenance_mismatch','physical_specimen_identity_unverified',
