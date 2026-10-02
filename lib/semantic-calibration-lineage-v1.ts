@@ -7,6 +7,7 @@ export interface CalibrationDatasetIdentityV1 {
   dataset_id:string
   dataset_version:string
   dataset_manifest_digest_sha256:string
+  dataset_content_digest_sha256:string
 }
 
 export interface CalibrationSensorIdentityV1 {
