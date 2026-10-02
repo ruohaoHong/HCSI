@@ -24,7 +24,7 @@ export interface CalibrationResolution {
   reason_codes:string[]
 }
 
-function identityMatch(r:SemanticRuntimeCalibrationContext,a:SemanticCalibrationArtifactV1){
+export function calibrationArtifactIdentityMatches(r:SemanticRuntimeCalibrationContext,a:SemanticCalibrationArtifactV1){
   const i=a.sensor_identity
   return a.feature_id===r.feature_id&&
     i.sensor_type===r.sensor_type&&
@@ -49,10 +49,32 @@ function scopeMatch(r:SemanticRuntimeCalibrationContext,a:SemanticCalibrationArt
     (s.resolution.max_height_px===null||q.height_px<=s.resolution.max_height_px)
 }
 
-function registryEntryMatchesRuntime(e:SemanticCalibrationRegistryEntry,r:SemanticRuntimeCalibrationContext){
+export function calibrationRegistryEntryMatchesRuntime(e:SemanticCalibrationRegistryEntry,r:SemanticRuntimeCalibrationContext){
   return e.feature_id===r.feature_id&&e.sensor_type===r.sensor_type&&e.model===r.model&&
     e.model_version===r.model_version&&e.prompt_version===r.prompt_version&&
     e.extractor_version===r.extractor_version&&e.taxonomy_version===r.taxonomy_version
+}
+
+export function exactIdentityArtifacts(
+  runtime:SemanticRuntimeCalibrationContext,
+  artifacts:readonly SemanticCalibrationArtifactV1[],
+):SemanticCalibrationArtifactV1[]{
+  return artifacts.filter(artifact=>calibrationArtifactIdentityMatches(runtime,artifact))
+}
+
+export function selectExplicitActiveArtifact(
+  runtime:SemanticRuntimeCalibrationContext,
+  identityCompatibleArtifacts:readonly SemanticCalibrationArtifactV1[],
+  registry:readonly SemanticCalibrationRegistryEntry[],
+  policyVersion:string,
+):{status:'selected'|'not_active'|'ambiguous';artifact:SemanticCalibrationArtifactV1|null}{
+  const entries=registry.filter(entry=>calibrationRegistryEntryMatchesRuntime(entry,runtime)&&entry.policy_version===policyVersion)
+  if(entries.length!==1) return {status:entries.length>1?'ambiguous':'not_active',artifact:null}
+  const entry=entries[0]
+  const selected=identityCompatibleArtifacts.filter(a=>
+    a.calibration_id===entry.active_calibration_id&&a.version===entry.active_version
+  )
+  return {status:selected.length===1?'selected':selected.length>1?'ambiguous':'not_active',artifact:selected.length===1?selected[0]:null}
 }
 
 export function resolveSemanticCalibrationArtifact(
@@ -63,7 +85,7 @@ export function resolveSemanticCalibrationArtifact(
   registry:readonly SemanticCalibrationRegistryEntry[],
 ):CalibrationResolution{
   const broad=admittedArtifacts.filter(a=>a.feature_id===runtime.feature_id&&a.sensor_identity.sensor_type===runtime.sensor_type)
-  const identity=admittedArtifacts.filter(a=>identityMatch(runtime,a))
+  const identity=admittedArtifacts.filter(a=>calibrationArtifactIdentityMatches(runtime,a))
   if(!identity.length){
     return {
       schema_version:SEMANTIC_CALIBRATION_RESOLVER_SCHEMA,
@@ -95,7 +117,7 @@ export function resolveSemanticCalibrationArtifact(
     }
   }
 
-  const runtimeEntries=registry.filter(e=>registryEntryMatchesRuntime(e,runtime))
+  const runtimeEntries=registry.filter(e=>calibrationRegistryEntryMatchesRuntime(e,runtime))
   if(runtimeEntries.length>1){
     return {
       schema_version:SEMANTIC_CALIBRATION_RESOLVER_SCHEMA,status:'ambiguous_multiple_artifacts',
