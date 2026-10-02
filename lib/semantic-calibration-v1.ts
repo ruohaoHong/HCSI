@@ -49,5 +49,3 @@ export interface SemanticCalibrationArtifactV1 {
    */
   eligibility_policy_version:string|null
 }
-
-export const PRODUCTION_SEMANTIC_CALIBRATION_REGISTRY:readonly SemanticCalibrationArtifactV1[]=[]
