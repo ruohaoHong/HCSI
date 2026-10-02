@@ -2,7 +2,7 @@ import { SEMANTIC_TAXONOMY_VERSION } from './semantic-taxonomy-v1'
 import { SEMANTIC_EVIDENCE_SCHEMA,SEMANTIC_EXTRACTOR_VERSION,SEMANTIC_PROMPT_VERSION,type SemanticEvidenceV1,type SemanticObservation } from './semantic-evidence-v1'
 import { SEMANTIC_REASON_CODE_TAXONOMY_VERSION } from './semantic-reason-codes-v1'
 import { SEMANTIC_CALIBRATION_DATASET_SCHEMA,validateSemanticCalibrationDataset,type SemanticCalibrationDatasetV1 } from './semantic-calibration-dataset-v1'
-import { SEMANTIC_CALIBRATION_SCHEMA,PRODUCTION_SEMANTIC_CALIBRATION_REGISTRY,type SemanticCalibrationArtifactV1 } from './semantic-calibration-v1'
+import { SEMANTIC_CALIBRATION_SCHEMA,PRODUCTION_SEMANTIC_CALIBRATION_REGISTRY,PRODUCTION_SEMANTIC_ELIGIBILITY_POLICY,type SemanticCalibrationArtifactV1 } from './semantic-calibration-v1'
 import { multiclassBrierScore,multiclassLogLoss,expectedCalibrationError,reliabilityBins } from './semantic-calibration-metrics'
 import { assessSemanticLikelihoodEligibility,type SemanticRuntimeCalibrationContext } from './semantic-likelihood-eligibility'
 import { buildSemanticCalibrationAssessment } from './semantic-calibration-assessment'
@@ -38,7 +38,7 @@ const runtime:SemanticRuntimeCalibrationContext={feature_id:'drive.form',sensor_
  quality:{visibility:'visible',capture_type:'axial_head',viewpoint:'axial',crop_type:'head_crop',width_px:512,height_px:512,occlusion_condition:'none',glare_condition:'none'}}
 
 // A — empty production registry means no artifact, no probability.
-eq(PRODUCTION_SEMANTIC_CALIBRATION_REGISTRY.length,0)
+eq(PRODUCTION_SEMANTIC_CALIBRATION_REGISTRY.length,0)\neq(PRODUCTION_SEMANTIC_ELIGIBILITY_POLICY.policy_status,'not_preregistered')\neq(PRODUCTION_SEMANTIC_ELIGIBILITY_POLICY.eligibility_policy_version,null)
 let e=assessSemanticLikelihoodEligibility(runtime,null,null,null)
 eq(e.likelihood_eligible,false);ok(e.reason_codes.includes('no_applicable_validated_calibration_artifact'))
 
