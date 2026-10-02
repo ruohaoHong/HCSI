@@ -10,7 +10,7 @@ name: Frozen Case D CV-first v2 OpenAI blind E2E
 # Exact frozen image is SHA-checked; GT enters only after inference.
 on:
   push:
-    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak, feature/candidate-semantic-discrimination, feature/semantic-calibration-foundation, feature/semantic-calibration-corpus-admission, feature/semantic-calibration-lineage-hardening, feature/calibration-data-binding-geometry-closure, feature/admission-self-verification-complete-observation-binding]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak, feature/candidate-semantic-discrimination, feature/semantic-calibration-foundation, feature/semantic-calibration-corpus-admission, feature/semantic-calibration-lineage-hardening, feature/calibration-data-binding-geometry-closure, feature/admission-self-verification-complete-observation-binding, feature/real-independent-semantic-calibration-corpus]
     paths:
       - '.github/workflows/case-d-cv-first-v2-openai.yml'
       - 'lib/cv-first-identification.ts'
@@ -51,6 +51,12 @@ on:
       - 'lib/semantic-calibration-phase2e1.test.ts'
       - 'lib/semantic-calibration-phase2e1-1.test.ts'
       - 'lib/semantic-calibration-phase2e1-2.test.ts'
+      - 'lib/semantic-calibration-acquisition-v1.ts'
+      - 'lib/semantic-calibration-corpus-files.ts'
+      - 'lib/semantic-calibration-corpus-coverage.ts'
+      - 'lib/semantic-calibration-phase2f.test.ts'
+      - 'scripts/validate-semantic-calibration-corpus.ts'
+      - 'data/semantic-calibration/**'
       - 'lib/semantic-runtime-quality.ts'
       - 'lib/semantic-calibration-assessment.ts'
       - 'lib/candidate-blind-semantic-request.ts'
