@@ -28,7 +28,8 @@ const forbiddenFixture=/^(?:case[-_ ]?)?[BCDEFG]$/i
 export function validateSemanticCalibrationDataset(dataset:SemanticCalibrationDatasetV1):CalibrationDatasetValidation{
  const reasons:string[]=[]
  if(dataset.schema_version!==SEMANTIC_CALIBRATION_DATASET_SCHEMA) reasons.push('dataset_schema_mismatch')
- if(dataset.split_policy.unit!=='physical_specimen'||dataset.split_policy.specimen_may_cross_splits!==false) reasons.push('specimen_level_split_not_enforced')\n if(dataset.ground_truth_policy.independently_verified!==true||dataset.ground_truth_policy.same_sensor_self_label_forbidden!==true||dataset.ground_truth_policy.provenance_required!==true) reasons.push('ground_truth_policy_not_independent')
+ if(dataset.split_policy.unit!=='physical_specimen'||dataset.split_policy.specimen_may_cross_splits!==false) reasons.push('specimen_level_split_not_enforced')
+ if(dataset.ground_truth_policy.independently_verified!==true||dataset.ground_truth_policy.same_sensor_self_label_forbidden!==true||dataset.ground_truth_policy.provenance_required!==true) reasons.push('ground_truth_policy_not_independent')
  const seen=new Set<string>()
  for(const specimen of dataset.specimens){
   if(seen.has(specimen.specimen_id)) reasons.push('duplicate_specimen_id')
