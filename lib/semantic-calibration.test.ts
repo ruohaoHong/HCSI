@@ -1,7 +1,7 @@
 import { SEMANTIC_TAXONOMY_VERSION } from './semantic-taxonomy-v1'
 import { SEMANTIC_EVIDENCE_SCHEMA,SEMANTIC_EXTRACTOR_VERSION,SEMANTIC_PROMPT_VERSION,type SemanticEvidenceV1,type SemanticObservation } from './semantic-evidence-v1'
 import { SEMANTIC_REASON_CODE_TAXONOMY_VERSION } from './semantic-reason-codes-v1'
-import { SEMANTIC_CALIBRATION_DATASET_SCHEMA,validateSemanticCalibrationDataset,type SemanticCalibrationDatasetV1 } from './semantic-calibration-dataset-v1'
+import { SEMANTIC_CALIBRATION_DATASET_SCHEMA,finalizeSemanticCalibrationDataset,validateSemanticCalibrationDataset,type SemanticCalibrationDatasetV1 } from './semantic-calibration-dataset-v1'
 import { SEMANTIC_CALIBRATION_SCHEMA,finalizeSemanticCalibrationArtifact,type SemanticCalibrationArtifactV1 } from './semantic-calibration-v1'
 import { SEMANTIC_CALIBRATION_LINEAGE_SCHEMA } from './semantic-calibration-lineage-v1'
 import { ADMITTED_SEMANTIC_CALIBRATION_ARTIFACTS } from './semantic-calibration-registry'
@@ -23,7 +23,7 @@ function near(a:number,b:number,e=1e-12){if(Math.abs(a-b)>e)throw new Error(`${a
 
 const sha=(n:number)=>n.toString(16).padStart(64,'0')
 function dataset(scope:SemanticCalibrationDatasetV1['source_scope']='synthetic_test',splits:('calibration'|'validation')[]=['calibration']):SemanticCalibrationDatasetV1{
- return {
+ return finalizeSemanticCalibrationDataset({
   schema_version:SEMANTIC_CALIBRATION_DATASET_SCHEMA,lineage_schema_version:SEMANTIC_CALIBRATION_LINEAGE_SCHEMA,dataset_id:'semantic-test-v1',dataset_version:'1.0.0',manifest_digest_sha256:sha(90),created_at:'2026-10-02T00:00:00Z',
   source_scope:scope,source_provenance:{source_class:scope,source_ref:'unit-test-only',independent_acquisition:scope==='independent_real_image'},
   specimens:[{specimen_id:'specimen-001',provenance:{source_class:scope,source_ref:'unit-test-only',physical_identity_verified:true},
@@ -32,7 +32,7 @@ function dataset(scope:SemanticCalibrationDatasetV1['source_scope']='synthetic_t
   split_policy:{unit:'physical_specimen',allowed_splits:['fit','calibration','validation'],specimen_may_cross_splits:false},feature_scope:['drive.form'],sensor_scope:['vlm'],
   capture_conditions:{capture_types:['axial_head'],viewpoints:['axial'],crop_types:['head_crop'],visibility:['clear'],occlusion_conditions:['none'],glare_conditions:['none']},
   ground_truth_policy:{independently_verified:true,same_sensor_self_label_forbidden:true,provenance_required:true},
- }
+ })
 }
 const policy:SemanticCalibrationEligibilityPolicyV1={
  schema_version:SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_SCHEMA,policy_id:'unit-test-policy',policy_version:'test-v1',status:'preregistered',
@@ -49,7 +49,7 @@ function artifact():SemanticCalibrationArtifactV1{
   calibration_id:'cal-v1',version:'1.0.0',source_fit_id:'fit-test',source_fit_digest_sha256:sha(91),status:'validated',
   sensor_identity:{sensor_type:'vlm',model:'mock-vlm',model_version:'v1',prompt_version:'prompt-v1',extractor_version:'extractor-v1'},
   feature_id:'drive.form',taxonomy_version:SEMANTIC_TAXONOMY_VERSION,dataset_id:'semantic-test-v1',dataset_version:'1.0.0',
-  dataset_manifest_digest_sha256:sha(90),estimator_config_digest_sha256:sha(92),
+  dataset_manifest_digest_sha256:sha(90),dataset_content_digest_sha256:sha(93),estimator_config_digest_sha256:sha(92),
   calibration_method:{method_id:'categorical_confusion_counts',method_version:'test-v1'},calibration_payload:null,
   applicability_scope:{visibility:['visible'],capture_types:['axial_head'],viewpoints:['axial'],crop_types:['head_crop'],resolution:{min_width_px:256,min_height_px:256,max_width_px:1024,max_height_px:1024},occlusion_conditions:['none'],glare_conditions:['none']},
   metrics:{brier_score:null,log_loss:null,ece:null,ece_policy_version:null,sample_count:100,per_class_support:{external_hex:50,hex_socket:50}},
