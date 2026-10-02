@@ -1,4 +1,4 @@
-import { readImageDimensionsFromBase64 } from './semantic-runtime-quality'
+import { readImageDimensionsFromBase64 } from './semantic-image-dimensions'
 
 export const SEMANTIC_OBSERVATION_PIXEL_GEOMETRY_SCHEMA='hcsi.semantic-observation-pixel-geometry.v1' as const
 export type SemanticObservationRegionType=
