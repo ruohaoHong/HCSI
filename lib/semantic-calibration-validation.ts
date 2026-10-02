@@ -49,6 +49,8 @@ export interface CalibrationHeldOutValidation {
   reliability_bins:null
   metric_reason_codes:string[]
 
+  source_fit_calibration_specimen_ids:string[]
+  source_fit_calibration_record_ids:string[]
   validation_specimen_ids:string[]
   validation_record_ids:string[]
   reason_codes:string[]
@@ -66,6 +68,8 @@ export function calibrationHeldOutValidationDigest(
   }=validation as CalibrationHeldOutValidation
   return sha256Canonical({
     ...payload,
+    source_fit_calibration_specimen_ids:[...payload.source_fit_calibration_specimen_ids].sort(),
+    source_fit_calibration_record_ids:[...payload.source_fit_calibration_record_ids].sort(),
     validation_specimen_ids:[...payload.validation_specimen_ids].sort(),
     validation_record_ids:[...payload.validation_record_ids].sort(),
     reason_codes:[...payload.reason_codes].sort(),
@@ -81,6 +85,8 @@ export function finalizeCalibrationHeldOutValidation(
     ...draft,
     validation_id:`validation-${digest.slice(0,20)}`,
     validation_digest_sha256:digest,
+    source_fit_calibration_specimen_ids:[...draft.source_fit_calibration_specimen_ids].sort(),
+    source_fit_calibration_record_ids:[...draft.source_fit_calibration_record_ids].sort(),
     validation_specimen_ids:[...draft.validation_specimen_ids].sort(),
     validation_record_ids:[...draft.validation_record_ids].sort(),
     reason_codes:[...new Set(draft.reason_codes)],
@@ -139,6 +145,8 @@ export function validateCalibrationArtifact(
     sample_count:0,per_class_support:{},quality_strata_support:{},accuracy:null,
     brier_score:null,log_loss:null,ece:null,ece_policy_version:null,reliability_bins:null as null,
     metric_reason_codes:[] as string[],
+    source_fit_calibration_specimen_ids:[...fit.calibration_specimen_ids],
+    source_fit_calibration_record_ids:[...fit.calibration_record_ids],
     validation_specimen_ids:[] as string[],validation_record_ids:[] as string[],
   }
   const datasetValidation=validateSemanticCalibrationDataset(dataset)
