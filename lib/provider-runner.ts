@@ -35,7 +35,12 @@ import {
   type TargetedSemanticEvidence,
 } from '@/lib/targeted-semantic-extractor'
 import { buildCandidateSemanticDiscrimination } from '@/lib/candidate-semantic-discrimination'
-import { PRODUCTION_SEMANTIC_CALIBRATION_REGISTRY } from '@/lib/semantic-calibration-v1'
+import {
+  ADMITTED_SEMANTIC_CALIBRATION_ARTIFACTS,
+  PRODUCTION_SEMANTIC_CALIBRATION_DATASETS,
+  SEMANTIC_CALIBRATION_REGISTRY,
+} from '@/lib/semantic-calibration-registry'
+import { ACTIVE_SEMANTIC_CALIBRATION_POLICY } from '@/lib/semantic-calibration-policy-v1'
 import { buildSemanticCalibrationAssessment } from '@/lib/semantic-calibration-assessment'
 import { buildSemanticLikelihoodEvidence } from '@/lib/semantic-likelihood-evidence-v1'
 
@@ -213,13 +218,44 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const candidateSemanticDiscrimination = candidateFeatureMatrix
       ? buildCandidateSemanticDiscrimination(candidateFeatureMatrix,semanticEvidence,targetedSemanticEvidence)
       : null
-    // Phase 2D shadow-only calibration foundation. Production registry is intentionally
-    // empty until an independent real-image, specimen-split calibration corpus exists.
-    // Raw semantic evidence remains immutable; no VLM score/confidence is promoted.
+    // Phase 2E shadow-only calibration pipeline. Production registries remain
+    // explicitly empty until an independent real-specimen corpus and preregistered
+    // policy admit a versioned artifact. No raw VLM confidence is promoted.
     const semanticCalibrationAssessment = buildSemanticCalibrationAssessment(
-      semanticEvidence,targetedSemanticEvidence,PRODUCTION_SEMANTIC_CALIBRATION_REGISTRY,[],
+      semanticEvidence,targetedSemanticEvidence,{
+        artifacts:ADMITTED_SEMANTIC_CALIBRATION_ARTIFACTS,
+        datasets:PRODUCTION_SEMANTIC_CALIBRATION_DATASETS,
+        active_policy:ACTIVE_SEMANTIC_CALIBRATION_POLICY,
+        registry:SEMANTIC_CALIBRATION_REGISTRY,
+        image_base64:image,
+      },
     )
     const semanticLikelihoodEvidence = buildSemanticLikelihoodEvidence(semanticCalibrationAssessment)
+    const semanticCalibrationResolution = semanticCalibrationAssessment.items.map(item=>({
+      observation_ref:item.observation_ref,
+      feature_id:item.feature_id,
+      status:item.calibration_resolution_status,
+      calibration_artifact_id:item.calibration_artifact_id,
+      reason_codes:item.reason_codes,
+    }))
+    const semanticRuntimeQuality = semanticCalibrationAssessment.items.map(item=>({
+      observation_ref:item.observation_ref,
+      feature_id:item.feature_id,
+      independence_group:item.independence_group,
+      quality:item.runtime_quality,
+    }))
+    const semanticCalibrationRegistryStatus = {
+      admitted_dataset_count:PRODUCTION_SEMANTIC_CALIBRATION_DATASETS.length,
+      admitted_artifact_count:ADMITTED_SEMANTIC_CALIBRATION_ARTIFACTS.length,
+      active_registry_entries:SEMANTIC_CALIBRATION_REGISTRY.length,
+      active_policy_id:ACTIVE_SEMANTIC_CALIBRATION_POLICY?.policy_id ?? null,
+      active_policy_version:ACTIVE_SEMANTIC_CALIBRATION_POLICY?.policy_version ?? null,
+    }
+    const semanticCalibrationAdmissionStatus = {
+      automatic_runtime_admission:false,
+      eligible_for_runtime_admission:false,
+      reason:'Calibration admission requires an offline held-out assessment and an explicit versioned registry update.',
+    }
     // This is the only standards-decision -> public formal specification seam.
     // A non-null invalid selected ID throws; there is deliberately no legacy fallback.
     const formalNominalProjection = standardsAuthority
@@ -356,6 +392,10 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       candidate_semantic_discrimination: candidateSemanticDiscrimination,
       semantic_calibration_assessment: semanticCalibrationAssessment,
       semantic_likelihood_evidence: semanticLikelihoodEvidence,
+      semantic_calibration_resolution: semanticCalibrationResolution,
+      semantic_calibration_registry_status: semanticCalibrationRegistryStatus,
+      semantic_runtime_quality: semanticRuntimeQuality,
+      semantic_calibration_admission_status: semanticCalibrationAdmissionStatus,
       standards_authority: standardsAuthority,
       formal_nominal_projection: formalNominalProjection,
       standards_solver_shadow: standardsSolverShadow, // deprecated diagnostic compatibility only
