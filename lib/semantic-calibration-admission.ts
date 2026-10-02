@@ -63,9 +63,11 @@ export function assessCalibrationArtifactAdmission(
     validation.lineage_schema_version!==SEMANTIC_CALIBRATION_LINEAGE_SCHEMA||
     !isSha256(artifact.source_fit_digest_sha256)||
     !isSha256(artifact.dataset_manifest_digest_sha256)||
+    !isSha256(artifact.dataset_content_digest_sha256)||
     !isSha256(artifact.estimator_config_digest_sha256)||
     !isSha256(validation.source_fit_digest_sha256)||
     !isSha256(validation.dataset_manifest_digest_sha256)||
+    !isSha256(validation.dataset_content_digest_sha256)||
     !isSha256(validation.estimator_config_digest_sha256)
   ) lineageReasons.push('validation_lineage_missing')
 
@@ -86,6 +88,11 @@ export function assessCalibrationArtifactAdmission(
     validation.dataset_manifest_digest_sha256!==dataset.manifest_digest_sha256||
     artifact.dataset_manifest_digest_sha256!==validation.dataset_manifest_digest_sha256
   ) lineageReasons.push('dataset_manifest_digest_mismatch')
+  if(
+    artifact.dataset_content_digest_sha256!==dataset.dataset_content_digest_sha256||
+    validation.dataset_content_digest_sha256!==dataset.dataset_content_digest_sha256||
+    artifact.dataset_content_digest_sha256!==validation.dataset_content_digest_sha256
+  ) lineageReasons.push('dataset_content_digest_mismatch')
 
   if(
     artifact.calibration_id!==validation.artifact_id||
