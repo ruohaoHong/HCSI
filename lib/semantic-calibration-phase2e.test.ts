@@ -168,7 +168,7 @@ function artifact(id:string,modelVersion:string='v2',overrides:Partial<SemanticC
     sensor_identity:{...sensorIdentity,model_version:modelVersion},
     feature_id:'drive.form',taxonomy_version:SEMANTIC_TAXONOMY_VERSION,
     dataset_id:'phase2e-unit-corpus',dataset_version:'1.0.0',
-    dataset_manifest_digest_sha256:hash(91),estimator_config_digest_sha256:hash(92),
+    dataset_manifest_digest_sha256:hash(91),dataset_content_digest_sha256:hash(93),estimator_config_digest_sha256:hash(92),
     calibration_method:{method_id:'categorical_confusion_counts',method_version:'v1'},
     calibration_payload:{type:'categorical_confusion_model',model:emptyConfusionModel()},
     applicability_scope:{
@@ -243,6 +243,7 @@ const heldOut:CalibrationHeldOutValidation=finalizeCalibrationHeldOutValidation(
   source_fit_id:v2.source_fit_id,source_fit_digest_sha256:v2.source_fit_digest_sha256,
   dataset_id:syntheticIngest.dataset.dataset_id,dataset_version:syntheticIngest.dataset.dataset_version,
   dataset_manifest_digest_sha256:syntheticIngest.dataset.manifest_digest_sha256,
+  dataset_content_digest_sha256:syntheticIngest.dataset.dataset_content_digest_sha256,
   feature_id:'drive.form',sensor_identity:{...sensorIdentity,taxonomy_version:SEMANTIC_TAXONOMY_VERSION},
   taxonomy_version:SEMANTIC_TAXONOMY_VERSION,estimator_config_digest_sha256:v2.estimator_config_digest_sha256,
   sample_count:8,per_class_support:{external_hex:4,hex_socket:4},quality_strata_support:{axial:8},
@@ -401,7 +402,7 @@ const estimator:CalibrationEstimatorConfigV1={
 }
 const calRecord=record('cal-spec','cal-img',hash(50),'external_hex','observed','cal-run')
 const valRecord=record('val-spec','val-img',hash(51),'external_hex','observed','val-run')
-const fit=fitSemanticCalibrationArtifact(fitIngest.dataset,[calRecord,valRecord],estimator)
+const fit=fitSemanticCalibrationArtifact(fitIngest.dataset,[calRecord],estimator)
 eq(fit.schema_version,SEMANTIC_CALIBRATION_FIT_SCHEMA);eq(fit.status,'candidate_artifact')
 eq(fit.calibration_record_ids.length,1);eq(fit.calibration_record_ids[0],'cal-run')
 const fitArtifact=buildSemanticCalibrationArtifactFromFit(fit,{
@@ -411,7 +412,7 @@ const fitArtifact=buildSemanticCalibrationArtifactFromFit(fit,{
   metrics:{brier_score:null,log_loss:null,ece:null,ece_policy_version:null,sample_count:1,per_class_support:{external_hex:1}},
   eligibility_policy_version:null,
 })
-const validation=validateCalibrationArtifact(fitArtifact,fit,fitIngest.dataset,[calRecord,valRecord])
+const validation=validateCalibrationArtifact(fitArtifact,fit,fitIngest.dataset,[valRecord])
 eq(validation.status,'validated');eq(validation.validation_record_ids.length,1);eq(validation.validation_record_ids[0],'val-run')
 eq(validation.validation_used_for_tuning,false)
 
