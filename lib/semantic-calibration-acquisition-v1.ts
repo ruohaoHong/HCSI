@@ -97,6 +97,7 @@ export function validateSemanticCalibrationAcquisitionLedger(
   }else if(ledger.ledger_content_digest_sha256!==semanticCalibrationAcquisitionLedgerDigest(ledger)){
     reasons.push('acquisition_ledger_digest_mismatch')
   }
+  if(ledger.entries.length===0) reasons.push('acquisition_ledger_empty')
 
   const specimenIds=new Set<string>()
   const acquisitionEventIds=new Set<string>()
