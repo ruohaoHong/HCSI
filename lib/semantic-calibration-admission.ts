@@ -1,10 +1,68 @@
 import type { SemanticCalibrationArtifactV1 } from './semantic-calibration-v1'
-import type { CalibrationDatasetValidation } from './semantic-calibration-dataset-v1'
+import type { CalibrationDatasetValidation, SemanticCalibrationDatasetV1 } from './semantic-calibration-dataset-v1'
 import type { CalibrationHeldOutValidation } from './semantic-calibration-validation'
 import type { SemanticCalibrationEligibilityPolicyV1 } from './semantic-calibration-policy-v1'
-export interface CalibrationAdmissionAssessment {eligible_for_admission:boolean;admitted_to_production_registry:false;reason_codes:string[]}
-export function assessCalibrationArtifactAdmission(artifact:SemanticCalibrationArtifactV1,dataset:CalibrationDatasetValidation,validation:CalibrationHeldOutValidation,policy:SemanticCalibrationEligibilityPolicyV1|null):CalibrationAdmissionAssessment{
- const r:string[]=[];if(!policy||policy.status!=='preregistered')r.push('active_preregistered_policy_missing');if(!dataset.valid||!dataset.production_eligible_source)r.push('dataset_not_production_eligible');if(validation.status!=='validated')r.push('held_out_validation_missing');if(artifact.status!=='validated')r.push('artifact_not_validated');if(!artifact.production_eligible)r.push('artifact_not_marked_candidate_production_eligible');if(policy&&artifact.eligibility_policy_version!==policy.policy_version)r.push('policy_version_mismatch')
- if(policy){const m=artifact.metrics,p=policy.metric_requirements,s=policy.minimum_support;if(s.sample_count!==null&&validation.sample_count<s.sample_count)r.push('minimum_sample_support_not_met');if(s.per_class!==null&&Object.values(validation.per_class_support).some(n=>n<s.per_class))r.push('minimum_per_class_support_not_met');if(p.max_brier_score!==null&&(m.brier_score===null||m.brier_score>p.max_brier_score))r.push('brier_requirement_not_met');if(p.max_log_loss!==null&&(m.log_loss===null||m.log_loss>p.max_log_loss))r.push('log_loss_requirement_not_met');if(p.max_ece!==null&&(m.ece===null||m.ece>p.max_ece))r.push('ece_requirement_not_met')}
- return {eligible_for_admission:r.length===0,admitted_to_production_registry:false,reason_codes:r}
+
+export const SEMANTIC_CALIBRATION_ADMISSION_SCHEMA='hcsi.semantic-calibration-admission.v1' as const
+
+export interface CalibrationAdmissionAssessment {
+  schema_version:typeof SEMANTIC_CALIBRATION_ADMISSION_SCHEMA
+  lifecycle:{
+    candidate_artifact:boolean
+    held_out_validated:boolean
+    eligible_for_admission:boolean
+    admitted_to_production_registry:false
+    active:false
+  }
+  eligible_for_admission:boolean
+  admitted_to_production_registry:false
+  reason_codes:string[]
+}
+
+export function assessCalibrationArtifactAdmission(
+  artifact:SemanticCalibrationArtifactV1,
+  dataset:SemanticCalibrationDatasetV1,
+  datasetValidation:CalibrationDatasetValidation,
+  validation:CalibrationHeldOutValidation,
+  activePolicy:SemanticCalibrationEligibilityPolicyV1|null,
+):CalibrationAdmissionAssessment{
+  const reasons:string[]=[]
+  if(!activePolicy||activePolicy.status!=='preregistered') reasons.push('active_preregistered_policy_missing')
+  if(!datasetValidation.valid||!datasetValidation.production_eligible_source) reasons.push('dataset_not_production_eligible')
+  if(dataset.source_scope!=='independent_real_image') reasons.push('dataset_not_independent_real_image')
+  if(validation.status!=='validated'||validation.validation_used_for_tuning!==false) reasons.push('held_out_validation_missing')
+  if(artifact.status!=='validated') reasons.push('artifact_not_validated')
+
+  if(activePolicy){
+    if(artifact.eligibility_policy_version!==activePolicy.policy_version) reasons.push('policy_version_mismatch')
+    if(activePolicy.applicable_dataset_schema!==dataset.schema_version) reasons.push('policy_dataset_schema_mismatch')
+    if(activePolicy.applicable_calibration_schema!==artifact.schema_version) reasons.push('policy_calibration_schema_mismatch')
+    if(!activePolicy.allowed_source_scopes.includes(dataset.source_scope)) reasons.push('dataset_source_scope_not_allowed_by_policy')
+
+    const support=activePolicy.minimum_support
+    if(support.sample_count!==null&&validation.sample_count<support.sample_count) reasons.push('minimum_sample_support_not_met')
+    if(support.per_class!==null){
+      const counts=Object.values(validation.per_class_support)
+      if(!counts.length||counts.some(n=>n<support.per_class!)) reasons.push('minimum_per_class_support_not_met')
+    }
+    const metrics=activePolicy.metric_requirements,m=artifact.metrics
+    if(metrics.max_brier_score!==null&&(m.brier_score===null||m.brier_score>metrics.max_brier_score)) reasons.push('brier_requirement_not_met')
+    if(metrics.max_log_loss!==null&&(m.log_loss===null||m.log_loss>metrics.max_log_loss)) reasons.push('log_loss_requirement_not_met')
+    if(metrics.max_ece!==null&&(m.ece===null||m.ece>metrics.max_ece)) reasons.push('ece_requirement_not_met')
+  }
+
+  const eligible=reasons.length===0
+  return {
+    schema_version:SEMANTIC_CALIBRATION_ADMISSION_SCHEMA,
+    lifecycle:{
+      candidate_artifact:true,
+      held_out_validated:validation.status==='validated',
+      eligible_for_admission:eligible,
+      admitted_to_production_registry:false,
+      active:false,
+    },
+    eligible_for_admission:eligible,
+    admitted_to_production_registry:false,
+    reason_codes:[...new Set(reasons)],
+  }
 }
