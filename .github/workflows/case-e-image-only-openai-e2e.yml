@@ -11,7 +11,7 @@
 # expected semantics enter either inference stage; GT loads only afterwards.
 on:
   push:
-    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak, feature/candidate-semantic-discrimination, feature/semantic-calibration-foundation, feature/semantic-calibration-corpus-admission, feature/semantic-calibration-lineage-hardening, feature/calibration-data-binding-geometry-closure]
+    branches: [feature/measurement-confidence-gate, feature/standards-solver-v1, feature/standards-source-of-truth, feature/standards-decision-foundation, feature/physical-likelihood-hardening, feature/semantic-evidence-v1, feature/semantic-evidence-anti-leak, feature/candidate-semantic-discrimination, feature/semantic-calibration-foundation, feature/semantic-calibration-corpus-admission, feature/semantic-calibration-lineage-hardening, feature/calibration-data-binding-geometry-closure, feature/admission-self-verification-complete-observation-binding]
     paths:
       - '.github/workflows/case-e-image-only-openai-e2e.yml'
       - 'lib/provider-runner.ts'
@@ -43,6 +43,7 @@ on:
       - 'lib/semantic-sensor-observation-record-v1.ts'
       - 'lib/semantic-confusion-model-v1.ts'
       - 'lib/semantic-calibration-fit.ts'
+      - 'lib/semantic-calibration-observation-binding.ts'
       - 'lib/semantic-calibration-validation.ts'
       - 'lib/semantic-calibration-admission.ts'
       - 'lib/semantic-calibration-lineage-v1.ts'
@@ -51,6 +52,7 @@ on:
       - 'lib/semantic-image-dimensions.ts'
       - 'lib/semantic-calibration-phase2e1.test.ts'
       - 'lib/semantic-calibration-phase2e1-1.test.ts'
+      - 'lib/semantic-calibration-phase2e1-2.test.ts'
       - 'lib/semantic-runtime-quality.ts'
       - 'lib/semantic-calibration-assessment.ts'
       - 'lib/candidate-blind-semantic-request.ts'
