@@ -12,4 +12,5 @@ export interface SemanticCalibrationArtifactV1 {
  metrics:{brier_score:number|null;log_loss:number|null;ece:number|null;ece_policy_version:string|null;sample_count:number;per_class_support:Record<string,number>};
  eligibility_policy_version:string|null; policy_status:'preregistered'|'not_preregistered'; production_eligible:boolean
 }
-export const PRODUCTION_SEMANTIC_ELIGIBILITY_POLICY={policy_status:'not_preregistered' as const,eligibility_policy_version:null,reason:'No production semantic-likelihood eligibility threshold has been preregistered.'}\nexport const PRODUCTION_SEMANTIC_CALIBRATION_REGISTRY:readonly SemanticCalibrationArtifactV1[]=[]
+export const PRODUCTION_SEMANTIC_ELIGIBILITY_POLICY={policy_status:'not_preregistered' as const,eligibility_policy_version:null,reason:'No production semantic-likelihood eligibility threshold has been preregistered.'}
+export const PRODUCTION_SEMANTIC_CALIBRATION_REGISTRY:readonly SemanticCalibrationArtifactV1[]=[]
