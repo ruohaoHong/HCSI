@@ -157,7 +157,8 @@ export function resolveSemanticCalibrationArtifact(
   const dataset=datasets.find(d=>
     d.dataset_id===artifact.dataset_id&&
     d.dataset_version===artifact.dataset_version&&
-    d.manifest_digest_sha256===artifact.dataset_manifest_digest_sha256
+    d.manifest_digest_sha256===artifact.dataset_manifest_digest_sha256&&
+    d.dataset_content_digest_sha256===artifact.dataset_content_digest_sha256
   )??null
   const validation=dataset?validateSemanticCalibrationDataset(dataset):null
   if(!dataset||!validation?.valid||!validation.production_eligible_source){
