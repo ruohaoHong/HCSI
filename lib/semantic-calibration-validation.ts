@@ -1,9 +1,8 @@
 import {
-  semanticCalibrationImageIdentityMatches,
   validateSemanticCalibrationDataset,
-  type CalibrationSplit,
   type SemanticCalibrationDatasetV1,
 } from './semantic-calibration-dataset-v1'
+import { validateObservationCollectionDatasetBinding } from './semantic-calibration-observation-binding'
 import {
   validateSemanticSensorObservationRecordV1,
   type SemanticSensorObservationRecordV1,
@@ -132,20 +131,6 @@ function duplicateRunId(records:readonly SemanticSensorObservationRecordV1[]):bo
   return false
 }
 
-function recordMatchesAnyDatasetSplit(
-  dataset:SemanticCalibrationDatasetV1,
-  record:SemanticSensorObservationRecordV1,
-):boolean{
-  return (['fit','calibration','validation'] as CalibrationSplit[]).some(split=>
-    semanticCalibrationImageIdentityMatches(dataset,{
-      specimen_id:record.specimen_id,
-      image_id:record.image_id,
-      image_sha256:record.image_sha256,
-      split,
-    })
-  )
-}
-
 export function validateCalibrationArtifact(
   artifact:SemanticCalibrationArtifactV1,
   fit:CandidateCalibrationFit,
@@ -220,7 +205,14 @@ export function validateCalibrationArtifact(
       reason_codes:['duplicate_observation_run_id'],
     })
   }
-  if(records.some(record=>recordMatchesAnyDatasetSplit(dataset,record)&&!dataset.sensor_scope.includes(record.sensor_type))){
+  const collectionBinding=validateObservationCollectionDatasetBinding(dataset,records,'validation')
+  if(!collectionBinding.valid){
+    return finalizeCalibrationHeldOutValidation({
+      ...base,...emptyMetrics,status:'insufficient_validation',
+      reason_codes:collectionBinding.reason_codes,
+    })
+  }
+  if(records.some(record=>!dataset.sensor_scope.includes(record.sensor_type))){
     return finalizeCalibrationHeldOutValidation({
       ...base,...emptyMetrics,status:'insufficient_validation',
       reason_codes:['sensor_outside_dataset_scope'],
@@ -228,27 +220,6 @@ export function validateCalibrationArtifact(
   }
 
   const relevant=records.filter(record=>recordIdentityMatchesFit(record,fit))
-  const bindingReasons:string[]=[]
-  for(const record of relevant){
-    const exactValidation=semanticCalibrationImageIdentityMatches(dataset,{
-      specimen_id:record.specimen_id,
-      image_id:record.image_id,
-      image_sha256:record.image_sha256,
-      split:'validation',
-    })
-    if(exactValidation) continue
-    bindingReasons.push(
-      recordMatchesAnyDatasetSplit(dataset,record)
-        ?'validation_record_split_mismatch'
-        :'observation_dataset_image_binding_mismatch'
-    )
-  }
-  if(bindingReasons.length){
-    return finalizeCalibrationHeldOutValidation({
-      ...base,...emptyMetrics,status:'insufficient_validation',reason_codes:bindingReasons,
-    })
-  }
-
   const usable=[...relevant].sort((a,b)=>a.run_id.localeCompare(b.run_id))
   if(usable.some(r=>fit.calibration_record_ids.includes(r.run_id))){
     return finalizeCalibrationHeldOutValidation({
