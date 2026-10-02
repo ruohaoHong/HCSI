@@ -1,0 +1,10 @@
+import type { SemanticCalibrationArtifactV1 } from './semantic-calibration-v1'
+import type { CalibrationDatasetValidation } from './semantic-calibration-dataset-v1'
+import type { CalibrationHeldOutValidation } from './semantic-calibration-validation'
+import type { SemanticCalibrationEligibilityPolicyV1 } from './semantic-calibration-policy-v1'
+export interface CalibrationAdmissionAssessment {eligible_for_admission:boolean;admitted_to_production_registry:false;reason_codes:string[]}
+export function assessCalibrationArtifactAdmission(artifact:SemanticCalibrationArtifactV1,dataset:CalibrationDatasetValidation,validation:CalibrationHeldOutValidation,policy:SemanticCalibrationEligibilityPolicyV1|null):CalibrationAdmissionAssessment{
+ const r:string[]=[];if(!policy||policy.status!=='preregistered')r.push('active_preregistered_policy_missing');if(!dataset.valid||!dataset.production_eligible_source)r.push('dataset_not_production_eligible');if(validation.status!=='validated')r.push('held_out_validation_missing');if(artifact.status!=='validated')r.push('artifact_not_validated');if(!artifact.production_eligible)r.push('artifact_not_marked_candidate_production_eligible');if(policy&&artifact.eligibility_policy_version!==policy.policy_version)r.push('policy_version_mismatch')
+ if(policy){const m=artifact.metrics,p=policy.metric_requirements,s=policy.minimum_support;if(s.sample_count!==null&&validation.sample_count<s.sample_count)r.push('minimum_sample_support_not_met');if(s.per_class!==null&&Object.values(validation.per_class_support).some(n=>n<s.per_class))r.push('minimum_per_class_support_not_met');if(p.max_brier_score!==null&&(m.brier_score===null||m.brier_score>p.max_brier_score))r.push('brier_requirement_not_met');if(p.max_log_loss!==null&&(m.log_loss===null||m.log_loss>p.max_log_loss))r.push('log_loss_requirement_not_met');if(p.max_ece!==null&&(m.ece===null||m.ece>p.max_ece))r.push('ece_requirement_not_met')}
+ return {eligible_for_admission:r.length===0,admitted_to_production_registry:false,reason_codes:r}
+}
