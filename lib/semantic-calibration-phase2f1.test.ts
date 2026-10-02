@@ -318,3 +318,4 @@ try{
 }finally{
   rmSync(baseDir,{recursive:true,force:true})
 }
+// CI trigger: Build + Cases B-E validate this exact Phase 2F.1 final SHA.
