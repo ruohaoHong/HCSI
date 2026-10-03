@@ -432,9 +432,9 @@ export const PREREGISTERED_PRODUCTION_SEMANTIC_CALIBRATION_POLICY_V1=
   }))
 
 export const SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY:
-  readonly SemanticCalibrationEligibilityPolicyV1[]=[
+  readonly SemanticCalibrationEligibilityPolicyV1[]=Object.freeze([
     PREREGISTERED_PRODUCTION_SEMANTIC_CALIBRATION_POLICY_V1,
-  ]
+  ])
 
 export const ACTIVE_SEMANTIC_CALIBRATION_POLICY:
   SemanticCalibrationEligibilityPolicyV1|null=
