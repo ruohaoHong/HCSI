@@ -256,6 +256,78 @@ export function semanticCalibrationImageWithinPolicyEnvelope(
     (c.resolution.max_height_px===null||image.height_px<=c.resolution.max_height_px)
 }
 
+export interface SemanticCalibrationDatasetPolicyReadiness {
+  ready_for_observation_support:boolean
+  calibration_unique_specimens_per_class:Record<string,number>
+  validation_unique_specimens_per_class:Record<string,number>
+  reason_codes:string[]
+}
+
+export function assessSemanticCalibrationDatasetPolicyReadiness(
+  dataset:{
+    source_scope:CalibrationDatasetSourceScope
+    feature_scope:SemanticFeatureId[]
+    ground_truth_policy:{independently_verified:true;same_sensor_self_label_forbidden:true;provenance_required:true}
+    specimens:Array<{
+      specimen_id:string
+      images:SemanticCalibrationImage[]
+      ground_truth:Array<{feature_id:SemanticFeatureId;value:string;gt_source:string;verification_method:string;annotator_or_fixture_provenance:string}>
+    }>
+  },
+  policy:SemanticCalibrationEligibilityPolicyV1,
+):SemanticCalibrationDatasetPolicyReadiness{
+  const reasons:string[]=[]
+  if(!policy.allowed_source_scopes.includes(dataset.source_scope)) reasons.push('dataset_source_scope_not_allowed_by_policy')
+  if(!dataset.feature_scope.includes(policy.required_feature_id)) reasons.push('policy_feature_missing_from_dataset')
+  if(dataset.ground_truth_policy.independently_verified!==true||
+     dataset.ground_truth_policy.same_sensor_self_label_forbidden!==true||
+     dataset.ground_truth_policy.provenance_required!==true){
+    reasons.push('ground_truth_policy_not_independent')
+  }
+
+  const bySplit={
+    calibration:new Map<string,Set<string>>(),
+    validation:new Map<string,Set<string>>(),
+  }
+  for(const specimen of dataset.specimens){
+    const splits=new Set(specimen.images.map(image=>image.split))
+    if(splits.has('calibration')&&splits.has('validation')) reasons.push('physical_specimen_crosses_splits')
+    const gt=specimen.ground_truth.find(item=>item.feature_id===policy.required_feature_id)
+    if(!gt) continue
+    if(!gt.gt_source?.trim()||!gt.verification_method?.trim()||!gt.annotator_or_fixture_provenance?.trim()){
+      reasons.push('ground_truth_provenance_missing')
+      continue
+    }
+    if(!policy.minimum_support.required_classes.includes(gt.value)) continue
+    for(const split of ['calibration','validation'] as const){
+      if(!specimen.images.some(image=>image.split===split&&semanticCalibrationImageWithinPolicyEnvelope(image,policy))) continue
+      const set=bySplit[split].get(gt.value)??new Set<string>()
+      set.add(specimen.specimen_id)
+      bySplit[split].set(gt.value,set)
+    }
+  }
+
+  const cal=Object.fromEntries([...bySplit.calibration.entries()].map(([key,value])=>[key,value.size]))
+  const val=Object.fromEntries([...bySplit.validation.entries()].map(([key,value])=>[key,value.size]))
+  const calRequirement=policy.minimum_support.calibration_unique_specimens_per_class
+  const valRequirement=policy.minimum_support.validation_unique_specimens_per_class
+  for(const gtClass of policy.minimum_support.required_classes){
+    if(calRequirement.required&&calRequirement.minimum!==null&&(cal[gtClass]??0)<calRequirement.minimum){
+      reasons.push(`minimum_calibration_unique_specimen_material_not_met:${gtClass}`)
+    }
+    if(valRequirement.required&&valRequirement.minimum!==null&&(val[gtClass]??0)<valRequirement.minimum){
+      reasons.push(`minimum_validation_unique_specimen_material_not_met:${gtClass}`)
+    }
+  }
+  const unique=[...new Set(reasons)]
+  return {
+    ready_for_observation_support:unique.length===0,
+    calibration_unique_specimens_per_class:cal,
+    validation_unique_specimens_per_class:val,
+    reason_codes:unique,
+  }
+}
+
 export function lockedPolicyReplacementRequiresNewVersion(
   existing:SemanticCalibrationEligibilityPolicyV1,
   candidate:SemanticCalibrationEligibilityPolicyV1,
