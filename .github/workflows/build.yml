@@ -81,4 +81,5 @@ jobs:
           node "$(find /tmp/hcsi-semantic-calibration-tests -name semantic-calibration-phase2f1.test.js -print -quit)"
           node "$(find /tmp/hcsi-semantic-calibration-tests -name semantic-calibration-phase2f2-real-corpus.test.js -print -quit)"
           node "$(find /tmp/hcsi-semantic-calibration-tests -name semantic-calibration-phase2f3.test.js -print -quit)"
+          node "$(find /tmp/hcsi-semantic-calibration-tests -name semantic-calibration-phase2f3.test.js -print -quit)"
       - run: pnpm build
