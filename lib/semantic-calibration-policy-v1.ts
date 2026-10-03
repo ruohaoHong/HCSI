@@ -65,8 +65,8 @@ export interface SemanticCalibrationEligibilityPolicyV1 {
     required:boolean
     maximum_error_risk:number|null
     confidence_level:number|null
-    confidence_side:'one_sided_upper'
-    method:'exact_clopper_pearson'
+    confidence_side:'one_sided_upper'|null
+    method:'exact_clopper_pearson'|null
   }
   metric_requirements:{
     brier_score:ExplicitThresholdRequirement
@@ -121,8 +121,9 @@ export interface SemanticCalibrationPolicyValidation {
 function validTimestamp(value:string|null):boolean{
   return typeof value==='string'&&Number.isFinite(Date.parse(value))
 }
-function validRequiredMinimum(req:ExplicitMinimumRequirement):boolean{
-  return req.required===true&&Number.isInteger(req.minimum)&&req.minimum!>0
+function validMinimumRequirement(req:ExplicitMinimumRequirement):boolean{
+  if(req.required) return Number.isInteger(req.minimum)&&req.minimum!>0
+  return req.minimum===null
 }
 function validMetricRequirement(req:ExplicitThresholdRequirement):boolean{
   if(req.required) return typeof req.threshold==='number'&&Number.isFinite(req.threshold)&&req.threshold>=0
@@ -142,7 +143,7 @@ export function validateSemanticCalibrationEligibilityPolicy(
   else if(policy.policy_content_digest_sha256!==semanticCalibrationEligibilityPolicyDigest(policy)) reasons.push('policy_digest_mismatch')
   if(policy.status==='preregistered'&&!validTimestamp(policy.locked_at)) reasons.push('preregistered_policy_not_locked')
   if(!validTimestamp(policy.created_at)) reasons.push('policy_created_at_invalid')
-  if(!policy.allowed_source_scopes.length||policy.allowed_source_scopes.some(x=>x!=='independent_real_image')){
+  if(!policy.allowed_source_scopes.length||new Set(policy.allowed_source_scopes).size!==policy.allowed_source_scopes.length){
     reasons.push('policy_source_scope_invalid')
   }
   if(!isSemanticFeatureId(policy.required_feature_id)) reasons.push('policy_feature_invalid')
@@ -171,20 +172,26 @@ export function validateSemanticCalibrationEligibilityPolicy(
       reasons.push('policy_required_class_sensor_state_forbidden')
     }
   }
-  if(!validRequiredMinimum(support.calibration_unique_specimens_per_class)){
+  if(!validMinimumRequirement(support.calibration_unique_specimens_per_class)){
     reasons.push('required_calibration_support_not_configured')
   }
-  if(!validRequiredMinimum(support.validation_unique_specimens_per_class)){
+  if(!validMinimumRequirement(support.validation_unique_specimens_per_class)){
     reasons.push('required_validation_support_not_configured')
   }
   const risk=policy.held_out_error_requirement
-  if(risk.required!==true||
-     typeof risk.maximum_error_risk!=='number'||!Number.isFinite(risk.maximum_error_risk)||
-     risk.maximum_error_risk<=0||risk.maximum_error_risk>=1||
-     typeof risk.confidence_level!=='number'||!Number.isFinite(risk.confidence_level)||
-     risk.confidence_level<=0||risk.confidence_level>=1||
-     risk.confidence_side!=='one_sided_upper'||risk.method!=='exact_clopper_pearson'){
-    reasons.push('required_held_out_error_policy_not_configured')
+  if(risk.required){
+    if(typeof risk.maximum_error_risk!=='number'||!Number.isFinite(risk.maximum_error_risk)||
+       risk.maximum_error_risk<=0||risk.maximum_error_risk>=1||
+       typeof risk.confidence_level!=='number'||!Number.isFinite(risk.confidence_level)||
+       risk.confidence_level<=0||risk.confidence_level>=1||
+       risk.confidence_side!=='one_sided_upper'||risk.method!=='exact_clopper_pearson'){
+      reasons.push('required_held_out_error_policy_not_configured')
+    }
+  }else if(
+    risk.maximum_error_risk!==null||risk.confidence_level!==null||
+    risk.confidence_side!==null||risk.method!==null
+  ){
+    reasons.push('optional_held_out_error_policy_must_be_null')
   }
   if(!validMetricRequirement(policy.metric_requirements.brier_score)) reasons.push('brier_requirement_invalid')
   if(!validMetricRequirement(policy.metric_requirements.log_loss)) reasons.push('log_loss_requirement_invalid')
