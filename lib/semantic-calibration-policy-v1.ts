@@ -218,6 +218,22 @@ export function validateSemanticCalibrationEligibilityPolicy(
   return {valid:unique.length===0,reason_codes:unique}
 }
 
+export function assessSemanticCalibrationPolicyRevision(
+  current:SemanticCalibrationEligibilityPolicyV1,
+  next:SemanticCalibrationEligibilityPolicyV1,
+):SemanticCalibrationPolicyValidation{
+  const reasons:string[]=[]
+  if(current.status==='preregistered'&&current.locked_at!==null&&
+     current.policy_version===next.policy_version&&
+     current.policy_content_digest_sha256!==next.policy_content_digest_sha256){
+    reasons.push('locked_policy_mutation_requires_new_version')
+  }
+  const nextValidation=validateSemanticCalibrationEligibilityPolicy(next)
+  reasons.push(...nextValidation.reason_codes)
+  const unique=[...new Set(reasons)]
+  return {valid:unique.length===0,reason_codes:unique}
+}
+
 export function semanticCalibrationImageWithinPolicyEnvelope(
   image:Pick<SemanticCalibrationImage,'capture_type'|'viewpoint'|'crop_type'|'width_px'|'height_px'|'visibility'|'occlusion_condition'|'glare_condition'>,
   policy:SemanticCalibrationEligibilityPolicyV1,
