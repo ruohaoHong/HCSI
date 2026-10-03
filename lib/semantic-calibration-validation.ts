@@ -395,7 +395,7 @@ export function validateCalibrationArtifact(
     metric_reason_codes:metricReasons,
     source_fit_calibration_specimen_ids:[...fit.calibration_specimen_ids],
     source_fit_calibration_record_ids:[...fit.calibration_record_ids],
-    source_fit_calibration_observation_bindings:[...fit.calibration_observation_bindings],
+    source_fit_calibration_observation_bindings:[...(fit.calibration_observation_bindings??[])],
     source_fit_unique_calibration_specimen_count:new Set(fit.calibration_specimen_ids).size,
     source_fit_unique_calibration_specimens_per_class:fitUniquePerClass,
     validation_specimen_ids:[...new Set(usable.map(r=>r.specimen_id))],
