@@ -282,8 +282,8 @@ assert.equal(heldOut.status,'validated')
 assert.equal(PRODUCTION_SEMANTIC_CALIBRATION_DATASETS.length,0)
 assert.equal(ADMITTED_SEMANTIC_CALIBRATION_ARTIFACTS.length,0)
 assert.equal(SEMANTIC_CALIBRATION_REGISTRY.length,0)
-assert.equal(SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY.length,0)
-assert.equal(ACTIVE_SEMANTIC_CALIBRATION_POLICY,null)
+assert.equal(SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY.length,1)
+assert.equal(ACTIVE_SEMANTIC_CALIBRATION_POLICY?.status,'preregistered')
 
 console.log('Phase 2E.1.2 admission self-verification & complete observation binding regressions passed')
 // CI trigger: Build + Cases B-E validate this exact Phase 2E.1.2 final SHA.
