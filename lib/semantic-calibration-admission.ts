@@ -327,10 +327,13 @@ export function assessCalibrationArtifactAdmission(
     reasons.push('physical_specimen_crosses_splits')
   }
 
+  if(dataset.ground_truth_policy.same_sensor_self_label_forbidden!==true||
+     dataset.ground_truth_policy.independently_verified!==true){
+    reasons.push('ground_truth_self_label_forbidden')
+  }
   for(const specimen of dataset.specimens){
     const gt=specimen.ground_truth.find(item=>item.feature_id===activePolicy.required_feature_id)
     if(!gt) continue
-    if(gt.self_labeled_by_sensor!==false) reasons.push('ground_truth_self_label_forbidden')
     if(!gt.gt_source?.trim()||!gt.verification_method?.trim()||!gt.annotator_or_fixture_provenance?.trim()){
       reasons.push('ground_truth_provenance_missing')
     }
