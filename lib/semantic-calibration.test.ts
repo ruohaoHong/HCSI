@@ -42,7 +42,7 @@ const policy:SemanticCalibrationEligibilityPolicyV1=finalizeSemanticCalibrationE
  required_split_policy:{unit:'physical_specimen',calibration_required:true,validation_required:true,specimen_may_cross_splits:false},
  required_gt_policy:{independently_verified:true,same_sensor_self_label_forbidden:true,provenance_required:true},
  minimum_support:{statistical_unit:'unique_physical_specimen',required_classes:['external_hex'],calibration_unique_specimens_per_class:{required:false,minimum:null},validation_unique_specimens_per_class:{required:false,minimum:null}},
- held_out_error_requirement:{required:false,maximum_error_risk:null,confidence_level:null,confidence_side:null,method:null},
+ held_out_error_requirement:{required:false,maximum_error_risk:null,confidence_level:null,confidence_side:'one_sided_upper',method:'exact_clopper_pearson'},
  metric_requirements:{brier_score:{required:false,threshold:null},log_loss:{required:false,threshold:null},ece:{required:false,threshold:null}},
  capture_applicability:{vocabulary_version:'hcsi.semantic-calibration-capture-conditions.v1',capture_types:['axial_head'],crop_types:['head_crop'],viewpoints:['axial'],visibility:['visible'],occlusion_conditions:['none'],glare_conditions:['none'],resolution:{min_width_px:256,min_height_px:256,max_width_px:1024,max_height_px:1024}},
  quality_coverage_requirements:{required:false,description:'unit test only'},artifact_identity_requirements:{exact_sensor_identity:true,exact_feature:true,exact_taxonomy:true,applicability_must_not_exceed_policy:true},
