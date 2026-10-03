@@ -228,6 +228,15 @@ export function semanticCalibrationImageWithinPolicyEnvelope(
     (c.resolution.max_height_px===null||image.height_px<=c.resolution.max_height_px)
 }
 
+export function lockedPolicyReplacementRequiresNewVersion(
+  existing:SemanticCalibrationEligibilityPolicyV1,
+  candidate:SemanticCalibrationEligibilityPolicyV1,
+):boolean{
+  if(existing.status!=='preregistered'||existing.locked_at===null) return false
+  if(existing.policy_id!==candidate.policy_id||existing.policy_version!==candidate.policy_version) return false
+  return existing.policy_content_digest_sha256!==candidate.policy_content_digest_sha256
+}
+
 function deepFreeze<T>(value:T):T{
   if(value&&typeof value==='object'&&!Object.isFrozen(value)){
     Object.freeze(value)
