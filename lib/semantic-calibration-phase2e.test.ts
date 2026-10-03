@@ -199,8 +199,8 @@ const policy=testPolicy()
 eq(PRODUCTION_SEMANTIC_CALIBRATION_DATASETS.length,0)
 eq(ADMITTED_SEMANTIC_CALIBRATION_ARTIFACTS.length,0)
 eq(SEMANTIC_CALIBRATION_REGISTRY.length,0)
-eq(SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY.length,0)
-eq(ACTIVE_SEMANTIC_CALIBRATION_POLICY,null)
+eq(SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY.length,1)
+eq(ACTIVE_SEMANTIC_CALIBRATION_POLICY?.status,'preregistered')
 
 // B — exact model/model-version resolver stage chooses v2, not first feature/sensor match.
 const exact=exactIdentityArtifacts(runtime,[v1,v2])
