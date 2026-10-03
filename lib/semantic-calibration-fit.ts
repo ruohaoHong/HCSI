@@ -50,6 +50,7 @@ export interface CandidateCalibrationFit {
   model:SemanticConfusionModelV1|null
   calibration_specimen_ids:string[]
   calibration_record_ids:string[]
+  calibration_observation_bindings:Array<{run_id:string;specimen_id:string;image_id:string}>
   reason_codes:string[]
 }
 
@@ -67,8 +68,11 @@ export function calibrationEstimatorConfigDigest(config:CalibrationEstimatorConf
 }
 
 function finalizeFit(
-  draft:Omit<CandidateCalibrationFit,'fit_id'|'fit_digest_sha256'>,
+  draft:Omit<CandidateCalibrationFit,'fit_id'|'fit_digest_sha256'|'calibration_observation_bindings'> & {
+    calibration_observation_bindings?:CandidateCalibrationFit['calibration_observation_bindings']
+  },
 ):CandidateCalibrationFit{
+  const bindings=[...(draft.calibration_observation_bindings??[])].sort((a,b)=>a.run_id.localeCompare(b.run_id))
   const fitDigest=sha256Canonical({
     schema_version:draft.schema_version,
     lineage_schema_version:draft.lineage_schema_version,
@@ -84,6 +88,7 @@ function finalizeFit(
     model:draft.model,
     calibration_specimen_ids:[...draft.calibration_specimen_ids].sort(),
     calibration_record_ids:[...draft.calibration_record_ids].sort(),
+    calibration_observation_bindings:bindings,
     reason_codes:[...draft.reason_codes].sort(),
   })
   return {
@@ -92,6 +97,7 @@ function finalizeFit(
     fit_digest_sha256:fitDigest,
     calibration_specimen_ids:[...draft.calibration_specimen_ids].sort(),
     calibration_record_ids:[...draft.calibration_record_ids].sort(),
+    calibration_observation_bindings:bindings,
     reason_codes:[...new Set(draft.reason_codes)],
   }
 }
@@ -191,6 +197,7 @@ export function fitSemanticCalibrationArtifact(
     model:fitCategoricalConfusionModel(config.feature_id,usable,truth),
     calibration_specimen_ids:calibrationSpecimenIds,
     calibration_record_ids:usable.map(r=>r.run_id),
+    calibration_observation_bindings:usable.map(r=>({run_id:r.run_id,specimen_id:r.specimen_id,image_id:r.image_id})),
     reason_codes:[],
   })
 }
