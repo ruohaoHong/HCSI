@@ -1,0 +1,22 @@
+{
+  "schema_version": "hcsi.real-specimen-operator-claim.v1",
+  "specimen_id": "real-2026-001",
+  "recorded_at": "2026-10-03T06:30:00Z",
+  "source": "user_provided_physical_specimen_claim",
+  "claims": {
+    "nominal_thread": "M5",
+    "nominal_length_mm": 25,
+    "material": "stainless_steel",
+    "product_description_zh": "不鏽鋼圓柱頭內六角螺絲"
+  },
+  "semantic_ground_truth_authority": {
+    "included_features": ["drive.form"],
+    "excluded_claims_from_semantic_gt": [
+      "nominal_thread",
+      "nominal_length_mm",
+      "material",
+      "product_description_zh"
+    ],
+    "semantic_model_used": false
+  }
+}
