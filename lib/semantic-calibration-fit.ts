@@ -50,7 +50,7 @@ export interface CandidateCalibrationFit {
   model:SemanticConfusionModelV1|null
   calibration_specimen_ids:string[]
   calibration_record_ids:string[]
-  calibration_observation_bindings:Array<{run_id:string;specimen_id:string;image_id:string}>
+  calibration_observation_bindings?:Array<{run_id:string;specimen_id:string;image_id:string}>
   reason_codes:string[]
 }
 
