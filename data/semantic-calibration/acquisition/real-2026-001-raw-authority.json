@@ -1,0 +1,28 @@
+{
+  "schema_version": "hcsi.semantic-calibration-raw-authority.v1",
+  "specimen_id": "real-2026-001",
+  "image_id": "real-2026-001-img-01",
+  "selection_event_at": "2026-10-03T13:15:00Z",
+  "selection_authority": "user_explicit_canonical_raw_selection",
+  "canonical_selection_updated_by_user": true,
+  "user_selected_attachment_name": "566F7CCB-B40E-47DD-841C-935E4589BB25.jpeg",
+  "runtime_materialized_upload_name": "8A2AA336-E88A-4E2F-AA4C-BAA79ADE8A41.jpeg",
+  "repo_raw_path": "data/semantic-calibration/candidates/real-2026-001/raw/real-2026-001-img-01.jpeg",
+  "canonical_identity": {
+    "byte_length": 49950,
+    "sha256": "b6c688ccf0cbed9ad3114e4075b4b3c1e72087d6d8c5007463756a1608dc7058",
+    "width_px": 393,
+    "height_px": 302,
+    "format": "JPEG"
+  },
+  "raw_policy": {
+    "is_raw": true,
+    "derivative": false,
+    "multiple_byte_streams_per_image_id_forbidden": true
+  },
+  "prior_white_border_candidate": {
+    "selected_as_canonical_raw": false,
+    "committed_as_real_2026_001_img_01": false
+  },
+  "disposition_of_existing_49950_byte_blob": "retained_as_canonical_raw"
+}
