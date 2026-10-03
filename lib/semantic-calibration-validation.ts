@@ -78,7 +78,27 @@ export interface CalibrationHeldOutValidation {
   reason_codes:string[]
 }
 
-export type CalibrationHeldOutValidationDraft=Omit<CalibrationHeldOutValidation,'validation_id'|'validation_digest_sha256'>
+export type CalibrationHeldOutValidationDraft=
+  Omit<
+    CalibrationHeldOutValidation,
+    'validation_id'|'validation_digest_sha256'|
+    'source_fit_calibration_observation_bindings'|
+    'source_fit_unique_calibration_specimen_count'|
+    'source_fit_unique_calibration_specimens_per_class'|
+    'validation_observation_outcomes'|
+    'unique_validation_specimen_count'|
+    'unique_validation_specimens_per_class'|
+    'unique_validation_errors_per_class'
+  > & Partial<Pick<
+    CalibrationHeldOutValidation,
+    'source_fit_calibration_observation_bindings'|
+    'source_fit_unique_calibration_specimen_count'|
+    'source_fit_unique_calibration_specimens_per_class'|
+    'validation_observation_outcomes'|
+    'unique_validation_specimen_count'|
+    'unique_validation_specimens_per_class'|
+    'unique_validation_errors_per_class'
+  >>
 
 export function calibrationHeldOutValidationDigest(
   validation:CalibrationHeldOutValidationDraft|CalibrationHeldOutValidation,
@@ -104,19 +124,34 @@ export function calibrationHeldOutValidationDigest(
 export function finalizeCalibrationHeldOutValidation(
   draft:CalibrationHeldOutValidationDraft,
 ):CalibrationHeldOutValidation{
-  const digest=calibrationHeldOutValidationDigest(draft)
-  return {
+  const normalized={
     ...draft,
+    source_fit_calibration_observation_bindings:[...(draft.source_fit_calibration_observation_bindings??[])],
+    source_fit_unique_calibration_specimen_count:
+      draft.source_fit_unique_calibration_specimen_count??new Set(draft.source_fit_calibration_specimen_ids).size,
+    source_fit_unique_calibration_specimens_per_class:
+      draft.source_fit_unique_calibration_specimens_per_class??{},
+    validation_observation_outcomes:[...(draft.validation_observation_outcomes??[])],
+    unique_validation_specimen_count:
+      draft.unique_validation_specimen_count??new Set(draft.validation_specimen_ids).size,
+    unique_validation_specimens_per_class:
+      draft.unique_validation_specimens_per_class??{},
+    unique_validation_errors_per_class:
+      draft.unique_validation_errors_per_class??{},
+  } as Omit<CalibrationHeldOutValidation,'validation_id'|'validation_digest_sha256'>
+  const digest=calibrationHeldOutValidationDigest(normalized)
+  return {
+    ...normalized,
     validation_id:`validation-${digest.slice(0,20)}`,
     validation_digest_sha256:digest,
-    source_fit_calibration_specimen_ids:[...draft.source_fit_calibration_specimen_ids].sort(),
-    source_fit_calibration_record_ids:[...draft.source_fit_calibration_record_ids].sort(),
-    validation_specimen_ids:[...draft.validation_specimen_ids].sort(),
-    validation_record_ids:[...draft.validation_record_ids].sort(),
-    source_fit_calibration_observation_bindings:[...draft.source_fit_calibration_observation_bindings].sort((a,b)=>a.run_id.localeCompare(b.run_id)),
-    validation_observation_outcomes:[...draft.validation_observation_outcomes].sort((a,b)=>a.run_id.localeCompare(b.run_id)),
-    reason_codes:[...new Set(draft.reason_codes)],
-    metric_reason_codes:[...new Set(draft.metric_reason_codes)],
+    source_fit_calibration_specimen_ids:[...normalized.source_fit_calibration_specimen_ids].sort(),
+    source_fit_calibration_record_ids:[...normalized.source_fit_calibration_record_ids].sort(),
+    validation_specimen_ids:[...normalized.validation_specimen_ids].sort(),
+    validation_record_ids:[...normalized.validation_record_ids].sort(),
+    source_fit_calibration_observation_bindings:[...normalized.source_fit_calibration_observation_bindings].sort((a,b)=>a.run_id.localeCompare(b.run_id)),
+    validation_observation_outcomes:[...normalized.validation_observation_outcomes].sort((a,b)=>a.run_id.localeCompare(b.run_id)),
+    reason_codes:[...new Set(normalized.reason_codes)],
+    metric_reason_codes:[...new Set(normalized.metric_reason_codes)],
   }
 }
 
@@ -198,7 +233,7 @@ export function validateCalibrationArtifact(
     metric_reason_codes:[] as string[],
     source_fit_calibration_specimen_ids:[...fit.calibration_specimen_ids],
     source_fit_calibration_record_ids:[...fit.calibration_record_ids],
-    source_fit_calibration_observation_bindings:[...fit.calibration_observation_bindings],
+    source_fit_calibration_observation_bindings:[...(fit.calibration_observation_bindings??[])],
     source_fit_unique_calibration_specimen_count:new Set(fit.calibration_specimen_ids).size,
     source_fit_unique_calibration_specimens_per_class:fitUniquePerClass,
     validation_specimen_ids:[] as string[],validation_record_ids:[] as string[],
