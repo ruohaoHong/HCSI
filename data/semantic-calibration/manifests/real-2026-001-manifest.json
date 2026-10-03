@@ -1,0 +1,51 @@
+{
+  "schema_version": "hcsi.semantic-calibration-corpus-manifest.v1",
+  "dataset_id": "hcsi-real-semantic-candidate-2026-001",
+  "dataset_version": "1.0.0",
+  "created_at": "2026-10-03T06:30:00Z",
+  "source_scope": "independent_real_image",
+  "source_provenance": {
+    "source_class": "independent_real_image",
+    "source_ref": "acquisition://hcsi-real-acquisition-2026-001",
+    "independent_acquisition": true
+  },
+  "specimens": [
+    {
+      "specimen_id": "real-2026-001",
+      "provenance": {
+        "source_class": "independent_real_image",
+        "source_ref": "physical://real-2026-001",
+        "physical_identity_verified": true
+      },
+      "images": [
+        {
+          "image_id": "real-2026-001-img-01",
+          "sha256": "b6c688ccf0cbed9ad3114e4075b4b3c1e72087d6d8c5007463756a1608dc7058",
+          "source_ref": "capture://real-2026-001/img-01",
+          "capture_type": "user_uploaded_single_image",
+          "viewpoint": "unknown",
+          "crop_type": "full_image",
+          "width_px": 393,
+          "height_px": 302,
+          "visibility": "unknown",
+          "occlusion_condition": "unknown",
+          "glare_condition": "unknown",
+          "split": "calibration"
+        }
+      ],
+      "ground_truth": [
+        {
+          "feature_id": "drive.form",
+          "value": "hex_socket",
+          "verification_method": "user_provided_physical_specimen_claim",
+          "gt_source": "gt://real-2026-001/operator-physical-claim",
+          "annotator_or_fixture_provenance": "human_operator_claim_current_hcsi_acquisition_session",
+          "schema_version": "gt.v1",
+          "self_labeled_by_sensor": false
+        }
+      ]
+    }
+  ],
+  "feature_scope": ["drive.form"],
+  "sensor_scope": ["vlm"]
+}
