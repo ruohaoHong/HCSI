@@ -92,9 +92,11 @@ function metricRequirementReasons(
   value:number|null,
 ):string[]{
   if(!requirement.required) return []
-  if(requirement.threshold===null) return [`${name}_required_threshold_missing`]
-  if(value===null) return [`${name}_requirement_not_met`,'required_held_out_metric_unavailable']
-  return value>requirement.threshold?[`${name}_requirement_not_met`]:[]
+  const reason=name==='brier_score'?'brier_requirement_not_met':`${name}_requirement_not_met`
+  const missing=name==='brier_score'?'brier_required_threshold_missing':`${name}_required_threshold_missing`
+  if(requirement.threshold===null) return [missing]
+  if(value===null) return [reason,'required_held_out_metric_unavailable']
+  return value>requirement.threshold?[reason]:[]
 }
 
 function datasetGtFor(
