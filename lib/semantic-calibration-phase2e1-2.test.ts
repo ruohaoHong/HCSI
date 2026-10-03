@@ -199,7 +199,7 @@ assert.equal(heldOut.status,'validated')
   const result=assessCalibrationArtifactAdmission(
     artifact,dataset,oldDatasetValidation,heldOut,policy(),
   )
-  assert.equal(result.eligible_for_admission,true)
+  assert.equal(result.eligible_for_admission,true,JSON.stringify(result.reason_codes))
   assert.equal(result.reason_codes.length,0)
 }
 
