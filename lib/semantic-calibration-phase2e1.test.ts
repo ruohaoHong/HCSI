@@ -166,7 +166,7 @@ function policy(metrics:Partial<SemanticCalibrationEligibilityPolicyV1['metric_r
     required_split_policy:{unit:'physical_specimen',calibration_required:true,validation_required:true,specimen_may_cross_splits:false},
     required_gt_policy:{independently_verified:true,same_sensor_self_label_forbidden:true,provenance_required:true},
     minimum_support:{statistical_unit:'unique_physical_specimen',required_classes:['external_hex'],calibration_unique_specimens_per_class:{required:false,minimum:null},validation_unique_specimens_per_class:{required:false,minimum:null}},
-    held_out_error_requirement:{required:false,maximum_error_risk:null,confidence_level:null,confidence_side:null,method:null},
+    held_out_error_requirement:{required:false,maximum_error_risk:null,confidence_level:null,confidence_side:'one_sided_upper',method:'exact_clopper_pearson'},
     metric_requirements:{
       brier_score:{required:false,threshold:null},
       log_loss:{required:false,threshold:null},
