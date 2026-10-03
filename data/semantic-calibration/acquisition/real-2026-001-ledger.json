@@ -1,0 +1,26 @@
+{
+  "schema_version": "hcsi.semantic-calibration-acquisition-ledger.v1",
+  "ledger_id": "hcsi-real-acquisition-2026-001",
+  "ledger_version": "1.0.0",
+  "created_at": "2026-10-03T06:30:00Z",
+  "capture_protocol_version": "hcsi.semantic-calibration-capture.v1",
+  "split_plan_id": "hcsi-real-semantic-split-plan-2026-v1",
+  "split_plan_version": "1.0.0",
+  "entries": [
+    {
+      "specimen_id": "real-2026-001",
+      "acquisition_event_id": "acq-real-2026-001-20261003",
+      "acquired_at": "2026-10-03T06:30:00Z",
+      "source_class": "independent_real_image",
+      "material_origin": "physical_specimen",
+      "source_ref": "physical://real-2026-001",
+      "physical_identity_verified": true,
+      "physical_specimen_ref": "physical-specimen://real-2026-001",
+      "ground_truth_provenance_ref": "gt://real-2026-001/operator-physical-claim",
+      "capture_protocol_version": "hcsi.semantic-calibration-capture.v1",
+      "locked_split": "calibration",
+      "semantic_sensor_observation_started_at": null
+    }
+  ],
+  "ledger_content_digest_sha256": "84e823012191e807d5e222d9856705590c3994663b9c53791c827dda7cb8df21"
+}
