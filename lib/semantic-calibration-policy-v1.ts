@@ -187,11 +187,16 @@ export function validateSemanticCalibrationEligibilityPolicy(
        risk.confidence_side!=='one_sided_upper'||risk.method!=='exact_clopper_pearson'){
       reasons.push('required_held_out_error_policy_not_configured')
     }
-  }else if(
-    risk.maximum_error_risk!==null||risk.confidence_level!==null||
-    risk.confidence_side!==null||risk.method!==null
-  ){
-    reasons.push('optional_held_out_error_policy_must_be_null')
+  }else{
+    if(risk.maximum_error_risk!==null||risk.confidence_level!==null){
+      reasons.push('optional_held_out_error_numeric_policy_must_be_null')
+    }
+    if(risk.confidence_side!==null&&risk.confidence_side!=='one_sided_upper'){
+      reasons.push('optional_held_out_error_confidence_side_invalid')
+    }
+    if(risk.method!==null&&risk.method!=='exact_clopper_pearson'){
+      reasons.push('optional_held_out_error_method_invalid')
+    }
   }
   if(!validMetricRequirement(policy.metric_requirements.brier_score)) reasons.push('brier_requirement_invalid')
   if(!validMetricRequirement(policy.metric_requirements.log_loss)) reasons.push('log_loss_requirement_invalid')
