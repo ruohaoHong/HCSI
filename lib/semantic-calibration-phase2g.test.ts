@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert'
-import { readFileSync } from 'node:fs'\nimport { PHASE2G_SENSOR_IDENTITY,validateObservationStart,validateObservationEvidence,assertPhase2GDoesNotAdmitCalibration,digestObservationEvidence,type Phase2GObservationStart } from './semantic-calibration-phase2g-observation'
+import { readFileSync } from 'node:fs'
+import { PHASE2G_SENSOR_IDENTITY,validateObservationStart,validateObservationEvidence,assertPhase2GDoesNotAdmitCalibration,digestObservationEvidence,type Phase2GObservationStart } from './semantic-calibration-phase2g-observation'
 
 const start:Phase2GObservationStart={
  schema_version:'hcsi.real-semantic-observation-start.v1',observation_id:'obs-test',specimen_id:'real-2026-001',image_id:'real-2026-001-img-01',
@@ -24,5 +25,10 @@ const evidence:any={
 evidence.content_digest_sha256=digestObservationEvidence(evidence)
 assert.equal(validateObservationEvidence(evidence,start).valid,true)
 const rewrite=structuredClone(evidence); rewrite.evidence.observation_scope.image_sha256='1'.repeat(64); assert.equal(validateObservationEvidence(rewrite,start).valid,false)
-const bundle=JSON.parse(readFileSync('data/semantic-calibration/manifests/real-2026-001-intake-bundle.json','utf8'))\nconst img=bundle.corpus_manifest.specimens[0].images[0]\nassert.equal(bundle.acquisition_ledger.entries[0].semantic_sensor_observation_started_at,null)\nassert.equal(img.viewpoint,'unknown'); assert.equal(img.visibility,'unknown'); assert.equal(img.occlusion_condition,'unknown'); assert.equal(img.glare_condition,'unknown')\nassert.equal(bundle.corpus_manifest.specimens.length,1)\nassertPhase2GDoesNotAdmitCalibration()
+const bundle=JSON.parse(readFileSync('data/semantic-calibration/manifests/real-2026-001-intake-bundle.json','utf8'))
+const img=bundle.corpus_manifest.specimens[0].images[0]
+assert.equal(bundle.acquisition_ledger.entries[0].semantic_sensor_observation_started_at,null)
+assert.equal(img.viewpoint,'unknown'); assert.equal(img.visibility,'unknown'); assert.equal(img.occlusion_condition,'unknown'); assert.equal(img.glare_condition,'unknown')
+assert.equal(bundle.corpus_manifest.specimens.length,1)
+assertPhase2GDoesNotAdmitCalibration()
 console.log('Phase 2G deterministic observation-boundary regressions passed')
