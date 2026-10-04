@@ -1,0 +1,282 @@
+{
+  "schema_version": "hcsi.real-semantic-observation-evidence.v1",
+  "observation_id": "real-2026-001-drive-form-obs-001",
+  "specimen_id": "real-2026-001",
+  "image_id": "real-2026-001-img-01",
+  "dataset_id": "hcsi-real-semantic-candidate-2026-001",
+  "dataset_version": "1.0.0",
+  "split": "calibration",
+  "started_at": "2026-10-04T13:04:30+08:00",
+  "completed_at": "2026-10-04T05:05:02.162Z",
+  "canonical_raw_sha256": "b6c688ccf0cbed9ad3114e4075b4b3c1e72087d6d8c5007463756a1608dc7058",
+  "submitted_input_sha256": "b6c688ccf0cbed9ad3114e4075b4b3c1e72087d6d8c5007463756a1608dc7058",
+  "submitted_input_relation": "canonical_raw_exact_bytes",
+  "sensor_identity": {
+    "feature_id": "drive.form",
+    "sensor_type": "vlm",
+    "model": "gpt-5.6-sol",
+    "model_version": "gpt-5.6-sol",
+    "prompt_version": "hcsi.semantic-first-pass.prompt.v1",
+    "extractor_version": "hcsi.candidate-blind-vlm.v1",
+    "taxonomy_version": "hcsi.semantic-taxonomy.v1"
+  },
+  "candidate_blind": true,
+  "ground_truth_in_sensor_input": false,
+  "evidence": {
+    "schema_version": "hcsi.semantic-evidence.v1",
+    "taxonomy_version": "hcsi.semantic-taxonomy.v1",
+    "reason_code_taxonomy_version": "hcsi.semantic-reason-codes.v1",
+    "extractor_version": "hcsi.candidate-blind-vlm.v1",
+    "observation_scope": {
+      "mode": "candidate_blind_first_pass",
+      "image_sha256": "b6c688ccf0cbed9ad3114e4075b4b3c1e72087d6d8c5007463756a1608dc7058",
+      "target_region_ref": "full_image_1",
+      "physical_measurements_included": false,
+      "standards_candidates_included": false,
+      "legacy_nominal_included": false,
+      "ground_truth_included": false
+    },
+    "observations": [
+      {
+        "feature_id": "head.profile",
+        "value": "protruding",
+        "state": "observed",
+        "visibility": "visible",
+        "raw_score": null,
+        "calibrated_probability": null,
+        "calibration_status": "uncalibrated",
+        "reason_codes": [
+          "FEATURE_VISIBLE",
+          "HEAD_PROFILE_VISIBLE"
+        ],
+        "freeform_description": null,
+        "raw_text": null,
+        "normalized_text": null,
+        "character_confidence": null,
+        "feature_family": "head_profile",
+        "source": "semantic_first_pass_sensor_1",
+        "evidence_refs": [
+          "full_image_1"
+        ],
+        "independence_group": "full_image_1"
+      },
+      {
+        "feature_id": "head.morphology",
+        "value": "socket_cap_like",
+        "state": "observed",
+        "visibility": "visible",
+        "raw_score": null,
+        "calibrated_probability": null,
+        "calibration_status": "uncalibrated",
+        "reason_codes": [
+          "FEATURE_VISIBLE"
+        ],
+        "freeform_description": null,
+        "raw_text": null,
+        "normalized_text": null,
+        "character_confidence": null,
+        "feature_family": "head_morphology",
+        "source": "semantic_first_pass_sensor_1",
+        "evidence_refs": [
+          "full_image_1"
+        ],
+        "independence_group": "full_image_1"
+      },
+      {
+        "feature_id": "drive.form",
+        "value": "not_visible",
+        "state": "not_visible",
+        "visibility": "not_visible",
+        "raw_score": null,
+        "calibrated_probability": null,
+        "calibration_status": "uncalibrated",
+        "reason_codes": [
+          "FEATURE_NOT_VISIBLE",
+          "HEAD_TOP_NOT_VISIBLE",
+          "DRIVE_FACE_NOT_VISIBLE",
+          "IMAGE_ANGLE_LIMITED"
+        ],
+        "freeform_description": null,
+        "raw_text": null,
+        "normalized_text": null,
+        "character_confidence": null,
+        "feature_family": "drive_form",
+        "source": "semantic_first_pass_sensor_1",
+        "evidence_refs": [
+          "full_image_1"
+        ],
+        "independence_group": "full_image_1"
+      },
+      {
+        "feature_id": "flange_washer.feature",
+        "value": "washer_absent",
+        "state": "not_observed",
+        "visibility": "visible",
+        "raw_score": null,
+        "calibrated_probability": null,
+        "calibration_status": "uncalibrated",
+        "reason_codes": [
+          "FEATURE_NOT_OBSERVED",
+          "UNDERHEAD_REGION_VISIBLE"
+        ],
+        "freeform_description": null,
+        "raw_text": null,
+        "normalized_text": null,
+        "character_confidence": null,
+        "feature_family": "flange_washer",
+        "source": "semantic_first_pass_sensor_1",
+        "evidence_refs": [
+          "full_image_1"
+        ],
+        "independence_group": "full_image_1"
+      },
+      {
+        "feature_id": "tip.morphology",
+        "value": "chamfered",
+        "state": "observed",
+        "visibility": "visible",
+        "raw_score": null,
+        "calibrated_probability": null,
+        "calibration_status": "uncalibrated",
+        "reason_codes": [
+          "FEATURE_VISIBLE",
+          "TIP_VISIBLE"
+        ],
+        "freeform_description": null,
+        "raw_text": null,
+        "normalized_text": null,
+        "character_confidence": null,
+        "feature_family": "tip_morphology",
+        "source": "semantic_first_pass_sensor_1",
+        "evidence_refs": [
+          "full_image_1"
+        ],
+        "independence_group": "full_image_1"
+      },
+      {
+        "feature_id": "thread.extent",
+        "value": "fully_threaded_visible",
+        "state": "observed",
+        "visibility": "visible",
+        "raw_score": null,
+        "calibrated_probability": null,
+        "calibration_status": "uncalibrated",
+        "reason_codes": [
+          "FEATURE_VISIBLE",
+          "THREADS_VISIBLE"
+        ],
+        "freeform_description": null,
+        "raw_text": null,
+        "normalized_text": null,
+        "character_confidence": null,
+        "feature_family": "thread_extent",
+        "source": "semantic_first_pass_sensor_1",
+        "evidence_refs": [
+          "full_image_1"
+        ],
+        "independence_group": "full_image_1"
+      },
+      {
+        "feature_id": "thread.morphology",
+        "value": "machine_thread_like",
+        "state": "observed",
+        "visibility": "visible",
+        "raw_score": null,
+        "calibrated_probability": null,
+        "calibration_status": "uncalibrated",
+        "reason_codes": [
+          "FEATURE_VISIBLE",
+          "THREADS_VISIBLE"
+        ],
+        "freeform_description": null,
+        "raw_text": null,
+        "normalized_text": null,
+        "character_confidence": null,
+        "feature_family": "thread_morphology",
+        "source": "semantic_first_pass_sensor_1",
+        "evidence_refs": [
+          "full_image_1"
+        ],
+        "independence_group": "full_image_1"
+      },
+      {
+        "feature_id": "markings.presence",
+        "value": "marking_not_visible",
+        "state": "not_visible",
+        "visibility": "not_visible",
+        "raw_score": null,
+        "calibrated_probability": null,
+        "calibration_status": "uncalibrated",
+        "reason_codes": [
+          "FEATURE_NOT_VISIBLE",
+          "MARKING_SURFACE_NOT_VISIBLE",
+          "HEAD_TOP_NOT_VISIBLE"
+        ],
+        "freeform_description": null,
+        "raw_text": null,
+        "normalized_text": null,
+        "character_confidence": null,
+        "feature_family": "markings_ocr",
+        "source": "semantic_first_pass_sensor_1",
+        "evidence_refs": [
+          "full_image_1"
+        ],
+        "independence_group": "full_image_1"
+      },
+      {
+        "feature_id": "markings.ocr",
+        "value": "text_not_visible",
+        "state": "not_visible",
+        "visibility": "not_visible",
+        "raw_score": null,
+        "calibrated_probability": null,
+        "calibration_status": "uncalibrated",
+        "reason_codes": [
+          "MARKING_SURFACE_NOT_VISIBLE",
+          "BACKGROUND_TEXT_EXCLUDED"
+        ],
+        "freeform_description": null,
+        "raw_text": null,
+        "normalized_text": null,
+        "character_confidence": null,
+        "feature_family": "markings_ocr",
+        "source": "semantic_first_pass_sensor_1",
+        "evidence_refs": [
+          "full_image_1"
+        ],
+        "independence_group": "full_image_1"
+      }
+    ],
+    "unknown_or_open_set": [],
+    "evidence_sources": [
+      {
+        "evidence_ref": "semantic_first_pass_sensor_1",
+        "sensor_type": "vlm",
+        "model": "gpt-5.6-sol",
+        "model_version": "gpt-5.6-sol",
+        "prompt_version": "hcsi.semantic-first-pass.prompt.v1",
+        "crop_ref": "full_image_1",
+        "image_sha256": "b6c688ccf0cbed9ad3114e4075b4b3c1e72087d6d8c5007463756a1608dc7058"
+      }
+    ],
+    "independence_groups": [
+      {
+        "group_id": "full_image_1",
+        "crop_ref": "full_image_1",
+        "image_sha256": "b6c688ccf0cbed9ad3114e4075b4b3c1e72087d6d8c5007463756a1608dc7058",
+        "description": "All observations in this first pass read the same full image and are therefore not independent evidence."
+      }
+    ],
+    "quality": {
+      "status": "usable",
+      "reason_codes": [
+        "TARGET_CLEAR",
+        "SIDE_PROFILE_VISIBLE",
+        "HEAD_TOP_NOT_VISIBLE",
+        "TIP_AND_THREADS_VISIBLE",
+        "DRIVE_DETAIL_LIMITED"
+      ]
+    }
+  },
+  "content_digest_sha256": "cf8c2ff1c47d64297a48ee1ba363a350ffaa83091b383c7aee02a86ee73a66d1"
+}
