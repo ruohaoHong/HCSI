@@ -1,0 +1,45 @@
+name: Phase 2G First Real Semantic Observation
+on:
+  push:
+    branches: [feature/first-real-semantic-sensor-observation]
+    paths:
+      - data/semantic-calibration/observations/real-2026-001-start.json
+      - data/semantic-calibration/observations/real-2026-001-observation.json
+permissions:
+  contents: write
+jobs:
+  observe-or-compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Compile Phase 2G
+        run: |
+          rm -rf /tmp/hcsi-phase2g
+          pnpm exec tsc scripts/run-phase2g-first-real-observation.ts scripts/compare-phase2g-observation-to-gt.ts lib/semantic-calibration-phase2g-observation.ts --target ES2022 --module commonjs --moduleResolution node --esModuleInterop --skipLibCheck --outDir /tmp/hcsi-phase2g
+      - name: Persist first observation before any GT comparison
+        if: ${{ hashFiles('data/semantic-calibration/observations/real-2026-001-observation.json') == '' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          test -n "$OPENAI_API_KEY"
+          node /tmp/hcsi-phase2g/scripts/run-phase2g-first-real-observation.js
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add data/semantic-calibration/observations/real-2026-001-observation.json
+          git commit -m "evidence: persist first real semantic observation"
+          git push
+      - name: Compare persisted observation to GT on later run
+        if: ${{ hashFiles('data/semantic-calibration/observations/real-2026-001-observation.json') != '' && hashFiles('data/semantic-calibration/observations/real-2026-001-gt-comparison.json') == '' }}
+        run: |
+          node /tmp/hcsi-phase2g/scripts/compare-phase2g-observation-to-gt.js
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add data/semantic-calibration/observations/real-2026-001-gt-comparison.json
+          git commit -m "evidence: record post-observation GT comparison"
+          git push

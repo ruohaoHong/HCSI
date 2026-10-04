@@ -1,0 +1,29 @@
+{
+  "schema_version": "hcsi.real-semantic-observation-start.v1",
+  "observation_id": "real-2026-001-drive-form-obs-001",
+  "specimen_id": "real-2026-001",
+  "image_id": "real-2026-001-img-01",
+  "dataset_id": "hcsi-real-semantic-candidate-2026-001",
+  "dataset_version": "1.0.0",
+  "split": "calibration",
+  "started_at": "2026-10-04T13:04:30+08:00",
+  "canonical_raw": {
+    "sha256": "b6c688ccf0cbed9ad3114e4075b4b3c1e72087d6d8c5007463756a1608dc7058",
+    "byte_length": 49950,
+    "width_px": 393,
+    "height_px": 302,
+    "format": "JPEG"
+  },
+  "sensor_identity": {
+    "feature_id": "drive.form",
+    "sensor_type": "vlm",
+    "model": "gpt-5.6-sol",
+    "model_version": "gpt-5.6-sol",
+    "prompt_version": "hcsi.semantic-first-pass.prompt.v1",
+    "extractor_version": "hcsi.candidate-blind-vlm.v1",
+    "taxonomy_version": "hcsi.semantic-taxonomy.v1"
+  },
+  "candidate_blind": true,
+  "ground_truth_in_sensor_input": false,
+  "standards_candidates_in_sensor_input": false
+}

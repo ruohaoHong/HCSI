@@ -71,7 +71,7 @@ jobs:
       - name: Semantic calibration deterministic suites
         run: |
           rm -rf /tmp/hcsi-semantic-calibration-tests
-          pnpm exec tsc             lib/semantic-calibration.test.ts             lib/semantic-calibration-phase2e.test.ts             lib/semantic-calibration-phase2e1.test.ts             lib/semantic-calibration-phase2e1-1.test.ts             lib/semantic-calibration-phase2e1-2.test.ts             lib/semantic-calibration-phase2f.test.ts             lib/semantic-calibration-phase2f1.test.ts             lib/semantic-calibration-phase2f2-real-corpus.test.ts             lib/semantic-calibration-phase2f3.test.ts             scripts/validate-semantic-calibration-corpus.ts             --target ES2022             --module commonjs             --moduleResolution node             --esModuleInterop             --skipLibCheck             --outDir /tmp/hcsi-semantic-calibration-tests
+          pnpm exec tsc             lib/semantic-calibration.test.ts             lib/semantic-calibration-phase2e.test.ts             lib/semantic-calibration-phase2e1.test.ts             lib/semantic-calibration-phase2e1-1.test.ts             lib/semantic-calibration-phase2e1-2.test.ts             lib/semantic-calibration-phase2f.test.ts             lib/semantic-calibration-phase2f1.test.ts             lib/semantic-calibration-phase2f2-real-corpus.test.ts             lib/semantic-calibration-phase2f3.test.ts             lib/semantic-calibration-phase2g.test.ts             scripts/validate-semantic-calibration-corpus.ts             --target ES2022             --module commonjs             --moduleResolution node             --esModuleInterop             --skipLibCheck             --outDir /tmp/hcsi-semantic-calibration-tests
           node "$(find /tmp/hcsi-semantic-calibration-tests -name semantic-calibration.test.js -print -quit)"
           node "$(find /tmp/hcsi-semantic-calibration-tests -name semantic-calibration-phase2e.test.js -print -quit)"
           node "$(find /tmp/hcsi-semantic-calibration-tests -name semantic-calibration-phase2e1.test.js -print -quit)"
@@ -81,4 +81,5 @@ jobs:
           node "$(find /tmp/hcsi-semantic-calibration-tests -name semantic-calibration-phase2f1.test.js -print -quit)"
           node "$(find /tmp/hcsi-semantic-calibration-tests -name semantic-calibration-phase2f2-real-corpus.test.js -print -quit)"
           node "$(find /tmp/hcsi-semantic-calibration-tests -name semantic-calibration-phase2f3.test.js -print -quit)"
+          node "$(find /tmp/hcsi-semantic-calibration-tests -name semantic-calibration-phase2g.test.js -print -quit)"
       - run: pnpm build
