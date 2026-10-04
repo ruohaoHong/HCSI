@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { readFileSync } from 'node:fs'
+import { readFileSync,existsSync } from 'node:fs'
 import { PHASE2G_SENSOR_IDENTITY,validateObservationStart,validateObservationEvidence,assertPhase2GDoesNotAdmitCalibration,digestObservationEvidence,type Phase2GObservationStart } from './semantic-calibration-phase2g-observation'
 
 const start:Phase2GObservationStart={
@@ -30,5 +30,5 @@ const img=bundle.corpus_manifest.specimens[0].images[0]
 assert.equal(bundle.acquisition_ledger.entries[0].semantic_sensor_observation_started_at,null)
 assert.equal(img.viewpoint,'unknown'); assert.equal(img.visibility,'unknown'); assert.equal(img.occlusion_condition,'unknown'); assert.equal(img.glare_condition,'unknown')
 assert.equal(bundle.corpus_manifest.specimens.length,1)
-assertPhase2GDoesNotAdmitCalibration()
+const actualStartPath='data/semantic-calibration/observations/real-2026-001-start.json'\nconst actualObservationPath='data/semantic-calibration/observations/real-2026-001-observation.json'\nif(existsSync(actualObservationPath)){\n const actualStart=JSON.parse(readFileSync(actualStartPath,'utf8'))\n const actualObservation=JSON.parse(readFileSync(actualObservationPath,'utf8'))\n assert.equal(validateObservationEvidence(actualObservation,actualStart).valid,true)\n assert.equal(actualObservation.evidence.observation_scope.ground_truth_included,false)\n}\nassertPhase2GDoesNotAdmitCalibration()
 console.log('Phase 2G deterministic observation-boundary regressions passed')
