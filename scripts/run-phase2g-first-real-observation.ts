@@ -4,7 +4,7 @@ import { buildCandidateBlindSemanticRequest } from '../lib/candidate-blind-seman
 import { extractCandidateBlindSemanticEvidence } from '../lib/semantic-extractor'
 import { PHASE2G_SENSOR_IDENTITY,validateObservationStart,digestObservationEvidence,type Phase2GObservationStart } from '../lib/semantic-calibration-phase2g-observation'
 
-const startPath='data/semantic-calibration/observations/real-2026-001-start.json'
+async function main(){\nconst startPath='data/semantic-calibration/observations/real-2026-001-start.json'
 const evidencePath='data/semantic-calibration/observations/real-2026-001-observation.json'
 if(existsSync(evidencePath)) throw new Error('first_real_observation_already_exists')
 if(!existsSync(startPath)) throw new Error('observation_start_not_durable')
@@ -30,4 +30,4 @@ const body={
 }
 mkdirSync('data/semantic-calibration/observations',{recursive:true})
 writeFileSync(evidencePath,JSON.stringify({...body,content_digest_sha256:digestObservationEvidence(body)},null,2)+'\n')
-console.log('phase2g_real_observation_written')
+console.log('phase2g_real_observation_written')\n}\nmain().catch(e=>{console.error(e);process.exit(1)})
