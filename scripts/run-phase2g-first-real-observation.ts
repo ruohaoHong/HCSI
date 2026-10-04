@@ -30,8 +30,7 @@ const body={
  sensor_identity:PHASE2G_SENSOR_IDENTITY,candidate_blind:true as const,ground_truth_in_sensor_input:false as const,evidence,
 }
 mkdirSync('data/semantic-calibration/observations',{recursive:true})
-writeFileSync(evidencePath,JSON.stringify({...body,content_digest_sha256:digestObservationEvidence(body)},null,2)+'
-')
+writeFileSync(evidencePath,JSON.stringify({...body,content_digest_sha256:digestObservationEvidence(body)},null,2)+String.fromCharCode(10))
 console.log('phase2g_real_observation_written')
 }
 main().catch(e=>{console.error(e);process.exit(1)})
