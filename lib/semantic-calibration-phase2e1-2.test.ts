@@ -21,6 +21,7 @@ import { validateCalibrationArtifact } from './semantic-calibration-validation'
 import { assessCalibrationArtifactAdmission } from './semantic-calibration-admission'
 import {
   SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_SCHEMA,
+  finalizeSemanticCalibrationEligibilityPolicy,
   type SemanticCalibrationEligibilityPolicyV1,
   ACTIVE_SEMANTIC_CALIBRATION_POLICY,
   SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY,
@@ -114,7 +115,7 @@ const estimator:CalibrationEstimatorConfigV1={
 }
 
 function policy():SemanticCalibrationEligibilityPolicyV1{
-  return {
+  return finalizeSemanticCalibrationEligibilityPolicy({
     schema_version:SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_SCHEMA,
     policy_id:'phase2e1-2-policy',
     policy_version:'phase2e1-2-policy-v1',
@@ -124,17 +125,20 @@ function policy():SemanticCalibrationEligibilityPolicyV1{
     applicable_dataset_schema:'hcsi.semantic-calibration-dataset.v1',
     applicable_calibration_schema:'hcsi.semantic-calibration.v1',
     allowed_source_scopes:['independent_real_image'],
-    required_split_policy:{unit:'physical_specimen',calibration_required:true,validation_required:true},
+    required_feature_id:'drive.form',
+    required_sensor_identity:{sensor_type:'vlm',model:'mock-vlm',model_version:'v1',prompt_version:'prompt-v1',extractor_version:'extractor-v1',taxonomy_version:SEMANTIC_TAXONOMY_VERSION},
+    required_split_policy:{unit:'physical_specimen',calibration_required:true,validation_required:true,specimen_may_cross_splits:false},
     required_gt_policy:{independently_verified:true,same_sensor_self_label_forbidden:true,provenance_required:true},
-    minimum_support:{sample_count:null,per_class:null},
-    metric_requirements:{max_brier_score:null,max_log_loss:null,max_ece:null},
+    minimum_support:{statistical_unit:'unique_physical_specimen',required_classes:['external_hex'],calibration_unique_specimens_per_class:{required:false,minimum:null},validation_unique_specimens_per_class:{required:false,minimum:null}},
+    held_out_error_requirement:{required:false,maximum_error_risk:null,confidence_level:null,confidence_side:'one_sided_upper',method:'exact_clopper_pearson'},
+    metric_requirements:{brier_score:{required:false,threshold:null},log_loss:{required:false,threshold:null},ece:{required:false,threshold:null}},
+    capture_applicability:{vocabulary_version:'hcsi.semantic-calibration-capture-conditions.v1',capture_types:['axial_head'],crop_types:['full_image'],viewpoints:['axial'],visibility:['visible'],occlusion_conditions:['none'],glare_conditions:['none'],resolution:{min_width_px:1,min_height_px:1,max_width_px:null,max_height_px:null}},
     quality_coverage_requirements:{required:false,description:'deterministic in-memory admission boundary test'},
-    artifact_identity_requirements:{exact_sensor_identity:true,exact_feature:true,exact_taxonomy:true},
+    artifact_identity_requirements:{exact_sensor_identity:true,exact_feature:true,exact_taxonomy:true,applicability_must_not_exceed_policy:true},
     admission_rules:['explicit_registry_update_required'],
     change_control:{requires_new_version:true,validation_set_must_not_tune_estimator:true},
-  }
+  })
 }
-
 function record(
   specimen_id:string,
   image_id:string,
@@ -195,7 +199,7 @@ assert.equal(heldOut.status,'validated')
   const result=assessCalibrationArtifactAdmission(
     artifact,dataset,oldDatasetValidation,heldOut,policy(),
   )
-  assert.equal(result.eligible_for_admission,true)
+  assert.equal(result.eligible_for_admission,true,JSON.stringify(result.reason_codes))
   assert.equal(result.reason_codes.length,0)
 }
 
@@ -278,8 +282,8 @@ assert.equal(heldOut.status,'validated')
 assert.equal(PRODUCTION_SEMANTIC_CALIBRATION_DATASETS.length,0)
 assert.equal(ADMITTED_SEMANTIC_CALIBRATION_ARTIFACTS.length,0)
 assert.equal(SEMANTIC_CALIBRATION_REGISTRY.length,0)
-assert.equal(SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY.length,0)
-assert.equal(ACTIVE_SEMANTIC_CALIBRATION_POLICY,null)
+assert.equal(SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY.length,1)
+assert.equal(ACTIVE_SEMANTIC_CALIBRATION_POLICY?.status,'preregistered')
 
 console.log('Phase 2E.1.2 admission self-verification & complete observation binding regressions passed')
 // CI trigger: Build + Cases B-E validate this exact Phase 2E.1.2 final SHA.

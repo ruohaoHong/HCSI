@@ -21,6 +21,7 @@ import {
   ACTIVE_SEMANTIC_CALIBRATION_POLICY,
   SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY,
   SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_SCHEMA,
+  finalizeSemanticCalibrationEligibilityPolicy,
   type SemanticCalibrationEligibilityPolicyV1,
 } from './semantic-calibration-policy-v1'
 import {
@@ -133,24 +134,27 @@ function manifest(
 }
 
 function testPolicy():SemanticCalibrationEligibilityPolicyV1{
-  return {
+  return finalizeSemanticCalibrationEligibilityPolicy({
     schema_version:SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_SCHEMA,
     policy_id:'phase2e-test-policy',policy_version:'test-policy-v1',status:'preregistered',
     created_at:'2026-10-02T00:00:00Z',locked_at:'2026-10-02T00:00:00Z',
     applicable_dataset_schema:SEMANTIC_CALIBRATION_DATASET_SCHEMA,
     applicable_calibration_schema:SEMANTIC_CALIBRATION_SCHEMA,
     allowed_source_scopes:['independent_real_image'],
-    required_split_policy:{unit:'physical_specimen',calibration_required:true,validation_required:true},
+    required_feature_id:'drive.form',
+    required_sensor_identity:{...sensorIdentity,taxonomy_version:SEMANTIC_TAXONOMY_VERSION},
+    required_split_policy:{unit:'physical_specimen',calibration_required:true,validation_required:true,specimen_may_cross_splits:false},
     required_gt_policy:{independently_verified:true,same_sensor_self_label_forbidden:true,provenance_required:true},
-    minimum_support:{sample_count:null,per_class:null},
-    metric_requirements:{max_brier_score:null,max_log_loss:null,max_ece:null},
+    minimum_support:{statistical_unit:'unique_physical_specimen',required_classes:['external_hex'],calibration_unique_specimens_per_class:{required:false,minimum:null},validation_unique_specimens_per_class:{required:false,minimum:null}},
+    held_out_error_requirement:{required:false,maximum_error_risk:null,confidence_level:null,confidence_side:'one_sided_upper',method:'exact_clopper_pearson'},
+    metric_requirements:{brier_score:{required:false,threshold:null},log_loss:{required:false,threshold:null},ece:{required:false,threshold:null}},
+    capture_applicability:{vocabulary_version:'hcsi.semantic-calibration-capture-conditions.v1',capture_types:['axial_head'],crop_types:['head_crop'],viewpoints:['axial'],visibility:['visible'],occlusion_conditions:['none'],glare_conditions:['none'],resolution:{min_width_px:1,min_height_px:1,max_width_px:null,max_height_px:null}},
     quality_coverage_requirements:{required:false,description:'test policy only; no production threshold'},
-    artifact_identity_requirements:{exact_sensor_identity:true,exact_feature:true,exact_taxonomy:true},
+    artifact_identity_requirements:{exact_sensor_identity:true,exact_feature:true,exact_taxonomy:true,applicability_must_not_exceed_policy:true},
     admission_rules:['explicit_registry_update_required'],
     change_control:{requires_new_version:true,validation_set_must_not_tune_estimator:true},
-  }
+  })
 }
-
 function emptyConfusionModel(){
   return {
     schema_version:'hcsi.semantic-confusion-model.v1' as const,
@@ -195,8 +199,8 @@ const policy=testPolicy()
 eq(PRODUCTION_SEMANTIC_CALIBRATION_DATASETS.length,0)
 eq(ADMITTED_SEMANTIC_CALIBRATION_ARTIFACTS.length,0)
 eq(SEMANTIC_CALIBRATION_REGISTRY.length,0)
-eq(SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY.length,0)
-eq(ACTIVE_SEMANTIC_CALIBRATION_POLICY,null)
+eq(SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY.length,1)
+eq(ACTIVE_SEMANTIC_CALIBRATION_POLICY?.status,'preregistered')
 
 // B — exact model/model-version resolver stage chooses v2, not first feature/sensor match.
 const exact=exactIdentityArtifacts(runtime,[v1,v2])

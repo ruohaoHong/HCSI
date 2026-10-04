@@ -311,8 +311,8 @@ try{
   assert.equal(PRODUCTION_SEMANTIC_CALIBRATION_DATASETS.length,0)
   assert.equal(ADMITTED_SEMANTIC_CALIBRATION_ARTIFACTS.length,0)
   assert.equal(SEMANTIC_CALIBRATION_REGISTRY.length,0)
-  assert.equal(SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY.length,0)
-  assert.equal(ACTIVE_SEMANTIC_CALIBRATION_POLICY,null)
+  assert.equal(SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY.length,1)
+  assert.equal(ACTIVE_SEMANTIC_CALIBRATION_POLICY?.status,'preregistered')
 
   console.log('Phase 2F.1 non-empty real corpus material/identity regressions N1-N6 + exploit + P1-P5 passed')
 }finally{

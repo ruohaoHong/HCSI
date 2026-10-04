@@ -21,6 +21,14 @@ import {
 
 export const SEMANTIC_CALIBRATION_VALIDATION_SCHEMA='hcsi.semantic-calibration-validation.v1' as const
 
+export interface CalibrationValidationObservationOutcome {
+  run_id:string
+  specimen_id:string
+  image_id:string
+  gt_class:string
+  error:boolean
+}
+
 export interface CalibrationHeldOutValidation {
   schema_version:typeof SEMANTIC_CALIBRATION_VALIDATION_SCHEMA
   lineage_schema_version:typeof SEMANTIC_CALIBRATION_LINEAGE_SCHEMA
@@ -58,12 +66,39 @@ export interface CalibrationHeldOutValidation {
 
   source_fit_calibration_specimen_ids:string[]
   source_fit_calibration_record_ids:string[]
+  source_fit_calibration_observation_bindings:Array<{run_id:string;specimen_id:string;image_id:string}>
+  source_fit_unique_calibration_specimen_count:number
+  source_fit_unique_calibration_specimens_per_class:Record<string,number>
   validation_specimen_ids:string[]
   validation_record_ids:string[]
+  validation_observation_outcomes:CalibrationValidationObservationOutcome[]
+  unique_validation_specimen_count:number
+  unique_validation_specimens_per_class:Record<string,number>
+  unique_validation_errors_per_class:Record<string,number>
   reason_codes:string[]
 }
 
-export type CalibrationHeldOutValidationDraft=Omit<CalibrationHeldOutValidation,'validation_id'|'validation_digest_sha256'>
+export type CalibrationHeldOutValidationDraft=
+  Omit<
+    CalibrationHeldOutValidation,
+    'validation_id'|'validation_digest_sha256'|
+    'source_fit_calibration_observation_bindings'|
+    'source_fit_unique_calibration_specimen_count'|
+    'source_fit_unique_calibration_specimens_per_class'|
+    'validation_observation_outcomes'|
+    'unique_validation_specimen_count'|
+    'unique_validation_specimens_per_class'|
+    'unique_validation_errors_per_class'
+  > & Partial<Pick<
+    CalibrationHeldOutValidation,
+    'source_fit_calibration_observation_bindings'|
+    'source_fit_unique_calibration_specimen_count'|
+    'source_fit_unique_calibration_specimens_per_class'|
+    'validation_observation_outcomes'|
+    'unique_validation_specimen_count'|
+    'unique_validation_specimens_per_class'|
+    'unique_validation_errors_per_class'
+  >>
 
 export function calibrationHeldOutValidationDigest(
   validation:CalibrationHeldOutValidationDraft|CalibrationHeldOutValidation,
@@ -79,6 +114,8 @@ export function calibrationHeldOutValidationDigest(
     source_fit_calibration_record_ids:[...payload.source_fit_calibration_record_ids].sort(),
     validation_specimen_ids:[...payload.validation_specimen_ids].sort(),
     validation_record_ids:[...payload.validation_record_ids].sort(),
+    source_fit_calibration_observation_bindings:[...payload.source_fit_calibration_observation_bindings].sort((a,b)=>a.run_id.localeCompare(b.run_id)),
+    validation_observation_outcomes:[...payload.validation_observation_outcomes].sort((a,b)=>a.run_id.localeCompare(b.run_id)),
     reason_codes:[...payload.reason_codes].sort(),
     metric_reason_codes:[...payload.metric_reason_codes].sort(),
   })
@@ -87,17 +124,34 @@ export function calibrationHeldOutValidationDigest(
 export function finalizeCalibrationHeldOutValidation(
   draft:CalibrationHeldOutValidationDraft,
 ):CalibrationHeldOutValidation{
-  const digest=calibrationHeldOutValidationDigest(draft)
-  return {
+  const normalized={
     ...draft,
+    source_fit_calibration_observation_bindings:[...(draft.source_fit_calibration_observation_bindings??[])],
+    source_fit_unique_calibration_specimen_count:
+      draft.source_fit_unique_calibration_specimen_count??new Set(draft.source_fit_calibration_specimen_ids).size,
+    source_fit_unique_calibration_specimens_per_class:
+      draft.source_fit_unique_calibration_specimens_per_class??{},
+    validation_observation_outcomes:[...(draft.validation_observation_outcomes??[])],
+    unique_validation_specimen_count:
+      draft.unique_validation_specimen_count??new Set(draft.validation_specimen_ids).size,
+    unique_validation_specimens_per_class:
+      draft.unique_validation_specimens_per_class??{},
+    unique_validation_errors_per_class:
+      draft.unique_validation_errors_per_class??{},
+  } as Omit<CalibrationHeldOutValidation,'validation_id'|'validation_digest_sha256'>
+  const digest=calibrationHeldOutValidationDigest(normalized)
+  return {
+    ...normalized,
     validation_id:`validation-${digest.slice(0,20)}`,
     validation_digest_sha256:digest,
-    source_fit_calibration_specimen_ids:[...draft.source_fit_calibration_specimen_ids].sort(),
-    source_fit_calibration_record_ids:[...draft.source_fit_calibration_record_ids].sort(),
-    validation_specimen_ids:[...draft.validation_specimen_ids].sort(),
-    validation_record_ids:[...draft.validation_record_ids].sort(),
-    reason_codes:[...new Set(draft.reason_codes)],
-    metric_reason_codes:[...new Set(draft.metric_reason_codes)],
+    source_fit_calibration_specimen_ids:[...normalized.source_fit_calibration_specimen_ids].sort(),
+    source_fit_calibration_record_ids:[...normalized.source_fit_calibration_record_ids].sort(),
+    validation_specimen_ids:[...normalized.validation_specimen_ids].sort(),
+    validation_record_ids:[...normalized.validation_record_ids].sort(),
+    source_fit_calibration_observation_bindings:[...normalized.source_fit_calibration_observation_bindings].sort((a,b)=>a.run_id.localeCompare(b.run_id)),
+    validation_observation_outcomes:[...normalized.validation_observation_outcomes].sort((a,b)=>a.run_id.localeCompare(b.run_id)),
+    reason_codes:[...new Set(normalized.reason_codes)],
+    metric_reason_codes:[...new Set(normalized.metric_reason_codes)],
   }
 }
 
@@ -131,6 +185,20 @@ function duplicateRunId(records:readonly SemanticSensorObservationRecordV1[]):bo
   return false
 }
 
+function uniqueSpecimenSupportByClass(
+  dataset:SemanticCalibrationDatasetV1,
+  specimenIds:readonly string[],
+  featureId:string,
+):Record<string,number>{
+  const support:Record<string,number>={}
+  for(const specimenId of new Set(specimenIds)){
+    const specimen=dataset.specimens.find(item=>item.specimen_id===specimenId)
+    const gt=specimen?.ground_truth.find(item=>item.feature_id===featureId)?.value
+    if(gt) support[gt]=(support[gt]??0)+1
+  }
+  return support
+}
+
 export function validateCalibrationArtifact(
   artifact:SemanticCalibrationArtifactV1,
   fit:CandidateCalibrationFit,
@@ -158,13 +226,21 @@ export function validateCalibrationArtifact(
     taxonomy_version:sensorIdentity.taxonomy_version,
     estimator_config_digest_sha256:fit.estimator_config_digest_sha256,
   }
+  const fitUniquePerClass=uniqueSpecimenSupportByClass(dataset,fit.calibration_specimen_ids,fit.feature_id)
   const emptyMetrics={
     sample_count:0,per_class_support:{},quality_strata_support:{},accuracy:null,
     brier_score:null,log_loss:null,ece:null,ece_policy_version:null,reliability_bins:null as null,
     metric_reason_codes:[] as string[],
     source_fit_calibration_specimen_ids:[...fit.calibration_specimen_ids],
     source_fit_calibration_record_ids:[...fit.calibration_record_ids],
+    source_fit_calibration_observation_bindings:[...(fit.calibration_observation_bindings??[])],
+    source_fit_unique_calibration_specimen_count:new Set(fit.calibration_specimen_ids).size,
+    source_fit_unique_calibration_specimens_per_class:fitUniquePerClass,
     validation_specimen_ids:[] as string[],validation_record_ids:[] as string[],
+    validation_observation_outcomes:[] as CalibrationValidationObservationOutcome[],
+    unique_validation_specimen_count:0,
+    unique_validation_specimens_per_class:{} as Record<string,number>,
+    unique_validation_errors_per_class:{} as Record<string,number>,
   }
   const datasetValidation=validateSemanticCalibrationDataset(dataset)
   if(!datasetValidation.valid){
@@ -233,6 +309,7 @@ export function validateCalibrationArtifact(
   let correct=0
   const perClassSupport:Record<string,number>={}
   const qualityStrataSupport:Record<string,number>={}
+  const validationObservationOutcomes:CalibrationValidationObservationOutcome[]=[]
   let scored=0,brierTotal=0,logLossTotal=0
   let probabilisticRowsValid=true,logLossFinite=true
   const metricReasons:string[]=[]
@@ -246,7 +323,15 @@ export function validateCalibrationArtifact(
     const image=specimen.images.find(i=>i.image_id===record.image_id)!
     const stratum=`${image.capture_type}|${image.viewpoint}|${image.crop_type}|${image.visibility}|${image.occlusion_condition}|${image.glare_condition}`
     qualityStrataSupport[stratum]=(qualityStrataSupport[stratum]??0)+1
-    if(record.state==='observed'&&record.value===gt) correct++
+    const isCorrect=record.state==='observed'&&record.value===gt
+    if(isCorrect) correct++
+    validationObservationOutcomes.push({
+      run_id:record.run_id,
+      specimen_id:record.specimen_id,
+      image_id:record.image_id,
+      gt_class:gt,
+      error:!isCorrect,
+    })
 
     // This model predicts sensor outcome conditional on known semantic GT:
     // P(observation outcome | GT class). Brier/log-loss below evaluate exactly
@@ -282,6 +367,19 @@ export function validateCalibrationArtifact(
   // categorical sensor-outcome model. Phase 2E.1 intentionally does not invent one.
   metricReasons.push('ece_metric_not_defined_for_current_artifact_output')
 
+  const specimenOutcome=new Map<string,{gt_class:string;error:boolean}>()
+  for(const outcome of validationObservationOutcomes){
+    const prior=specimenOutcome.get(outcome.specimen_id)
+    if(!prior) specimenOutcome.set(outcome.specimen_id,{gt_class:outcome.gt_class,error:outcome.error})
+    else specimenOutcome.set(outcome.specimen_id,{gt_class:prior.gt_class,error:prior.error||outcome.error})
+  }
+  const uniqueValidationPerClass:Record<string,number>={}
+  const uniqueValidationErrorsPerClass:Record<string,number>={}
+  for(const outcome of specimenOutcome.values()){
+    uniqueValidationPerClass[outcome.gt_class]=(uniqueValidationPerClass[outcome.gt_class]??0)+1
+    if(outcome.error) uniqueValidationErrorsPerClass[outcome.gt_class]=(uniqueValidationErrorsPerClass[outcome.gt_class]??0)+1
+  }
+
   return finalizeCalibrationHeldOutValidation({
     ...base,
     status:scored?'validated':'insufficient_validation',
@@ -297,8 +395,15 @@ export function validateCalibrationArtifact(
     metric_reason_codes:metricReasons,
     source_fit_calibration_specimen_ids:[...fit.calibration_specimen_ids],
     source_fit_calibration_record_ids:[...fit.calibration_record_ids],
+    source_fit_calibration_observation_bindings:[...(fit.calibration_observation_bindings??[])],
+    source_fit_unique_calibration_specimen_count:new Set(fit.calibration_specimen_ids).size,
+    source_fit_unique_calibration_specimens_per_class:fitUniquePerClass,
     validation_specimen_ids:[...new Set(usable.map(r=>r.specimen_id))],
     validation_record_ids:usable.map(r=>r.run_id),
+    validation_observation_outcomes:validationObservationOutcomes,
+    unique_validation_specimen_count:specimenOutcome.size,
+    unique_validation_specimens_per_class:uniqueValidationPerClass,
+    unique_validation_errors_per_class:uniqueValidationErrorsPerClass,
     reason_codes:scored?[]:['validation_split_support_missing'],
   })
 }

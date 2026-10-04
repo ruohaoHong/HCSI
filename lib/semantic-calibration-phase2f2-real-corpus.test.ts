@@ -180,8 +180,8 @@ assert.equal(
 assert.equal(PRODUCTION_SEMANTIC_CALIBRATION_DATASETS.length,0)
 assert.equal(ADMITTED_SEMANTIC_CALIBRATION_ARTIFACTS.length,0)
 assert.equal(SEMANTIC_CALIBRATION_REGISTRY.length,0)
-assert.equal(SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY.length,0)
-assert.equal(ACTIVE_SEMANTIC_CALIBRATION_POLICY,null)
+assert.equal(SEMANTIC_CALIBRATION_ELIGIBILITY_POLICY_REGISTRY.length,1)
+assert.equal(ACTIVE_SEMANTIC_CALIBRATION_POLICY?.status,'preregistered')
 
 console.log('Phase 2F.2.1 original upload byte identity / raw provenance closure R1-R7 passed')
 console.log(JSON.stringify({
