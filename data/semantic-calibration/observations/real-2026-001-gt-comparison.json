@@ -1,0 +1,12 @@
+{
+  "schema_version": "hcsi.real-semantic-observation-gt-comparison.v1",
+  "observation_id": "real-2026-001-drive-form-obs-001",
+  "compared_at": "2026-10-04T05:05:03.295Z",
+  "feature_id": "drive.form",
+  "sensor_value": "not_visible",
+  "ground_truth_value": "hex_socket",
+  "correct": false,
+  "observation_content_digest_sha256": "cf8c2ff1c47d64297a48ee1ba363a350ffaa83091b383c7aee02a86ee73a66d1",
+  "gt_source": "gt://real-2026-001/operator-physical-claim",
+  "content_digest_sha256": "1e69c3c812805f8e3888151dfcd9fd9129f5fd80fafc33511c307822c52a321b"
+}
