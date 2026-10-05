@@ -5,7 +5,7 @@ import { STANDARDS_CATALOGUE_V1 } from './standards-database-v1'
 import { buildStandardsAuthorityResult } from './standards-shadow-solver'
 import { compileCandidateFeatureMatrix } from './candidate-feature-compiler'
 import { CANDIDATE_FEATURE_METADATA_SCHEMA,type CandidateFeatureMetadataSnapshot } from './candidate-feature-metadata-v1'
-import { buildCandidateSemanticDiscrimination } from './candidate-semantic-discrimination'
+import { buildCandidateSemanticDiscrimination,evaluateSemanticCompatibility } from './candidate-semantic-discrimination'
 import type { SemanticEvidenceV1,SemanticObservation } from './semantic-evidence-v1'
 import { SEMANTIC_TAXONOMY_VERSION } from './semantic-taxonomy-v1'
 import { SEMANTIC_REASON_CODE_TAXONOMY_VERSION } from './semantic-reason-codes-v1'
@@ -32,7 +32,7 @@ const p1=clone(m14,'P1',{pitch_mm:1.5}),p2=clone(m14,'P2',{pitch_mm:2.0});r=conv
 // H6 normative head-profile difference requests head profile.
 const h1=clone(m14,'H1'),h2=clone(m14,'H2'),hm=compileCandidateFeatureMatrix([h1,h2],metadata([h1,h2],'head.profile',['low_profile','domed']));r=convergeEvidence({formal_candidates:[h1,h2],feature_matrix:hm});assert.equal(r.requested_evidence?.acquisition,'head_profile_view')
 // H7 unique formal geometry contradicted by deterministic normative morphology => contradiction, never overwrite geometry.
-const oneM=compileCandidateFeatureMatrix([a],metadata([a],'drive.form',['external_hex'])),oneD=buildCandidateSemanticDiscrimination(oneM,evidence(obs('drive.form','hex_socket')),[]);r=convergeEvidence({formal_candidates:[a],feature_matrix:oneM,semantic_discrimination:oneD});assert.equal(r.decision,'contradictory_evidence');assert.equal(r.selected_candidate_id,null)
+const oneM=compileCandidateFeatureMatrix([a],metadata([a],'drive.form',['external_hex'])),oneConstraint=oneM.profiles[0].feature_constraints.find(x=>x.feature_id==='drive.form')!,oneEval=evaluateSemanticCompatibility(oneConstraint,obs('drive.form','hex_socket')),oneD={schema_version:'hcsi.candidate-semantic-discrimination.v1',candidate_ids_before:['A'],candidate_ids_after:['A'],candidates:[{candidate_id:'A',feature_evaluations:[oneEval]}],decision:{selected_candidate_id:null,purchase_ready:false,status:'not_performed_phase2c'},numeric_score:null,posterior_probability:null} as const;r=convergeEvidence({formal_candidates:[a],feature_matrix:oneM,semantic_discrimination:oneD});assert.equal(r.decision,'contradictory_evidence');assert.equal(r.selected_candidate_id,null)
 // H8 morphology contradicts every formal candidate; no new standard is created.
 const allD=buildCandidateSemanticDiscrimination(matrix,evidence(obs('drive.form','slotted')),[]);r=convergeEvidence({formal_candidates:[a,b],feature_matrix:matrix,semantic_discrimination:allD});assert.equal(r.decision,'contradictory_evidence');assert.deepEqual(r.candidate_ids_entered,['A','B']);assert.equal(r.candidate_ids_surviving.length,0)
 // Confirmation is only for materially equivalent formal purchase specs.
