@@ -1,0 +1,17 @@
+{
+  "schema_version":"hcsi.production-envelope-capture-authority.v1",
+  "authority_id":"test-auth-positive",
+  "authority_version":"1.0.0",
+  "specimen_id":"test-spec-positive",
+  "image_id":"test-img-positive",
+  "feature_id":"drive.form",
+  "split":"calibration",
+  "acquired_at":"2026-10-05T01:00:00Z",
+  "established_at":"2026-10-05T01:01:00Z",
+  "acquisition_authority":{"kind":"git_commit","ref":"__AUTHORITY_COMMIT__"},
+  "source_scope":"independent_real_image",
+  "raw":{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","byte_length":1000,"width_px":512,"height_px":512,"format":"JPEG","source_ref":"raw://test-img-positive"},
+  "capture":{"capture_type":"user_uploaded_single_image","crop_type":"full_image","viewpoint":"drive_face_visible","visibility":"visible","occlusion_condition":"none","glare_condition":"none"},
+  "policy_binding":{"policy_id":"hcsi-production-semantic-calibration-policy-drive-form-v1","policy_version":"1.0.0","policy_content_digest_sha256":"ffa148f06279d3b028993a8da57ac1d763977c631dc0a7a7f07dc89e3baca74b"},
+  "content_digest_sha256":"__DIGEST__"
+}
