@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { sha256Canonical } from './semantic-calibration-digest'
-import { captureAuthorityDigest,type ProductionCaptureAuthorityV1,type FrozenObservationBinding,type RepositoryProvenanceProofV1 } from './semantic-calibration-phase2g1-production-envelope'
+import { captureAuthorityDigest,assessProductionEnvelopeContent,type ProductionCaptureAuthorityV1,type FrozenObservationBinding,type RepositoryProvenanceProofV1 } from './semantic-calibration-phase2g1-production-envelope'
 
 function git(args:string[],cwd:string){return execFileSync('git',args,{cwd,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim()}
 export function verifyProductionEnvelopeRepositoryProvenance(input:{repositoryRoot:string;authority:ProductionCaptureAuthorityV1;authorityPath:string;observation:FrozenObservationBinding;observationCommitSha:string;observationPath:string}):RepositoryProvenanceProofV1{
@@ -25,4 +25,25 @@ export function verifyProductionEnvelopeRepositoryProvenance(input:{repositoryRo
  try{git(['merge-base','--is-ancestor',authorityCommit,observationCommitSha],repositoryRoot)}catch{throw new Error('authority_not_ancestor_of_observation')}
  const blob=git(['rev-parse',authorityCommit+':'+authorityPath],repositoryRoot)
  return {schema_version:'hcsi.production-envelope-repository-proof.v1',repository:'ruohaoHong/HCSI',authority_commit_sha:authorityCommit,authority_path:authorityPath,authority_blob_sha:blob,authority_content_digest_sha256:authority.content_digest_sha256,observation_commit_sha:observationCommitSha,observation_path:observationPath,authority_is_strict_ancestor_of_observation:true,verified:true}
+}
+
+export interface ProductionRepositoryEvidenceInput {
+ repositoryRoot:string; authority:ProductionCaptureAuthorityV1; authorityPath:string
+ observation:FrozenObservationBinding; observationCommitSha:string; observationPath:string
+}
+/** Sole production-support transition: raw evidence -> live Git verification -> policy assessment -> specimen N.
+ * No proof or assessment object is accepted as input, so caller-constructed records cannot increase N.
+ */
+export function countProductionEligibleSpecimensFromRepositoryEvidence(items:ProductionRepositoryEvidenceInput[]){
+ const split=new Map<string,string>(),eligible=new Set<string>(),reason_codes:string[]=[]
+ for(const item of items){
+  const specimen=item.authority.specimen_id,prior=split.get(specimen)
+  if(prior&&prior!==item.authority.split){reason_codes.push('physical_specimen_crosses_splits');continue}
+  split.set(specimen,item.authority.split)
+  const content=assessProductionEnvelopeContent(item.authority,item.observation)
+  if(content.reason_codes.length){reason_codes.push(...content.reason_codes);continue}
+  try{verifyProductionEnvelopeRepositoryProvenance(item);eligible.add(specimen)}
+  catch(e){reason_codes.push(e instanceof Error?e.message:'repository_provenance_verification_failed')}
+ }
+ return {unique_physical_specimen_count:eligible.size,reason_codes:[...new Set(reason_codes)]}
 }
