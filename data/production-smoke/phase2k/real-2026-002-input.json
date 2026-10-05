@@ -1,0 +1,23 @@
+{
+  "schema_version": "hcsi.phase2k.production-smoke-input.v1",
+  "specimen_id": "real-2026-002",
+  "image_id": "real-2026-002-img-01",
+  "source_scope": "new_user_uploaded_real_physical_specimen_image",
+  "original_filename": "image.png",
+  "media_type": "image/png",
+  "original_byte_sha256": "2273386d93520184697abbd6191cb6b9de810fb4edef2a656a8e4ca4fcfaab16",
+  "byte_length": 378486,
+  "pixel_dimensions": {
+    "width": 500,
+    "height": 499
+  },
+  "capture_timestamp": null,
+  "capture_timestamp_status": "unavailable_no_exif",
+  "ground_truth_status": "not_provided_before_inference",
+  "operator_answer_injection": false,
+  "forbidden_prior_answers_received": [],
+  "intended_entry_point": "actual_production_analyze_handler",
+  "first_run_max_attempts": 1,
+  "frozen_baseline": "978d02403ab8a44a5ede62053c837e40af81fbec",
+  "note": "Input identity sealed before any Phase 2K production inference. This is inference-observation provenance only and is not calibration evidence."
+}
