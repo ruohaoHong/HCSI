@@ -30,7 +30,7 @@ r=convergeEvidence({formal_candidates:[a,b],feature_matrix:matrix,semantic_discr
 // H5 pitch-only difference requests pitch evidence.
 const p1=clone(m14,'P1',{pitch_mm:1.5}),p2=clone(m14,'P2',{pitch_mm:2.0});r=convergeEvidence({formal_candidates:[p1,p2]});assert.equal(r.requested_evidence?.acquisition,'thread_pitch_measurement')
 // H6 normative head-profile difference requests head profile.
-const h1=clone(m14,'H1'),h2=clone(m14,'H2'),hm=compileCandidateFeatureMatrix([h1,h2],metadata([h1,h2],'head.profile',['pan','socket_cap']));r=convergeEvidence({formal_candidates:[h1,h2],feature_matrix:hm});assert.equal(r.requested_evidence?.acquisition,'head_profile_view')
+const h1=clone(m14,'H1'),h2=clone(m14,'H2'),hm=compileCandidateFeatureMatrix([h1,h2],metadata([h1,h2],'head.profile',['low_profile','domed']));r=convergeEvidence({formal_candidates:[h1,h2],feature_matrix:hm});assert.equal(r.requested_evidence?.acquisition,'head_profile_view')
 // H7 unique formal geometry contradicted by deterministic normative morphology => contradiction, never overwrite geometry.
 const oneM=compileCandidateFeatureMatrix([a],metadata([a],'drive.form',['external_hex'])),oneD=buildCandidateSemanticDiscrimination(oneM,evidence(obs('drive.form','hex_socket')),[]);r=convergeEvidence({formal_candidates:[a],feature_matrix:oneM,semantic_discrimination:oneD});assert.equal(r.decision,'contradictory_evidence');assert.equal(r.selected_candidate_id,null)
 // H8 morphology contradicts every formal candidate; no new standard is created.
