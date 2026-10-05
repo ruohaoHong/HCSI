@@ -68,20 +68,10 @@ export function assessProductionEnvelopeContent(authority:ProductionCaptureAutho
 export function assessProductionEnvelopeEvidence(authority:ProductionCaptureAuthorityV1,observation:FrozenObservationBinding|null,policy=PREREGISTERED_PRODUCTION_SEMANTIC_CALIBRATION_POLICY_V1):ProductionEnvelopeAssessment{
  const x=assessProductionEnvelopeContent(authority,observation,policy);return {eligible_for_policy_envelope:x.envelope,eligible_to_count_as_calibration_evidence:false,reason_codes:[...x.reason_codes,'repository_provenance_unverified'],specimen_id:authority.specimen_id,image_id:authority.image_id,observation_id:observation?.observation_id??null,evaluated_policy_id:policy.policy_id,evaluated_policy_version:policy.policy_version,evaluated_policy_digest:policy.policy_content_digest_sha256,capture_authority_digest:authority.content_digest_sha256}
 }
-export function assessVerifiedProductionEnvelopeEvidence(authority:ProductionCaptureAuthorityV1,observation:FrozenObservationBinding|null,proof:RepositoryProvenanceProofV1|null,policy=PREREGISTERED_PRODUCTION_SEMANTIC_CALIBRATION_POLICY_V1):ProductionEnvelopeAssessment{
- const x=assessProductionEnvelopeContent(authority,observation,policy),r=[...x.reason_codes]
- if(!proof||proof.verified!==true)r.push('repository_provenance_unverified')
- else{
-  if(proof.schema_version!=='hcsi.production-envelope-repository-proof.v1')r.push('repository_proof_schema_mismatch')
-  if(!observation||proof.authority_commit_sha!==observation.capture_authority_commit_sha)r.push('repository_authority_commit_mismatch')
-  if(proof.authority_content_digest_sha256!==authority.content_digest_sha256)r.push('repository_authority_digest_mismatch')
-
-  if(!proof.authority_is_strict_ancestor_of_observation||proof.authority_commit_sha===proof.observation_commit_sha)r.push('repository_pre_outcome_ordering_unverified')
- }
- return {eligible_for_policy_envelope:x.envelope,eligible_to_count_as_calibration_evidence:r.length===0,reason_codes:[...new Set(r)],specimen_id:authority.specimen_id,image_id:authority.image_id,observation_id:observation?.observation_id??null,evaluated_policy_id:policy.policy_id,evaluated_policy_version:policy.policy_version,evaluated_policy_digest:policy.policy_content_digest_sha256,capture_authority_digest:authority.content_digest_sha256}
-}
-export function uniqueEligibleSpecimenCount(items:Array<{authority:ProductionCaptureAuthorityV1;observation:FrozenObservationBinding|null;proof:RepositoryProvenanceProofV1|null}>,policy=PREREGISTERED_PRODUCTION_SEMANTIC_CALIBRATION_POLICY_V1){
- const split=new Map<string,string>(),eligible=new Set<string>(),reasons:string[]=[]
- for(const item of items){const prior=split.get(item.authority.specimen_id);if(prior&&prior!==item.authority.split){reasons.push('physical_specimen_crosses_splits');continue}split.set(item.authority.specimen_id,item.authority.split);if(assessVerifiedProductionEnvelopeEvidence(item.authority,item.observation,item.proof,policy).eligible_to_count_as_calibration_evidence)eligible.add(item.authority.specimen_id)}
- return {unique_physical_specimen_count:eligible.size,reason_codes:[...new Set(reasons)]}
+/** Diagnostic assessment only. Repository proof records are intentionally non-authoritative.
+ * Production support N is owned by the Git-backed gate in semantic-calibration-phase2g1-git-provenance.ts.
+ */
+export function assessVerifiedProductionEnvelopeEvidence(authority:ProductionCaptureAuthorityV1,observation:FrozenObservationBinding|null,_proof:RepositoryProvenanceProofV1|null,policy=PREREGISTERED_PRODUCTION_SEMANTIC_CALIBRATION_POLICY_V1):ProductionEnvelopeAssessment{
+ const x=assessProductionEnvelopeContent(authority,observation,policy)
+ return {eligible_for_policy_envelope:x.envelope,eligible_to_count_as_calibration_evidence:false,reason_codes:[...new Set([...x.reason_codes,'repository_proof_record_non_authoritative'])],specimen_id:authority.specimen_id,image_id:authority.image_id,observation_id:observation?.observation_id??null,evaluated_policy_id:policy.policy_id,evaluated_policy_version:policy.policy_version,evaluated_policy_digest:policy.policy_content_digest_sha256,capture_authority_digest:authority.content_digest_sha256}
 }
