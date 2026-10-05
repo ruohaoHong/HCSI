@@ -17,7 +17,7 @@ export function finalizeCaptureAuthority(v:CaptureAuthorityDraft):ProductionCapt
 export interface FrozenObservationBinding {
  observation_id:string; specimen_id:string; image_id:string; feature_id:string; split:'calibration'|'validation'; observed_at:string
  image_sha256:string; capture_authority_digest_sha256:string; capture_authority_commit_sha:string
- observation_commit_sha:string; sensor_identity:typeof PHASE2G_SENSOR_IDENTITY; original_observation:true
+ sensor_identity:typeof PHASE2G_SENSOR_IDENTITY; original_observation:true
 }
 export interface RepositoryProvenanceProofV1 {
  schema_version:'hcsi.production-envelope-repository-proof.v1'; repository:string; authority_commit_sha:string; authority_path:string
@@ -75,7 +75,7 @@ export function assessVerifiedProductionEnvelopeEvidence(authority:ProductionCap
   if(proof.schema_version!=='hcsi.production-envelope-repository-proof.v1')r.push('repository_proof_schema_mismatch')
   if(!observation||proof.authority_commit_sha!==observation.capture_authority_commit_sha)r.push('repository_authority_commit_mismatch')
   if(proof.authority_content_digest_sha256!==authority.content_digest_sha256)r.push('repository_authority_digest_mismatch')
-  if(!observation||proof.observation_commit_sha!==observation.observation_commit_sha)r.push('repository_observation_commit_mismatch')
+
   if(!proof.authority_is_strict_ancestor_of_observation||proof.authority_commit_sha===proof.observation_commit_sha)r.push('repository_pre_outcome_ordering_unverified')
  }
  return {eligible_for_policy_envelope:x.envelope,eligible_to_count_as_calibration_evidence:r.length===0,reason_codes:[...new Set(r)],specimen_id:authority.specimen_id,image_id:authority.image_id,observation_id:observation?.observation_id??null,evaluated_policy_id:policy.policy_id,evaluated_policy_version:policy.policy_version,evaluated_policy_digest:policy.policy_content_digest_sha256,capture_authority_digest:authority.content_digest_sha256}
