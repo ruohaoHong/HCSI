@@ -97,4 +97,15 @@ jobs:
             --target ES2022 --module commonjs --moduleResolution node \
             --esModuleInterop --skipLibCheck --outDir /tmp/hcsi-phase2i-tests
           node "$(find /tmp/hcsi-phase2i-tests -name inference-orchestrator.test.js -print -quit)"
+      - name: Phase 2J production API canonical authority regressions
+        run: |
+          rm -rf /tmp/hcsi-phase2j-tests
+          pnpm exec tsc lib/production-decision-adapter.test.ts \
+            --target ES2022 --module commonjs --moduleResolution node \
+            --esModuleInterop --skipLibCheck --outDir /tmp/hcsi-phase2j-tests
+          node "$(find /tmp/hcsi-phase2j-tests -name production-decision-adapter.test.js -print -quit)"
+          grep -q "authoritative_purchase_decision_source:'phase2i_orchestrator'" lib/provider-runner.ts
+          grep -q "orchestratePurchaseDecision" lib/provider-runner.ts
+          ! grep -q "formalNominalProjection = standardsAuthority" lib/provider-runner.ts
+          ! grep -q "standardsAuthority?.decision.purchase_ready === true" lib/provider-runner.ts
       - run: pnpm build
