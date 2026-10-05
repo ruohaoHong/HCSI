@@ -5,7 +5,8 @@ import { captureAuthorityDigest,type ProductionCaptureAuthorityV1,type FrozenObs
 function git(args:string[],cwd:string){return execFileSync('git',args,{cwd,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim()}
 export function verifyProductionEnvelopeRepositoryProvenance(input:{repositoryRoot:string;expectedRepository:string;authority:ProductionCaptureAuthorityV1;authorityPath:string;observation:FrozenObservationBinding;observationCommitSha:string;observationPath:string}):RepositoryProvenanceProofV1{
  const {repositoryRoot,expectedRepository,authority,authorityPath,observation,observationCommitSha,observationPath}=input
- const authorityCommit=observation.capture_authority_commit_sha\n if(!/^[0-9a-f]{40}$/.test(authorityCommit))throw new Error('malformed_authority_commit_ref')
+ const authorityCommit=observation.capture_authority_commit_sha
+ if(!/^[0-9a-f]{40}$/.test(authorityCommit))throw new Error('malformed_authority_commit_ref')
  if(git(['rev-parse','--show-toplevel'],repositoryRoot)!==repositoryRoot)throw new Error('repository_root_mismatch')
  try{git(['cat-file','-e',authorityCommit+'^{commit}'],repositoryRoot)}catch{throw new Error('authority_commit_absent')}
  try{git(['cat-file','-e',observationCommitSha+'^{commit}'],repositoryRoot)}catch{throw new Error('observation_commit_absent')}
