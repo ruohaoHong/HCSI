@@ -35,6 +35,8 @@ import {
   type TargetedSemanticEvidence,
 } from '@/lib/targeted-semantic-extractor'
 import { buildCandidateSemanticDiscrimination } from '@/lib/candidate-semantic-discrimination'
+import { orchestratePurchaseDecision } from '@/lib/inference-orchestrator'
+import { renderTaiwanFollowup } from '@/lib/evidence-convergence'
 import {
   ADMITTED_SEMANTIC_CALIBRATION_ARTIFACTS,
   PRODUCTION_SEMANTIC_CALIBRATION_DATASETS,
@@ -100,22 +102,11 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const cvComplete = !!measurement?.dimensions && REQUIRED_INFERENCE_DIMENSIONS.every(key => !!measurement?.dimensions?.[key])
     if (measurement && !cvComplete) throw new Error('CV-first 回傳缺少推論所需的固定尺寸槽位')
 
-    // Phase 2B shadow-only semantic first pass. The request builder is a runtime
-    // allowlist: no measurement mm, standards candidates, legacy nominal or GT
-    // can cross into this extractor.
+    // Phase 2J: semantic evidence is no longer extracted reflexively. The frozen
+    // Phase 2I orchestrator may request it later only when it has decision value.
     let semanticEvidence: SemanticEvidenceV1 | null = null
     let semanticEvidenceError: string | null = null
     let semanticRequest: CandidateBlindSemanticRequest | null = null
-    try {
-      semanticRequest = buildCandidateBlindSemanticRequest({
-        image,
-        target_region: semanticLocalization?.semantic_vision.target_region ?? null,
-      })
-      semanticEvidence = await extractCandidateBlindSemanticEvidence(semanticRequest, provider)
-    } catch (error) {
-      semanticEvidenceError = error instanceof Error ? error.message : 'semantic_evidence_unavailable'
-      console.warn('[HCSI] candidate-blind semantic evidence unavailable:', semanticEvidenceError)
-    }
 
     const preflightGate = preflightPurchaseGate(measurement)
     const cvGroundingBasis = buildCvGroundingBasis(measurement, preflightGate.allowed)
@@ -189,35 +180,39 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
           },
         )
       : null
-    // Phase 2C shadow-only: candidates decide which semantic feature is worth
-    // observing, but candidate identity never crosses into the visual sensor.
-    const candidateFeatureMatrix = standardsAuthority
-      ? compileCandidateFeatureMatrix(standardsAuthority.formal_candidates,CANDIDATE_FEATURE_METADATA_V1)
+    // Phase 2J authority switch: provider-specific extraction ends at evidence.
+    // Formal candidates and final selection remain inside frozen Phase 2I/2H.
+    const inferenceOrchestration = standardsAuthority && measurementV2
+      ? await orchestratePurchaseDecision({
+          inference_id:`production:${provider}:${measurementV2.image_sha256}`,
+          image_ref:`upload:${measurementV2.image_sha256}`,
+          measurement:measurementV2,
+          standards_authority:standardsAuthority,
+          feature_metadata:CANDIDATE_FEATURE_METADATA_V1,
+          semantic_escalator:async request => {
+            // Runtime allowlist remains candidate-blind: request contains no
+            // candidate IDs/designations, GT, legacy nominal, ranking or prior.
+            semanticRequest=buildCandidateBlindSemanticRequest({
+              image,
+              target_region:semanticLocalization?.semantic_vision.target_region ?? null,
+            })
+            const extracted=await extractCandidateBlindSemanticEvidence(semanticRequest,provider)
+            const requested=extracted.observations.find(o=>o.feature_id===request.feature_id)
+            if (!requested) throw new Error('requested_semantic_feature_missing')
+            return extracted
+          },
+        })
       : null
-    const semanticDiscriminationPlan = candidateFeatureMatrix
+    semanticEvidence=inferenceOrchestration?.semantic_evidence ?? null
+    semanticEvidenceError=inferenceOrchestration?.orchestration_error?.message ?? null
+    const candidateFeatureMatrix=inferenceOrchestration?.candidate_feature_matrix ?? null
+    const semanticDiscriminationPlan=candidateFeatureMatrix
       ? buildSemanticDiscriminationPlan(candidateFeatureMatrix,semanticEvidence)
       : null
-    const targetedSemanticEvidence: TargetedSemanticEvidence[] = []
-    if (semanticRequest && semanticDiscriminationPlan) {
-      for (const discriminator of semanticDiscriminationPlan.discriminators) {
-        if (discriminator.status !== 'targeted_observation_required') continue
-        const targetedRequest=buildTargetedSemanticRequest(semanticRequest,discriminator.feature_id)
-        assertTargetedRequestCandidateBlind(targetedRequest)
-        const rawTargeted=await runStructuredProvider({
-          provider,apiKey,model:config.model,image,
-          prompt:buildTargetedSemanticPrompt(targetedRequest),
-          schemaName:`hcsi_targeted_semantic_${discriminator.feature_id.replace(/[^a-z0-9]+/gi,'_')}`,
-          schema:targetedSemanticSensorJsonSchema(targetedRequest) as unknown as JsonSchema,
-          maxOutputTokens:1200,
-        }) as RawSemanticSensorObservation
-        targetedSemanticEvidence.push(buildTargetedSemanticEvidence(
-          rawTargeted,targetedRequest,semanticEvidence,{model:config.model,model_version:config.model},
-        ))
-      }
-    }
-    const candidateSemanticDiscrimination = candidateFeatureMatrix
-      ? buildCandidateSemanticDiscrimination(candidateFeatureMatrix,semanticEvidence,targetedSemanticEvidence)
-      : null
+    const targetedSemanticEvidence: TargetedSemanticEvidence[]=[]
+    const candidateSemanticDiscrimination=inferenceOrchestration?.semantic_discrimination ?? (
+      candidateFeatureMatrix ? buildCandidateSemanticDiscrimination(candidateFeatureMatrix,semanticEvidence,[]) : null
+    )
     // Phase 2E shadow-only calibration pipeline. Production registries remain
     // explicitly empty until an independent real-specimen corpus and preregistered
     // policy admit a versioned artifact. No raw VLM confidence is promoted.
@@ -258,9 +253,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     }
     // This is the only standards-decision -> public formal specification seam.
     // A non-null invalid selected ID throws; there is deliberately no legacy fallback.
-    const formalNominalProjection = standardsAuthority
-      ? projectSelectedFormalNominal(standardsAuthority)
-      : null
+    const formalNominalProjection = inferenceOrchestration?.purchase_spec ?? null
     const publicFormalDesignation = formalNominalProjection?.designation ?? null
     // Compatibility-only diagnostic. It has no standards authority.
     const standardsSolverShadow = measurementV2
@@ -280,7 +273,10 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       identificationRaw,
       purchaseGate,
       driveEvidence,
-      standardsAuthority?.decision,
+      inferenceOrchestration ? {
+        selected_candidate_id:inferenceOrchestration.selected_candidate_id,
+        purchase_ready:['purchase_ready','purchase_ready_with_confirmation'].includes(inferenceOrchestration.decision),
+      } : undefined,
     )
     // Protruding geometry confirms the length-convention family, while the
     // final identification call supplies the finer semantic head label.
@@ -296,7 +292,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
     const fullFastenerSpecAllowed = isFastener &&
       purchaseGate.allowed && purchaseCompleteness.complete &&
       formalNominalProjection != null &&
-      standardsAuthority?.decision.purchase_ready === true
+      ['purchase_ready','purchase_ready_with_confirmation'].includes(inferenceOrchestration?.decision ?? '')
     const optionalDrive = purchaseCompleteness.optional_unconfirmed_fields
     const baseGuidance = !isFastener
       ? '目前精確 CV 規格核驗僅支援螺絲；此結果為外觀辨識，購買前請核對實物尺寸。'
@@ -309,9 +305,11 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
         : purchaseGate.allowed
           ? publicCompletenessGuidance(identificationRaw.item_name)
           : publicPurchaseGuidance(purchaseGate, identificationRaw.item_name)
-    const guidance = isFastener && !fullFastenerSpecAllowed &&
-      dimensionCandidate.status === 'candidate'
-      ? `${baseGuidance}；舊純算術尺寸表示 ${dimensionCandidate.specification} 僅保留為 non-authoritative diagnostic。正式 nominal 候選只能來自 standards_authority.formal_candidates；目前尚未 deterministic 選出 winner。`
+    const canonicalFollowup=inferenceOrchestration ? renderTaiwanFollowup(inferenceOrchestration.convergence) : ''
+    const guidance = isFastener && !fullFastenerSpecAllowed
+      ? canonicalFollowup || (dimensionCandidate.status === 'candidate'
+        ? `${baseGuidance}；舊純算術尺寸表示 ${dimensionCandidate.specification} 僅保留為 non-authoritative diagnostic。正式 nominal 候選只能來自 standards_authority.formal_candidates；目前尚未 deterministic 選出 winner。`
+        : baseGuidance)
       : baseGuidance
     if (fullFastenerSpecAllowed && formalNominalProjection) {
       // Legacy LLM text is never reused across the authority seam. All public
@@ -397,6 +395,8 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       semantic_runtime_quality: semanticRuntimeQuality,
       semantic_calibration_admission_status: semanticCalibrationAdmissionStatus,
       standards_authority: standardsAuthority,
+      inference_orchestration:inferenceOrchestration,
+      authoritative_purchase_decision_source:'phase2i_orchestrator',
       formal_nominal_projection: formalNominalProjection,
       standards_solver_shadow: standardsSolverShadow, // deprecated diagnostic compatibility only
       user_guidance: {
@@ -407,8 +407,12 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
           ? 'dimension_only_not_purchase_ready'
           : 'unavailable',
         formal_nominal_source: 'versioned_standards_solver',
-        selected_candidate_id: standardsAuthority?.decision.selected_candidate_id ?? null,
-        standards_decision_status: standardsAuthority?.decision.status ?? 'unavailable',
+        authoritative_purchase_decision_source:'phase2i_orchestrator',
+        decision:inferenceOrchestration?.decision ?? 'unresolved',
+        requested_evidence:inferenceOrchestration?.requested_evidence ?? null,
+        reason_codes:inferenceOrchestration?.reason_codes ?? ['canonical_orchestration_unavailable'],
+        selected_candidate_id: inferenceOrchestration?.selected_candidate_id ?? null,
+        standards_decision_status: inferenceOrchestration?.selected_candidate_id ? 'selected' : (standardsAuthority?.decision.status ?? 'unavailable'),
         actions: fullFastenerSpecAllowed
           ? optionalDrive.length ? ['補拍螺絲頭正面或持實物核對驅動槽'] : []
           : ['依提示補拍', '購買前以實物核對必要尺寸'],
