@@ -14,6 +14,7 @@ export interface ProductionCaptureAuthorityV1 {
  acquired_at:string
  established_at:string
  acquisition_authority:{kind:'git_commit';ref:string}
+ source_scope:'independent_real_image'|'synthetic_test'|'regression_fixture'|'development_fixture'|'sealed_blind_fixture'
  raw:{sha256:string;byte_length:number;width_px:number;height_px:number;format:string;source_ref:string}
  capture:{capture_type:string;crop_type:string;viewpoint:string;visibility:string;occlusion_condition:string;glare_condition:string}
  policy_binding:{policy_id:string;policy_version:string;policy_content_digest_sha256:string}
@@ -56,6 +57,7 @@ export function assessProductionEnvelopeEvidence(
  if(authority.authority_version!=='1.0.0'||!authority.authority_id)r.push('capture_authority_identity_invalid')
  if(authority.content_digest_sha256!==captureAuthorityDigest(authority))r.push('capture_authority_digest_mismatch')
  if(!commitRef.test(authority.acquisition_authority.ref))r.push('pre_outcome_commit_authority_missing')
+ if(authority.source_scope!=='independent_real_image')r.push('non_real_source_forbidden')
  if(!Number.isFinite(Date.parse(authority.acquired_at))||!Number.isFinite(Date.parse(authority.established_at))||Date.parse(authority.established_at)<Date.parse(authority.acquired_at))r.push('capture_authority_time_invalid')
  if(!authority.specimen_id||!authority.image_id)r.push('specimen_image_identity_missing')
  if(authority.feature_id!==policy.required_feature_id)r.push('feature_mismatch')
