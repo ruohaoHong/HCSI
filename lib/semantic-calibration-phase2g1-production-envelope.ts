@@ -41,7 +41,7 @@ export function assessProductionEnvelopeContent(authority:ProductionCaptureAutho
  if(authority.feature_id!==policy.required_feature_id)r.push('feature_mismatch')
  if(authority.policy_binding.policy_id!==policy.policy_id||authority.policy_binding.policy_version!==policy.policy_version||authority.policy_binding.policy_content_digest_sha256!==policy.policy_content_digest_sha256)r.push('policy_lineage_mismatch')
  if(!isSha256(authority.raw.sha256)||!authority.raw.source_ref||!Number.isInteger(authority.raw.byte_length)||authority.raw.byte_length<=0)r.push('raw_provenance_invalid')
- const required:keyof ProductionCaptureAuthorityV1['capture'][]=['capture_type','crop_type','viewpoint','visibility','occlusion_condition','glare_condition'];for(const k of required)if(!authority.capture[k])r.push(k+'_missing')
+ const required:(keyof ProductionCaptureAuthorityV1['capture'])[]=['capture_type','crop_type','viewpoint','visibility','occlusion_condition','glare_condition'];for(const k of required)if(!authority.capture[k])r.push(k+'_missing')
  const c=authority.capture, env={...c,width_px:authority.raw.width_px,height_px:authority.raw.height_px}
  if(!policy.capture_applicability.capture_types.includes(c.capture_type))r.push('capture_type_out_of_policy')
  if(!policy.capture_applicability.crop_types.includes(c.crop_type))r.push('crop_type_out_of_policy')
