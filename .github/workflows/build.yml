@@ -90,4 +90,11 @@ jobs:
             --target ES2022 --module commonjs --moduleResolution node \
             --esModuleInterop --skipLibCheck --outDir /tmp/hcsi-phase2h-tests
           node "$(find /tmp/hcsi-phase2h-tests -name evidence-convergence.test.js -print -quit)"
+      - name: Phase 2I end-to-end inference orchestration regressions
+        run: |
+          rm -rf /tmp/hcsi-phase2i-tests
+          pnpm exec tsc lib/inference-orchestrator.test.ts \
+            --target ES2022 --module commonjs --moduleResolution node \
+            --esModuleInterop --skipLibCheck --outDir /tmp/hcsi-phase2i-tests
+          node "$(find /tmp/hcsi-phase2i-tests -name inference-orchestrator.test.js -print -quit)"
       - run: pnpm build
