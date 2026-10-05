@@ -37,6 +37,7 @@ import {
 import { buildCandidateSemanticDiscrimination } from '@/lib/candidate-semantic-discrimination'
 import { orchestratePurchaseDecision } from '@/lib/inference-orchestrator'
 import { renderTaiwanFollowup } from '@/lib/evidence-convergence'
+import { buildCanonicalPublicDecision } from '@/lib/production-decision-adapter'
 import {
   ADMITTED_SEMANTIC_CALIBRATION_ARTIFACTS,
   PRODUCTION_SEMANTIC_CALIBRATION_DATASETS,
@@ -379,6 +380,14 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       }
     }
     identificationRaw.uncertain_fields = [...new Set(identificationRaw.uncertain_fields)]
+    const canonicalPublicDecision=inferenceOrchestration
+      ? buildCanonicalPublicDecision(inferenceOrchestration,{
+          selected_candidate_id:standardsAuthority?.decision.selected_candidate_id ?? null,
+          purchase_ready:standardsAuthority?.decision.purchase_ready ?? false,
+          nominal:llmNominalBeforeFinalGate,
+          source:'legacy_standards_and_llm_diagnostic',
+        })
+      : null
     const dimensions = measurement?.dimensions ?? {}
     const response = {
       provider, model: config.model, result: identificationRaw, measurement,
@@ -396,6 +405,7 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
       semantic_calibration_admission_status: semanticCalibrationAdmissionStatus,
       standards_authority: standardsAuthority,
       inference_orchestration:inferenceOrchestration,
+      canonical_public_decision:canonicalPublicDecision,
       authoritative_purchase_decision_source:'phase2i_orchestrator',
       formal_nominal_projection: formalNominalProjection,
       standards_solver_shadow: standardsSolverShadow, // deprecated diagnostic compatibility only
@@ -408,10 +418,10 @@ export async function handleIdentificationRequest(request: Request, provider: Pr
           : 'unavailable',
         formal_nominal_source: 'versioned_standards_solver',
         authoritative_purchase_decision_source:'phase2i_orchestrator',
-        decision:inferenceOrchestration?.decision ?? 'unresolved',
-        requested_evidence:inferenceOrchestration?.requested_evidence ?? null,
-        reason_codes:inferenceOrchestration?.reason_codes ?? ['canonical_orchestration_unavailable'],
-        selected_candidate_id: inferenceOrchestration?.selected_candidate_id ?? null,
+        decision:canonicalPublicDecision?.decision ?? 'unresolved',
+        requested_evidence:canonicalPublicDecision?.requested_evidence ?? null,
+        reason_codes:canonicalPublicDecision?.reason_codes ?? ['canonical_orchestration_unavailable'],
+        selected_candidate_id: canonicalPublicDecision?.selected_candidate_id ?? null,
         standards_decision_status: inferenceOrchestration?.selected_candidate_id ? 'selected' : (standardsAuthority?.decision.status ?? 'unavailable'),
         actions: fullFastenerSpecAllowed
           ? optionalDrive.length ? ['補拍螺絲頭正面或持實物核對驅動槽'] : []
