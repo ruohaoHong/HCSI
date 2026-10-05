@@ -7,7 +7,7 @@ function git(args:string[],cwd:string){return execFileSync('git',args,{cwd,encod
 function parseCommit(ref:string){const m=ref.match(/^git:\/\/commit\/([0-9a-f]{40})$/);if(!m)throw new Error('malformed_authority_commit_ref');return m[1]}
 export function verifyProductionEnvelopeRepositoryProvenance(input:{repositoryRoot:string;expectedRepository:string;authority:ProductionCaptureAuthorityV1;authorityPath:string;observation:FrozenObservationBinding;observationPath:string}):RepositoryProvenanceProofV1{
  const {repositoryRoot,expectedRepository,authority,authorityPath,observation,observationPath}=input
- const authorityCommit=parseCommit(authority.acquisition_authority.ref)
+ const authorityCommit=observation.capture_authority_commit_sha\n if(!/^[0-9a-f]{40}$/.test(authorityCommit))throw new Error('malformed_authority_commit_ref')
  if(git(['rev-parse','--show-toplevel'],repositoryRoot)!==repositoryRoot)throw new Error('repository_root_mismatch')
  try{git(['cat-file','-e',authorityCommit+'^{commit}'],repositoryRoot)}catch{throw new Error('authority_commit_absent')}
  try{git(['cat-file','-e',observation.observation_commit_sha+'^{commit}'],repositoryRoot)}catch{throw new Error('observation_commit_absent')}
