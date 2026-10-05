@@ -6,7 +6,6 @@ export const PRODUCTION_CAPTURE_AUTHORITY_SCHEMA='hcsi.production-envelope-captu
 export interface ProductionCaptureAuthorityV1 {
  schema_version:typeof PRODUCTION_CAPTURE_AUTHORITY_SCHEMA; authority_id:string; authority_version:'1.0.0'
  specimen_id:string; image_id:string; feature_id:string; split:'calibration'|'validation'; acquired_at:string; established_at:string
- acquisition_authority:{kind:'git_commit';ref:string}
  source_scope:'independent_real_image'|'synthetic_test'|'regression_fixture'|'development_fixture'|'sealed_blind_fixture'
  raw:{sha256:string;byte_length:number;width_px:number;height_px:number;format:string;source_ref:string}
  capture:{capture_type:string;crop_type:string;viewpoint:string;visibility:string;occlusion_condition:string;glare_condition:string}
@@ -32,11 +31,10 @@ export interface ProductionEnvelopeAssessment {
 }
 const commitRef=/^git:\/\/commit\/([0-9a-f]{40})$/
 export function assessProductionEnvelopeContent(authority:ProductionCaptureAuthorityV1,observation:FrozenObservationBinding|null,policy:SemanticCalibrationEligibilityPolicyV1=PREREGISTERED_PRODUCTION_SEMANTIC_CALIBRATION_POLICY_V1){
- const r:string[]=[]; const m=authority.acquisition_authority.ref.match(commitRef)
+ const r:string[]=[]
  if(authority.schema_version!==PRODUCTION_CAPTURE_AUTHORITY_SCHEMA)r.push('capture_authority_schema_mismatch')
  if(authority.authority_version!=='1.0.0'||!authority.authority_id)r.push('capture_authority_identity_invalid')
  if(authority.content_digest_sha256!==captureAuthorityDigest(authority))r.push('capture_authority_digest_mismatch')
- if(!m)r.push('pre_outcome_commit_claim_malformed')
  if(authority.source_scope!=='independent_real_image')r.push('non_real_source_forbidden')
  if(!Number.isFinite(Date.parse(authority.acquired_at))||!Number.isFinite(Date.parse(authority.established_at))||Date.parse(authority.established_at)<Date.parse(authority.acquired_at))r.push('capture_authority_time_invalid')
  if(!authority.specimen_id||!authority.image_id)r.push('specimen_image_identity_missing')
@@ -60,7 +58,6 @@ export function assessProductionEnvelopeContent(authority:ProductionCaptureAutho
   if(observation.specimen_id!==authority.specimen_id||observation.image_id!==authority.image_id||observation.feature_id!==authority.feature_id||observation.split!==authority.split)r.push('observation_authority_identity_mismatch')
   if(observation.image_sha256!==authority.raw.sha256)r.push('observation_raw_identity_mismatch')
   if(observation.capture_authority_digest_sha256!==authority.content_digest_sha256)r.push('observation_capture_authority_digest_mismatch')
-  if(m&&observation.capture_authority_commit_sha!==m[1])r.push('observation_authority_commit_mismatch')
   if(!Number.isFinite(Date.parse(observation.observed_at))||Date.parse(observation.observed_at)<Date.parse(authority.established_at))r.push('observation_precedes_capture_authority')
   if(JSON.stringify(observation.sensor_identity)!==JSON.stringify(PHASE2G_SENSOR_IDENTITY))r.push('sensor_identity_mismatch')
   if(observation.original_observation!==true)r.push('replacement_observation_forbidden')
@@ -72,11 +69,11 @@ export function assessProductionEnvelopeEvidence(authority:ProductionCaptureAuth
  const x=assessProductionEnvelopeContent(authority,observation,policy);return {eligible_for_policy_envelope:x.envelope,eligible_to_count_as_calibration_evidence:false,reason_codes:[...x.reason_codes,'repository_provenance_unverified'],specimen_id:authority.specimen_id,image_id:authority.image_id,observation_id:observation?.observation_id??null,evaluated_policy_id:policy.policy_id,evaluated_policy_version:policy.policy_version,evaluated_policy_digest:policy.policy_content_digest_sha256,capture_authority_digest:authority.content_digest_sha256}
 }
 export function assessVerifiedProductionEnvelopeEvidence(authority:ProductionCaptureAuthorityV1,observation:FrozenObservationBinding|null,proof:RepositoryProvenanceProofV1|null,policy=PREREGISTERED_PRODUCTION_SEMANTIC_CALIBRATION_POLICY_V1):ProductionEnvelopeAssessment{
- const x=assessProductionEnvelopeContent(authority,observation,policy),r=[...x.reason_codes]; const m=authority.acquisition_authority.ref.match(commitRef)
+ const x=assessProductionEnvelopeContent(authority,observation,policy),r=[...x.reason_codes]
  if(!proof||proof.verified!==true)r.push('repository_provenance_unverified')
  else{
   if(proof.schema_version!=='hcsi.production-envelope-repository-proof.v1')r.push('repository_proof_schema_mismatch')
-  if(!m||proof.authority_commit_sha!==m[1])r.push('repository_authority_commit_mismatch')
+  if(!observation||proof.authority_commit_sha!==observation.capture_authority_commit_sha)r.push('repository_authority_commit_mismatch')
   if(proof.authority_content_digest_sha256!==authority.content_digest_sha256)r.push('repository_authority_digest_mismatch')
   if(!observation||proof.observation_commit_sha!==observation.observation_commit_sha)r.push('repository_observation_commit_mismatch')
   if(!proof.authority_is_strict_ancestor_of_observation||proof.authority_commit_sha===proof.observation_commit_sha)r.push('repository_pre_outcome_ordering_unverified')
