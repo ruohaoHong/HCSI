@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
-import type { ResolvedGeometryPlanStep } from '@/lib/geometry-capabilities'
-import type { SemanticVisionContext } from '@/lib/identification'
-import { isMeasurementResult, type MeasurementResult } from '@/lib/measurement'
+import type { ResolvedGeometryPlanStep } from './geometry-capabilities'
+import type { SemanticVisionContext } from './identification'
+import { isMeasurementResult, type MeasurementResult } from './measurement'
 
 const MEASUREMENT_TIMEOUT_MS = 90_000
 
@@ -40,6 +40,8 @@ export async function runMeasurementPreflight(
   const headers = new Headers()
   const token = process.env.HCSI_MEASUREMENT_TOKEN?.trim()
   if (token) headers.set('Authorization', `Bearer ${token}`)
+  const vercelBypass = process.env.HCSI_MEASUREMENT_VERCEL_BYPASS?.trim()
+  if (vercelBypass) headers.set('x-vercel-protection-bypass', vercelBypass)
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), MEASUREMENT_TIMEOUT_MS)
