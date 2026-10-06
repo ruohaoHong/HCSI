@@ -1,0 +1,98 @@
+{
+  "schema_version": "hcsi.phase2k.ground-truth-comparison.v1",
+  "specimen_id": "real-2026-002",
+  "image_id": "real-2026-002-img-01",
+  "frozen_first_result_commit": "d24860b0e5c96c2f62392a64e2bbc717ce1ab932",
+  "ground_truth_commit": "98ef370092fd40a86d7fc2e6d3f59b2f5cecf796",
+  "comparison_order_valid": true,
+  "no_post_gt_inference_rerun": true,
+  "ground_truth": {
+    "nominal_size_label": "Size 4 x 1\"",
+    "stated_length_mm": 25,
+    "stated_head_diameter_mm": 5.5,
+    "head_family": "countersunk_raised",
+    "drive_form": "slotted",
+    "material": "stainless_steel"
+  },
+  "first_result_adjudication": {
+    "canonical_purchase_decision": {
+      "observed": "unresolved / purchase_ready=false / selected_candidate_id=null / formal_nominal_projection=null",
+      "verdict": "safe_fail_closed",
+      "note": "No legacy or appearance-only output was promoted into an authoritative purchasable specification."
+    },
+    "nominal_size": {
+      "ground_truth": "Size 4 x 1\"",
+      "observed": "not determined",
+      "verdict": "unanswered_not_incorrect",
+      "note": "The production path did not manufacture a nominal size."
+    },
+    "length": {
+      "ground_truth": "1 inch, user also supplied parenthetical 25 mm",
+      "observed": "not measured / null",
+      "verdict": "unanswered_not_incorrect",
+      "note": "No physical length was fabricated."
+    },
+    "head_diameter": {
+      "ground_truth": "5.5 mm dia.",
+      "observed": "not measured / null",
+      "verdict": "unanswered_not_incorrect"
+    },
+    "head_style": {
+      "ground_truth": "countersunk raised head",
+      "observed": "flat_countersunk / 平沉頭／埋頭",
+      "verdict": "partial_family_match_subtype_mismatch",
+      "note": "The countersunk family was recognized, but raised-head subtype was not."
+    },
+    "drive_form": {
+      "ground_truth": "slotted",
+      "observed": "待確認 / not observable",
+      "verdict": "safe_unresolved",
+      "note": "The original view did not expose the drive face; the system did not hallucinate a drive form."
+    },
+    "material": {
+      "ground_truth": "stainless steel",
+      "observed": "銀色金屬；可能為鍍鋅鋼，但材質與表面處理未確認",
+      "verdict": "tentative_semantic_mismatch",
+      "note": "The tentative galvanized-steel suggestion conflicts with GT, but was hedged and did not enter formal purchase authority."
+    },
+    "pointed_tip_and_full_thread": {
+      "observed": "尖尾 / 全牙外觀",
+      "verdict": "not_adjudicable_from_revealed_gt",
+      "note": "The revealed GT did not explicitly state tip form or thread extent."
+    },
+    "application_or_self_tapping_type": {
+      "observed": "外觀最像沉頭尖尾自攻螺絲; confusable candidate wood screw",
+      "verdict": "not_adjudicable_from_revealed_gt",
+      "note": "The revealed GT did not state application/use or thread standard."
+    }
+  },
+  "authority_audit": {
+    "real_image_entered_frozen_handler": true,
+    "provider_response_received": true,
+    "measurement_authority_reached": false,
+    "standards_authority_reached": false,
+    "phase2i_orchestration_reached": false,
+    "phase2h_convergence_reached": false,
+    "legacy_winner_leaked": false,
+    "fake_probability_emitted": false,
+    "authoritative_purchase_specification_emitted": false
+  },
+  "production_blocker": {
+    "code": "measurement_service_not_configured",
+    "consequence": "The real production deployment cannot execute the measurement→standards→Phase2I/Phase2H authority chain for this request.",
+    "severity": "acceptance_blocking_for_end_to_end_production_inference",
+    "retry_would_not_be_scientifically_justified_without_a_new_phase_or_explicit_remediation_authorization": true
+  },
+  "outcome": {
+    "first_real_production_request_observed": true,
+    "first_result_preserved": true,
+    "purchase_safety_behavior": "passed_fail_closed_behavior",
+    "semantic_description_accuracy": "partial_with_specific_mismatches",
+    "end_to_end_canonical_inference_demonstrated": false,
+    "production_readiness": "blocked_by_measurement_service_configuration"
+  },
+  "calibration_impact": {
+    "admitted_as_calibration_evidence": false,
+    "production_calibration_state": "0/0/0/1"
+  }
+}
