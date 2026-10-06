@@ -108,4 +108,18 @@ jobs:
           grep -q "orchestratePurchaseDecision" lib/provider-runner.ts
           ! grep -q "formalNominalProjection = standardsAuthority" lib/provider-runner.ts
           ! grep -q "standardsAuthority?.decision.purchase_ready === true" lib/provider-runner.ts
+      - name: Phase 2L measurement integration and concise presentation regressions
+        run: |
+          rm -rf /tmp/hcsi-phase2l-tests
+          pnpm exec tsc \
+            lib/measurement-service-integration.test.ts \
+            lib/user-presentation.test.ts \
+            lib/measurement-v2.test.ts \
+            --target ES2022 --module commonjs --moduleResolution node \
+            --esModuleInterop --skipLibCheck --outDir /tmp/hcsi-phase2l-tests
+          node "$(find /tmp/hcsi-phase2l-tests -name measurement-service-integration.test.js -print -quit)"
+          node "$(find /tmp/hcsi-phase2l-tests -name user-presentation.test.js -print -quit)"
+          node "$(find /tmp/hcsi-phase2l-tests -name measurement-v2.test.js -print -quit)"
+          grep -q "HCSI_MEASUREMENT_VERCEL_BYPASS" lib/measurement-client.ts
+          grep -q "const measurementV2 = measurement ? toMeasurementV2(measurement) : null" lib/provider-runner.ts
       - run: pnpm build
