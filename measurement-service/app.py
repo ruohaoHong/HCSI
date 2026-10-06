@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import traceback
 from typing import Any, Literal
 
 import cv2
@@ -469,7 +468,3 @@ async def measure(
         return measure_rgb(image_rgb, digest, requested_steps, semantic_context)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
-        print(f"[phase2l-diagnostic] {type(exc).__name__}: {exc}", flush=True)
-        traceback.print_exc()
-        raise
