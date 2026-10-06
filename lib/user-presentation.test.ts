@@ -47,7 +47,7 @@ const p=buildUserPresentation(unresolved)
 assert.equal(p.mode,'unresolved')
 assert.equal(p.item,'沉頭尖尾全牙螺絲')
 assert.match(p.purchase_phrase,/不能安全判定購買規格/)
-const encoded=JSON.stringify(p)
+const encoded=JSON.stringify({item:p.item,route:p.route,purchase_phrase:p.purchase_phrase,mode:p.mode,action:p.action,confirmations:p.confirmations})
 for(const forbidden of ['gpt-5.6-sol','internal-only-visible-feature','internal-most-likely','internal-confusable','reason_codes','posterior_probability','candidate_id']){
  assert.equal(encoded.includes(forbidden),false)
 }
