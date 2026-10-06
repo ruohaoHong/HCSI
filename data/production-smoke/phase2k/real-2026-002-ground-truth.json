@@ -1,0 +1,33 @@
+{
+  "schema_version": "hcsi.phase2k.ground-truth.v1",
+  "specimen_id": "real-2026-002",
+  "image_id": "real-2026-002-img-01",
+  "reveal_order": {
+    "first_result_frozen_commit": "d24860b0e5c96c2f62392a64e2bbc717ce1ab932",
+    "ground_truth_revealed_after_first_result": true
+  },
+  "source": "user_provided_post_observation_ground_truth",
+  "ground_truth_verbatim": {
+    "size": "4 x 1\" (25mm)",
+    "head_size": "5.5mm dia.",
+    "head_and_drive": "Countersunk raised head slotted.",
+    "material": "Stainless steel"
+  },
+  "normalized_for_comparison_only": {
+    "nominal_size_label": "Size 4 x 1\"",
+    "stated_length_mm": 25,
+    "stated_head_diameter_mm": 5.5,
+    "head_family": "countersunk_raised",
+    "drive_form": "slotted",
+    "material": "stainless_steel"
+  },
+  "notes": [
+    "Normalization is comparison-only and has no inference or calibration authority.",
+    "No thread pitch/TPI, application/use, or standards catalogue record was supplied in the revealed GT.",
+    "The verbatim source is preserved; no attempt is made here to reconcile 1 inch with the parenthetical 25 mm."
+  ],
+  "calibration_impact": {
+    "admitted_as_calibration_evidence": false,
+    "production_calibration_state": "0/0/0/1"
+  }
+}
