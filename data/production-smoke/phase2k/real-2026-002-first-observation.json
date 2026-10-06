@@ -1,0 +1,80 @@
+{
+  "schema_version": "hcsi.phase2k.first-production-observation.v1",
+  "specimen_id": "real-2026-002",
+  "image_id": "real-2026-002-img-01",
+  "frozen_baseline": "978d02403ab8a44a5ede62053c837e40af81fbec",
+  "input_identity": {
+    "original_byte_sha256": "2273386d93520184697abbd6191cb6b9de810fb4edef2a656a8e4ca4fcfaab16",
+    "byte_length": 378486,
+    "media_type": "image/png",
+    "pixel_dimensions": {
+      "width": 500,
+      "height": 499
+    }
+  },
+  "production_execution": {
+    "deployment_id": "dpl_9hUMf6SBwFENStes5CUHnXZMG6R2",
+    "deployment_commit": "978d02403ab8a44a5ede62053c837e40af81fbec",
+    "route": "/api/analyze-openai",
+    "http_request_count": 1,
+    "observed_request_timestamp_utc": "2026-10-06T10:27:50Z",
+    "http_status": 200,
+    "provider": "openai",
+    "model": "gpt-5.6-sol",
+    "retry_count": 0,
+    "alternate_provider_attempts": 0
+  },
+  "first_result": {
+    "identification_status": "partial",
+    "category": "fasteners",
+    "item_name": "沉頭尖尾全牙螺絲",
+    "measurement": null,
+    "measurement_source": "service_unavailable",
+    "measurement_service_error_code": "measurement_service_not_configured",
+    "standards_authority": null,
+    "inference_orchestration": null,
+    "canonical_public_decision": null,
+    "authoritative_purchase_decision_source": "phase2i_orchestrator",
+    "public_decision": "unresolved",
+    "purchase_ready": false,
+    "selected_candidate_id": null,
+    "formal_nominal_projection": null,
+    "semantic_evidence": null,
+    "requested_evidence": null,
+    "reason_codes": [
+      "canonical_orchestration_unavailable"
+    ],
+    "raw_response_path": "data/production-smoke/phase2k/real-2026-002-first-response.json"
+  },
+  "runtime_trace": {
+    "matching_post_requests_in_two_hour_window": 1,
+    "diagnostic_purchase_gate_reasons": [
+      "measurement_unavailable",
+      "head_geometry_unreliable",
+      "selected_length_unmeasured"
+    ],
+    "purchase_completeness_reason_codes": [
+      "cv_purchase_gate_blocked",
+      "thread_system_unresolved",
+      "standards_candidate_not_selected"
+    ],
+    "drive_reason_codes": [
+      "drive_form_not_observable",
+      "drive_size_not_measured"
+    ],
+    "standards_authority_status": "unavailable",
+    "semantic_evidence_status": "unavailable"
+  },
+  "classification": {
+    "production_request_completed": true,
+    "canonical_purchase_authority_reached": false,
+    "blocker_class": "infrastructure_configuration",
+    "blocker": "measurement_service_not_configured",
+    "purchase_answer_was_not_fabricated": true,
+    "first_result_frozen_before_ground_truth": true
+  },
+  "calibration_impact": {
+    "admitted_as_calibration_evidence": false,
+    "production_calibration_state": "0/0/0/1"
+  }
+}
