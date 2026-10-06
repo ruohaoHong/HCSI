@@ -38,7 +38,7 @@ function fixture(overrides:Partial<AnalysisResponse>={}):AnalysisResponse{
    actions:['依提示補拍'],
   },
  }
- return {...base,...overrides,result:{...base.result,...(overrides.result??{})},user_guidance:{...base.user_guidance,...(overrides.user_guidance??{})}}
+ return {...base,...overrides,result:{...base.result,...(overrides.result??{})},user_guidance:{...base.user_guidance!,...(overrides.user_guidance??{})} as NonNullable<AnalysisResponse['user_guidance']>}
 }
 
 const unresolved=fixture()
