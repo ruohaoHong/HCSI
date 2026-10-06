@@ -1,0 +1,35 @@
+{
+  "schema_version": "hcsi.phase2k.production-smoke-preflight-observation.v1",
+  "specimen_id": "real-2026-002",
+  "image_id": "real-2026-002-img-01",
+  "frozen_baseline": "978d02403ab8a44a5ede62053c837e40af81fbec",
+  "deployment": {
+    "id": "dpl_9hUMf6SBwFENStes5CUHnXZMG6R2",
+    "git_commit_sha": "978d02403ab8a44a5ede62053c837e40af81fbec",
+    "git_branch": "feature/production-api-canonical-inference-authority",
+    "environment": "preview"
+  },
+  "stage": "ui_automatic_measurement_preflight",
+  "route": "/api/measure",
+  "http_status": 503,
+  "response_raw_utf8": "{\"error\":\"量測服務尚未設定。\",\"code\":\"measurement_service_not_configured\"}",
+  "response_sha256": "fa2d690c74b941df52f3e2bde608edb11651113156a1da77350718f717ef128b",
+  "response_json": {
+    "error": "量測服務尚未設定。",
+    "code": "measurement_service_not_configured"
+  },
+  "classification": "infrastructure_configuration_failure",
+  "epistemic_state": null,
+  "purchase_decision": null,
+  "provider_purchase_analysis_invoked": false,
+  "analyze_openai_invocation_count_observed": 0,
+  "phase2i_orchestrator_reached": false,
+  "semantic_purchase_evidence_invoked": false,
+  "retry_authorized": false,
+  "is_final_phase2k_analyze_observation": false,
+  "runtime_log_notes": [
+    "Vercel runtime window showed POST /api/measure 503 and no /api/analyze-openai entry.",
+    "The frozen UI automatically runs /api/measure after image selection; provider analysis is a separate action."
+  ],
+  "note": "Preserved as preflight evidence. This does not consume or replace the single intended /api/analyze-openai observation."
+}
