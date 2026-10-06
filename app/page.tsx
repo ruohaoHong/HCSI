@@ -21,11 +21,11 @@ import {
 import {
   CATEGORY_LABELS,
   type AnalysisResponse,
-  type EvidenceLevel,
   type Provider,
 } from '@/lib/identification'
 import { isMeasurementResult, type MeasurementResult } from '@/lib/measurement'
 import { preflightPurchaseGate } from '@/lib/cv-purchase-policy'
+import { buildUserPresentation } from '@/lib/user-presentation'
 
 const PROVIDERS: Array<{
   id: Provider
@@ -265,7 +265,7 @@ export default function Page() {
 
 function MeasurementPreflight({ measurement, state, error }: { measurement: MeasurementResult | null; state: PreflightState; error: string }) {
   if (state === 'checking') return <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm"><Loader2 size={16} className="animate-spin" /><div><p className="font-medium">正在確認影像尺度</p><p className="text-xs text-muted-foreground">確認尺、物件輪廓及可用的必要尺寸。</p></div></div>
-  if (state === 'unavailable') return <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm"><AlertCircle size={16} className="mt-0.5 shrink-0" /><div><p className="font-medium">量測服務目前不可用</p><p className="text-xs leading-5 text-muted-foreground">{error || '仍可進行外觀辨識，但本次無法提供可靠尺寸。'}</p></div></div>
+  if (state === 'unavailable') return <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm"><AlertCircle size={16} className="mt-0.5 shrink-0" /><div><p className="font-medium">目前無法取得可信尺寸</p><p className="text-xs leading-5 text-muted-foreground">仍可先辨識物件種類，但在量測恢復前不能安全判定購買規格。</p></div></div>
   if (!measurement) return null
   if (measurement.measurement_status === 'no_reference') return <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm"><CircleHelp size={16} className="mt-0.5 shrink-0" /><div><p className="font-medium">未找到可信的尺度參考</p><p className="text-xs leading-5 text-muted-foreground">仍可先辨識五金種類；若要取得精確規格，請補拍與五金同平面、刻度清楚的尺。</p></div></div>
   if (measurement.measurement_status !== 'valid') return <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm"><AlertCircle size={16} className="mt-0.5 shrink-0" /><div><p className="font-medium">目前無法取得可信尺寸</p><p className="text-xs leading-5 text-muted-foreground">請將尺與五金平放，避免彼此重疊，清楚拍攝螺絲側面；仍可先做外觀辨識。</p></div></div>
@@ -275,37 +275,35 @@ function MeasurementPreflight({ measurement, state, error }: { measurement: Meas
 }
 
 function ResultCard({ response }: { response: AnalysisResponse }) {
-  const result = response.result
+  const view = buildUserPresentation(response)
   return <article className="rounded-xl border border-accent/25 bg-card p-5">
-    <div className="mb-5 flex items-start justify-between gap-3 border-b border-border pb-4"><div><p className="font-mono text-[10px] uppercase tracking-widest text-accent">{providerLabel(response.provider)} / {response.model}</p><h2 className="mt-1 text-lg font-semibold">{result.item_name}</h2><p className="mt-1 text-xs text-muted-foreground">路由：{CATEGORY_LABELS[response.routing?.category ?? result.category]} → 最終：{CATEGORY_LABELS[result.category]}</p></div>{response.user_guidance?.purchase_ready
-      ? <ShieldCheck size={18} className="shrink-0 text-accent" />
-      : <AlertCircle size={18} className="shrink-0 text-amber-600" />}</div>
+    <div className="mb-5 flex items-start justify-between gap-3 border-b border-border pb-4">
+      <div>
+        <p className="font-mono text-[10px] uppercase tracking-widest text-accent">{providerLabel(response.provider)}</p>
+        <h2 className="mt-1 text-lg font-semibold">{view.item}</h2>
+        <p className="mt-1 text-xs text-muted-foreground">路由：{view.route}</p>
+      </div>
+      {view.canonical_state.purchase_ready
+        ? <ShieldCheck size={18} className="shrink-0 text-accent" />
+        : <AlertCircle size={18} className="shrink-0 text-amber-600" />}
+    </div>
     <div className="space-y-5 text-sm leading-6">
-      <Section title="去材料行可以這樣說"><p className="rounded-md border border-accent/25 bg-accent/5 px-3 py-2.5 font-medium">{result.purchase_description}</p></Section>
-      <Section title="最可能是"><p className="font-medium">{result.most_likely_identification}</p>{result.common_names.length > 0 && <p className="mt-1 text-xs text-muted-foreground">常見叫法：{result.common_names.join('／')}</p>}</Section>
-      <Section title="可見特徵"><ul className="space-y-1 text-muted-foreground">{result.visible_features.map((item, index) => <li key={`${item}-${index}`}>• {item}</li>)}</ul></Section>
-      {result.specifications.length > 0 && <Section title="規格判讀"><div className="space-y-2">{result.specifications.map((spec, index) => <div key={`${spec.label}-${index}`} className="rounded-md bg-muted/55 px-3 py-2"><div className="flex items-start justify-between gap-2"><span className="font-medium">{spec.label}</span><EvidenceBadge level={spec.evidence_level} /></div><p className="mt-1 text-muted-foreground">{spec.value}</p></div>)}</div></Section>}
-      <Section title="最容易混淆"><p>{result.confusable_candidate}</p><p className="mt-1 text-muted-foreground">{result.key_differentiator}</p></Section>
-      <Section title="通常用途"><p className="text-muted-foreground">{result.typical_use}</p></Section>
-      
-      {result.uncertain_fields.length > 0 && <Section title="仍需確認"><ul className="space-y-1 text-muted-foreground">{result.uncertain_fields.map((item, index) => <li key={`${item}-${index}`}>• {item}</li>)}</ul></Section>}
-      <p className="border-t border-border pt-4 text-xs leading-5 text-muted-foreground">{result.safety_note}</p>
+      <Section title="去材料行可以這樣說">
+        <p className="rounded-md border border-accent/25 bg-accent/5 px-3 py-2.5 font-medium">{view.purchase_phrase}</p>
+      </Section>
+      {view.mode === 'targeted_followup' && view.action
+        ? <Section title="還差一張照片"><p className="font-semibold">{view.action}</p></Section>
+        : view.confirmations.length > 0
+          ? <Section title={view.mode === 'purchase_ready' ? '購買前確認' : '仍需確認'}>
+              <ul className="space-y-1 text-muted-foreground">{view.confirmations.map((item,index)=><li key={`${item}-${index}`}>• {item}</li>)}</ul>
+            </Section>
+          : null}
     </div>
   </article>
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return <section><h3 className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{title}</h3>{children}</section>
-}
-
-function EvidenceBadge({ level }: { level: EvidenceLevel }) {
-  const labels: Record<EvidenceLevel, string> = {
-    measured: '實測',
-    observed: '可見',
-    estimated: '推論',
-    unconfirmed: '未確認',
-  }
-  return <span className="shrink-0 rounded-full border border-border px-2 py-0.5 font-mono text-[9px] text-muted-foreground">{labels[level]}</span>
 }
 
 function providerLabel(provider: Provider) {
