@@ -1,0 +1,65 @@
+{
+  "schema_version": "hcsi.phase2l.acceptance-measurement-probe-input.v1",
+  "probe_id": "phase2l-acceptance-probe-001",
+  "phase2l_implementation_commit": "c88b57650584842849328af7c05f3805f1f280bd",
+  "application_deployment": {
+    "id": "dpl_3m4AQ46hkZheEyFyoJWotrnNyjRd",
+    "commit": "c88b57650584842849328af7c05f3805f1f280bd",
+    "state": "READY"
+  },
+  "measurement_service_deployment": {
+    "id": "dpl_7Z9UPVnzWzuq5rSWihpuNt2F1eWa",
+    "deployment_commit": "cebeb95cef579227741a29ee78cdc182774ad0ab",
+    "state": "READY",
+    "source_equivalence_to_phase2l_final": {
+      "equivalent": true,
+      "note": "Between cebeb95 and c88b576, the only repository change is removal of the temporary Next.js Phase 2L probe route; measurement-service source is unchanged."
+    }
+  },
+  "configuration_presence": {
+    "application": [
+      "HCSI_MEASUREMENT_SERVICE_URL",
+      "HCSI_MEASUREMENT_TOKEN",
+      "HCSI_MEASUREMENT_VERCEL_BYPASS"
+    ],
+    "measurement_service": [
+      "HF_HOME",
+      "HF_HUB_CACHE",
+      "RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD"
+    ],
+    "writable_cache": {
+      "HF_HOME": "/tmp/hcsi-huggingface",
+      "HF_HUB_CACHE": "/tmp/hcsi-huggingface/hub"
+    },
+    "secrets_recorded": false
+  },
+  "input": {
+    "source": "generated_synthetic_fixture",
+    "fixture_path": "benchmark/measurement-poc/fixtures/generated/screw_easy_case.jpg.b64",
+    "description": "Repository-generated synthetic screw/ruler fixture used only to verify deployed measurement integration continuity; it encodes no product ground-truth acceptance claim.",
+    "sha256": "16ad1d120b1831eb72b4e8067cdbf8509a0819e1fd768e71cc8f194b2ba29bd9",
+    "byte_length": 14525,
+    "media_type": "image/jpeg",
+    "width": 384,
+    "height": 256
+  },
+  "intended_path": [
+    "final deployed Next.js application",
+    "/api/measure",
+    "runMeasurementPreflight()",
+    "configured HTTPS measurement-service upstream",
+    "/measure",
+    "hcsi.measurement.v1",
+    "SHA validation",
+    "toMeasurementV2()",
+    "standards authority boundary"
+  ],
+  "constraints": {
+    "synthetic_infrastructure_evidence_only": true,
+    "real_specimen_used": false,
+    "calibration_evidence": false,
+    "semantic_api_calls_planned": 0,
+    "intentional_probe_limit": 1,
+    "no_product_ground_truth": true
+  }
+}
