@@ -35,4 +35,58 @@
     "intentional_probe_count": 1,
     "timestamp_utc": "2026-10-07T06:44:24.263Z"
   },
-¶»§q«^
+  "measurement": {
+    "schema_version": "hcsi.measurement.v1",
+    "measurement_status": "valid",
+    "measurement_valid": true,
+    "image_sha256": "16ad1d120b1831eb72b4e8067cdbf8509a0819e1fd768e71cc8f194b2ba29bd9",
+    "image_sha256_matches_input": true,
+    "fixed_dimension_slots_present": true,
+    "fixed_dimension_slots": {
+      "D": true,
+      "P": true,
+      "L_underhead": true,
+      "L_overall": true,
+      "B": true,
+      "K": true,
+      "DK": true
+    },
+    "raw_measurement_response_sha256": "7649efb20321dd36f6f104d0b6ed3534336e49766493732f08c100395447e5cc"
+  },
+  "measurement_v2": {
+    "schema_version": "hcsi.measurement.v2",
+    "image_sha256": "16ad1d120b1831eb72b4e8067cdbf8509a0819e1fd768e71cc8f194b2ba29bd9",
+    "image_sha256_matches_input": true,
+    "raw_measurements_nominally_snapped": false,
+    "nominal_standard_overwrote_raw_measurement": false
+  },
+  "standards_boundary": {
+    "reached": true,
+    "mode": "standards_authority",
+    "formal_candidate_count": 64
+  },
+  "configuration_names_verified": {
+    "application": [
+      "HCSI_MEASUREMENT_SERVICE_URL",
+      "HCSI_MEASUREMENT_TOKEN",
+      "HCSI_MEASUREMENT_VERCEL_BYPASS"
+    ],
+    "measurement_service": [
+      "HF_HOME",
+      "HF_HUB_CACHE",
+      "RULERNET_ALLOW_NONCOMMERCIAL_DOWNLOAD"
+    ],
+    "HF_HOME": "/tmp/hcsi-huggingface",
+    "HF_HUB_CACHE": "/tmp/hcsi-huggingface/hub",
+    "secrets_recorded": false
+  },
+  "semantic_api_calls": 0,
+  "llm_identification_calls": 0,
+  "real_specimen_used": false,
+  "phase2k_reruns": 0,
+  "calibration_evidence": false,
+  "production_calibration_state": "0/0/0/1",
+  "production_source_modified": false,
+  "full_sandbox_result_sha256": "31487874a4ad7070a93ebc49d2e2f43fed9198dedb853e908dcc4701a409d9cb",
+  "result": "pass"
+}
