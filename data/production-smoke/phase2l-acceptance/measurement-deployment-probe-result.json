@@ -1,0 +1,192 @@
+{
+  "schema_version": "hcsi.phase2l.acceptance-measurement-probe.v1",
+  "probe_id": "phase2l-acceptance-probe-001",
+  "phase2l_implementation_commit": "c88b57650584842849328af7c05f3805f1f280bd",
+  "application_deployment_id": "dpl_3m4AQ46hkZheEyFyoJWotrnNyjRd",
+  "measurement_service_deployment_id": "dpl_7Z9UPVnzWzuq5rSWihpuNt2F1eWa",
+  "execution_boundary": {
+    "mode": "ephemeral_exact_source_measurement_client_harness",
+    "source_commit": "c88b57650584842849328af7c05f3805f1f280bd",
+    "production_source_modified": false,
+    "reason": "Frozen /api/measure invokes OpenAI localization; acceptance policy requires zero semantic/LLM calls. Exact frozen runMeasurementPreflight() transport was executed without semantic code."
+  },
+  "input": {
+    "sha256": "16ad1d120b1831eb72b4e8067cdbf8509a0819e1fd768e71cc8f194b2ba29bd9",
+    "byte_length": 14525,
+    "media_type": "image/jpeg",
+    "width": 384,
+    "height": 256,
+    "source": "generated_synthetic_fixture",
+    "fixture_path": "benchmark/measurement-poc/fixtures/generated/screw_easy_case.jpg.b64"
+  },
+  "http": {
+    "upstream_route": "/measure",
+    "method": "POST",
+    "status": 200,
+    "intentional_probe_count": 1,
+    "timestamp_utc": "2026-10-07T06:44:24.263Z"
+  },
+  "measurement": {
+    "schema_version": "hcsi.measurement.v1",
+    "measurement_status": "valid",
+    "measurement_valid": true,
+    "image_sha256": "16ad1d120b1831eb72b4e8067cdbf8509a0819e1fd768e71cc8f194b2ba29bd9",
+    "image_sha256_matches_input": true,
+    "fixed_dimension_slots_present": true,
+    "fixed_dimension_slots": {
+      "D": true,
+      "P": true,
+      "L_underhead": true,
+      "L_overall": true,
+      "B": true,
+      "K": true,
+      "DK": true
+    },
+    "raw_response_sha256": "7649efb20321dd36f6f104d0b6ed3534336e49766493732f08c100395447e5cc",
+    "sanitized_response": {
+      "schema_version": "hcsi.measurement.v1",
+      "dimensions": {
+        "D": {
+          "status": "not_measured",
+          "value_px": null,
+       ...[truncated]
+            "id": "scale_observation_support",
+            "status": "passed",
+            "required": true,
+            "reason_code": null,
+            "evidence": {
+              "reference_point_count": 6,
+              "minimum_required": 4
+            }
+          },
+          {
+            "id": "perspective_risk",
+            "status": "passed",
+            "required": true,
+            "reason_code": null,
+            "evidence": {
+              "perspective_step_pct": 0.489,
+              "uses_one_dimensional_scale_progression": true
+            }
+          },
+          {
+            "id": "object_geometry",
+            "status": "passed",
+            "required": true,
+            "reason_code": null,
+            "evidence": {
+              "detected": true,
+              "contour_reliable": true,
+              "segmentation_method": "physical_contour_selection:appearance"
+            }
+          },
+          {
+            "id": "segmentation_risk",
+            "status": "passed",
+            "required": true,
+            "reason_code": null,
+            "evidence": {
+              "risk_signals": []
+            }
+          },
+          {
+            "id": "semantic_target_consistency",
+            "status": "not_applicable",
+            "required": false,
+            "reason_code": null,
+            "evidence": {
+              "present": false,
+              "confidence": 0,
+              "applied_to_segmentation": false
+            }
+          },
+          {
+            "id": "semantic_reference_consistency",
+            "status": "not_applicable",
+            "required": false,
+            "reason_code": null,
+            "evidence": {
+              "present": false,
+              "confidence": 0,
+              "applied_to_segmentation": false
+            }
+          },
+          {
+            "id": "geometry_steps_complete",
+            "status": "failed",
+            "required": true,
+            "reason_code": "geometry_steps_incomplete",
+          ...[truncated]{
+            "code": "confirm_capture_orientation",
+            "message": "請以接近垂直俯拍方式重拍；目前未獨立驗證拍攝姿態。"
+          }
+        ],
+        "verified_for_purchase_spec": false
+      },
+      "analysis_mode": "measurement_assisted",
+      "measurement_valid": true,
+      "retry_recommended": false,
+      "length_mm": 29.2,
+      "width_mm": 9.54,
+      "scale_system": "metric",
+      "scale_px_per_cm": 52.406,
+      "scale_px_per_inch": 133.112,
+      "geometry_steps": [
+        {
+          "operation": "outer_width",
+          "inputs": [
+            "threaded_shank"
+          ],
+          "purpose": "D thread major diameter",
+          "status": "not_measured",
+          "value_px": null,
+          "value_mm": null,
+          "derived_tpi": null,
+          "landmarks": {},
+          "diagnostics": {},
+          "reason_codes": [
+            "threaded_shank_not_found"
+          ]
+        },
+        {
+          "operation": "periodicity",
+          "inputs": [
+            "threaded_shank"
+          ],
+          "purpose": "P observed thread pitch",
+          "status": "not_measured",
+          "value_px": null,
+          "value_mm": null,
+          "derived_tpi": null,
+          "landmarks": {},
+          "diagnostics": {},
+          "reason_codes": [
+            "threaded_shank_not_found"
+          ]
+        },
+        {
+          "operation": "axial_distance",
+          "inputs": [
+            "object_tip",
+            "head_underface"
+          ],
+          "purpose": "L under-head candidate",
+          "status": "not_measured",
+          "value_px": null,
+          "value_mm": null,
+          "derived_tpi": null,
+          "landmarks": {},
+          "diagnostics": {},
+          "reason_codes": [
+            "head_underface_not_found"
+          ]
+        },
+        {
+          "operation": "axial_distance",
+          "inputs": [
+            "object_tip",
+            "head_top"
+          ],
+          "purpose": "L overall candidate",
+          "status": "not_measured",
+...[truncated]
